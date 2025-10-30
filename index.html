@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Magic Ductwork</title>
+    <link rel="stylesheet" href="css/style.css">
+    <script src="js/libs/CSInterface.js"></script>
+    <script src="js/panel.js" defer></script>
+</head>
+<body>
+    <header>
+        <h1>Magic Ductwork</h1>
+        <p class="subtitle">Illustrator ductwork automation &amp; register ignore helper</p>
+    </header>
+
+    <section class="card">
+        <h2>Run Ductwork Generator</h2>
+        <p>Executes the bundled Magic Ductwork script using the current Illustrator document.</p>
+        <button id="process-btn" class="primary">Process Ductwork</button>
+        <p id="process-status" class="status"></p>
+    </section>
+
+    <section class="card">
+        <h2>Register Ignore Mode</h2>
+        <p>Toggle interactive ignore placement. Hover over duct lines to preview the register endpoint, then apply an ignore point for that branch.</p>
+        <div class="button-row">
+            <button id="toggle-ignore-btn" class="secondary">Enable Ignore Mode</button>
+            <button id="apply-ignore-btn" class="accent" disabled>Apply Ignore to Highlighted End</button>
+        </div>
+        <ul class="tips">
+            <li>Use Illustrator's selection tool to hover or click an open duct line.</li>
+            <li>The highlighted overlay and arrow show which end will receive a register.</li>
+            <li>Click <strong>Apply Ignore</strong> to drop a marker on the Ignore layer.</li>
+        </ul>
+        <p id="ignore-status" class="status"></p>
+    </section>
+
+    <footer>
+        <button id="reload-btn" class="ghost">Reload Panel</button>
+        <span id="debug-status"></span>
+    </footer>
+</body>
+</html>

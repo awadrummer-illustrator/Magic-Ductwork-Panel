@@ -1,0 +1,122 @@
+body {
+    margin: 0;
+    padding: 16px;
+    font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    background: #2b2b2b;
+    color: #f1f1f1;
+    min-width: 280px;
+}
+
+header {
+    margin-bottom: 12px;
+}
+
+h1 {
+    font-size: 20px;
+    margin: 0 0 4px;
+}
+
+.subtitle {
+    margin: 0;
+    font-size: 12px;
+    color: #bbbbbb;
+}
+
+.card {
+    background: #3a3a3a;
+    border-radius: 8px;
+    padding: 14px;
+    margin-bottom: 12px;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.card h2 {
+    margin-top: 0;
+    font-size: 16px;
+}
+
+p {
+    line-height: 1.4;
+}
+
+button {
+    cursor: pointer;
+    border: none;
+    border-radius: 4px;
+    padding: 8px 12px;
+    font-size: 13px;
+    transition: background 0.2s ease, color 0.2s ease;
+}
+
+button:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+
+.primary {
+    background: #2d89ef;
+    color: #fff;
+}
+
+.primary:hover:not(:disabled) {
+    background: #1a68c4;
+}
+
+.secondary {
+    background: #444;
+    color: #f5f5f5;
+}
+
+.secondary:hover:not(:disabled) {
+    background: #5a5a5a;
+}
+
+.accent {
+    background: #f0ad4e;
+    color: #1d1d1d;
+}
+
+.accent:hover:not(:disabled) {
+    background: #e8951d;
+}
+
+.ghost {
+    background: transparent;
+    color: #cccccc;
+    border: 1px solid #555;
+}
+
+.ghost:hover {
+    background: #555;
+}
+
+.button-row {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.tips {
+    margin: 8px 0 0;
+    padding-left: 18px;
+    font-size: 12px;
+    color: #d0d0d0;
+}
+
+.status {
+    font-size: 12px;
+    color: #b6ffb4;
+    margin-top: 8px;
+    min-height: 18px;
+}
+
+.status.error {
+    color: #ff9f9f;
+}
+
+footer {
+    margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
