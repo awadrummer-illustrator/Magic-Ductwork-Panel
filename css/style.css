@@ -4,12 +4,24 @@ body {
     font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     background: #2b2b2b;
     color: #f1f1f1;
-    min-width: 240px;
+    min-width: 180px;
     font-size: 7px;
 }
 
 header {
     margin-bottom: 4px;
+}
+
+.card-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+    gap: 6px;
+}
+
+@media (max-width: 360px) {
+    .card-grid {
+        grid-template-columns: 1fr;
+    }
 }
 
 h1 {
@@ -63,7 +75,7 @@ p {
 }
 
 .option-row input[type="number"], .option-row input[type="text"] {
-    flex: 0 0 60px;
+    flex: 0 0 48px;
     padding: 2px 3px;
     border-radius: 4px;
     border: 1px solid #555;
@@ -91,7 +103,7 @@ p {
 }
 
 .rotation-field input {
-    flex: 0 0 48px;
+    flex: 0 0 42px;
 }
 
 .rotation-field button {
@@ -138,6 +150,15 @@ button:disabled {
 
 .accent:hover:not(:disabled) {
     background: #e8951d;
+}
+
+.success {
+    background: #264c3a;
+    color: #e5f5ec;
+}
+
+.success:hover:not(:disabled) {
+    background: #2f614a;
 }
 
 .ghost {
@@ -194,7 +215,21 @@ footer {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 4px;
 }
+
+#debug-status {
+    flex: 1 1 0;
+    font-size: 5.5px;
+    color: #bcbcbc;
+    text-align: right;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+}
+
 
 .custom-rotation {
     display: flex;
@@ -205,7 +240,7 @@ footer {
 }
 
 .custom-rotation input[type="number"], .custom-rotation input[type="text"] {
-    width: 60px;
+    width: 48px;
     padding: 2px 3px;
     border-radius: 4px;
     border: 1px solid #555;
@@ -221,7 +256,8 @@ footer {
 }
 
 .scale-control input[type="range"] {
-    width: 100%;
+    width: 80%;
+    align-self: center;
 }
 
 .scale-header {

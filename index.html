@@ -13,6 +13,8 @@
         <p class="subtitle">Illustrator ductwork automation &amp; register ignore helper</p>
     </header>
 
+    <main class="card-grid">
+
     <section class="card">
         <h2>Run Ductwork Generator</h2>
         <p class="muted">Configure ductwork options, process the selection, or restore stored geometry.</p>
@@ -89,29 +91,18 @@
             <button id="isolate-parts-btn" class="secondary">Isolate Ductwork Parts</button>
             <button id="isolate-lines-btn" class="secondary">Isolate Ductwork Lines</button>
             <button id="unlock-ductwork-btn" class="ghost">Unlock All Ductwork Layers</button>
-            <button id="create-layers-btn" class="secondary">Create Standard Layers</button>
+        </div>
+        <div class="button-row wrap">
+            <button id="create-layers-btn" class="success">Create Standard Layers</button>
+            <button id="import-styles-btn" class="success">Import Graphic Styles</button>
+            <button id="apply-ignore-btn" class="accent">Ignore</button>
         </div>
         <p id="layer-status" class="status"></p>
-    </section>
-
-    <section class="card">
-        <h2>Utilities</h2>
-        <p class="muted">Import ductwork graphic styles without keeping the source art.</p>
-        <div class="button-row">
-            <button id="import-styles-btn" class="secondary">Import Graphic Styles</button>
-        </div>
         <p id="import-status" class="status"></p>
-    </section>
-
-    <section class="card">
-        <h2>Register Ignore Utility</h2>
-        <p class="muted">Drop ignore markers on the Ignore layer for selected duct lines or parts.</p>
-        <div class="button-row">
-            <button id="apply-ignore-btn" class="accent">Apply Ignore to Selection</button>
-        </div>
         <p id="ignore-status" class="status"></p>
     </section>
 
+    </main>
     <footer>
         <button id="reload-btn" class="ghost">Reload Panel</button>
         <span id="debug-status"></span>

@@ -171,6 +171,8 @@
         if (!isFocused || formatted !== prevAuto) {
             rotationInput.value = formatted;
             rotationInput.dataset.autoValue = formatted;
+        } else {
+            rotationInput.dataset.autoValue = formatted;
         }
 
         if (summary.count > 1) {
@@ -236,7 +238,7 @@
         }
         let rotationValue = null;
         const rotationText = rotationInput.value.trim();
-        const autoValue = rotationInput.dataset.autoValue || '';
+        const autoValue = (rotationInput.dataset.autoValue || '').trim();
         const isAutoMulti = rotationInput.dataset.multi === 'true' && rotationText === autoValue && rotationText.length > 0;
         if (rotationText && !isAutoMulti) {
             rotationValue = parseFloat(rotationText);
