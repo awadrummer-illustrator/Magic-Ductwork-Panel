@@ -15,7 +15,7 @@
 
     <section class="card">
         <h2>Run Ductwork Generator</h2>
-        <p>Configure key Magic Ductwork options, then process the current Illustrator document or restore stored geometry.</p>
+        <p class="muted">Configure ductwork options, process the selection, or restore stored geometry.</p>
 
         <div class="option-group">
             <label class="option-row">
@@ -23,10 +23,12 @@
                 <span>Skip orthogonalization (<code>MD:NO_ORTHO</code>)</span>
             </label>
 
-            <div class="option-row">
-                <label for="rotation-input">Rotation override (degrees):</label>
-                <input type="number" id="rotation-input" placeholder="Leave blank to skip" step="0.01">
-                <button type="button" id="clear-rotation-btn" class="ghost sm">Clear</button>
+            <div class="option-row rotation-row">
+                <label for="rotation-input">Rotation override (°):</label>
+                <div class="rotation-field">
+                    <input type="text" id="rotation-input" placeholder="Leave blank to skip" inputmode="decimal">
+                    <button type="button" id="clear-rotation-btn" class="ghost sm">Clear</button>
+                </div>
             </div>
 
             <label class="option-row">
@@ -45,7 +47,7 @@
 
     <section class="card">
         <h2>Selection Transform</h2>
-        <p>Rotate or scale the current selection. Rotation applies to units/registers; scaling updates units/registers/thermostats and ductwork stroke widths.</p>
+        <p class="muted">Rotate or scale the selection. Scaling also adjusts ductwork stroke widths.</p>
 
         <div class="button-row wrap">
             <button id="rotate-90-btn" class="secondary">Rotate 90°</button>
@@ -82,7 +84,7 @@
 
     <section class="card">
         <h2>Layer Management</h2>
-        <p>Quickly isolate ductwork elements or restore standard visibility locks.</p>
+        <p class="muted">Quick isolation tools for ductwork layers.</p>
         <div class="button-row wrap">
             <button id="isolate-parts-btn" class="secondary">Isolate Ductwork Parts</button>
             <button id="isolate-lines-btn" class="secondary">Isolate Ductwork Lines</button>
@@ -94,7 +96,7 @@
 
     <section class="card">
         <h2>Utilities</h2>
-        <p>Import ductwork graphic styles without keeping the reference artwork.</p>
+        <p class="muted">Import ductwork graphic styles without keeping the source art.</p>
         <div class="button-row">
             <button id="import-styles-btn" class="secondary">Import Graphic Styles</button>
         </div>
@@ -103,7 +105,7 @@
 
     <section class="card">
         <h2>Register Ignore Utility</h2>
-        <p>Create ignore markers on the Ignore layer for each selected open duct line.</p>
+        <p class="muted">Drop ignore markers on the Ignore layer for selected duct lines or parts.</p>
         <div class="button-row">
             <button id="apply-ignore-btn" class="accent">Apply Ignore to Selection</button>
         </div>

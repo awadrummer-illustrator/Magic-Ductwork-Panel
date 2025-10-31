@@ -4208,13 +4208,23 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         if (!items) {
             try { items = doc.selection; } catch (eSel) { items = null; }
         }
-        if (!items || items.length === 0) return 0;
+        if (!items) return 0;
+
+        var processedItems = [];
+        if (items.length === undefined && items.typename) {
+            processedItems.push(items);
+        } else {
+            for (var idx = 0; idx < items.length; idx++) {
+                processedItems.push(items[idx]);
+            }
+        }
+        if (processedItems.length === 0) return 0;
 
         var resetCount = 0;
 
         // Process each selected item
-        for (var i = 0; i < items.length; i++) {
-            var item = items[i];
+        for (var i = 0; i < processedItems.length; i++) {
+            var item = processedItems[i];
             if (!item) continue;
 
             try {
@@ -4254,6 +4264,118 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         return resetCount;
     }
 
+    function summarizeRotationOverrides(selectionItems) {
+        var summary = {
+            available: false,
+            reason: null,
+            rotations: [],
+            formatted: "",
+            count: 0
+        };
+
+        if (!app.documents.length) {
+            summary.reason = "no-document";
+            return summary;
+        }
+
+        var doc = app.activeDocument;
+        var items = selectionItems;
+        if (!items) {
+            try { items = doc.selection; } catch (eSel) { items = null; }
+        }
+
+        if (!items || (items.length === 0 && !items.typename)) {
+            summary.available = true;
+            summary.reason = "no-selection";
+            return summary;
+        }
+
+        var rotationMap = {};
+        var rotationList = [];
+
+        function addRotation(value) {
+            if (typeof value !== "number" || !isFinite(value)) return;
+            var normalized = normalizeAngle(value);
+            var key = normalized.toFixed(2);
+            if (!rotationMap.hasOwnProperty(key)) {
+                rotationMap[key] = normalized;
+                rotationList.push(normalized);
+            }
+        }
+
+        function selectionToArray(sel) {
+            if (!sel) return [];
+            if (sel.length === undefined && sel.typename) {
+                return [sel];
+            }
+            var arr = [];
+            for (var i = 0; i < sel.length; i++) arr.push(sel[i]);
+            return arr;
+        }
+
+        forEachPathInItems(items, function (pathItem) {
+            if (!pathItem) return;
+            var layerName = "";
+            try { layerName = pathItem.layer ? pathItem.layer.name : ""; } catch (eLayer) { layerName = ""; }
+            if (!layerName || !isDuctworkLineLayer(layerName)) return;
+            var existing = getRotationOverride(pathItem);
+            if (existing !== null && existing !== undefined) {
+                addRotation(existing);
+            }
+        });
+
+        var selectionArray = selectionToArray(items);
+        for (var si = 0; si < selectionArray.length; si++) {
+            var selectionItem = selectionArray[si];
+            if (!selectionItem) continue;
+            if (selectionItem.typename === "PlacedItem") {
+                var placedRot = getPlacedRotation(selectionItem);
+                if (placedRot === null || placedRot === undefined) {
+                    try {
+                        var matrix = selectionItem.matrix;
+                        placedRot = Math.atan2(matrix.mValueB, matrix.mValueA) * (180 / Math.PI);
+                    } catch (eMatrix) {
+                        placedRot = null;
+                    }
+                }
+                if (placedRot !== null && placedRot !== undefined) {
+                    addRotation(placedRot);
+                }
+                continue;
+            }
+
+            if (selectionItem.typename === "PathItem" && selectionItem.pathPoints && selectionItem.pathPoints.length === 1) {
+                var pointRot = getPointRotation(selectionItem);
+                if (pointRot !== null && pointRot !== undefined) {
+                    addRotation(pointRot);
+                }
+            }
+        }
+
+        rotationList.sort(function (a, b) {
+            return a - b;
+        });
+
+        function formatRotationValue(val) {
+            var rounded = Math.round(val * 100) / 100;
+            if (Math.abs(rounded - Math.round(rounded)) < 1e-6) {
+                return String(Math.round(rounded));
+            }
+            return rounded.toFixed(2).replace(/\.0+$/, "").replace(/\.([0-9]*[1-9])0+$/, ".$1");
+        }
+
+        var formattedList = [];
+        for (var ri = 0; ri < rotationList.length; ri++) {
+            formattedList.push(formatRotationValue(rotationList[ri]));
+        }
+
+        summary.available = true;
+        summary.count = rotationList.length;
+        summary.rotations = rotationList;
+        summary.formatted = formattedList.join(", ");
+        return summary;
+    }
+
     function registerMDUXExports() {
         try {
             var mdNamespace = null;
@@ -4288,6 +4410,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             };
             mdNamespace.resetDuctworkLineStyles = function (selectionItems) {
                 return resetDuctworkLineStyles(selectionItems);
+            };
+            mdNamespace.getRotationOverrideSummary = function (selectionItems) {
+                return summarizeRotationOverrides(selectionItems);
             };
             mdNamespace.isolateDuctworkParts = function () {
                 return isolateDuctworkParts();

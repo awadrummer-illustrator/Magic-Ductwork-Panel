@@ -392,6 +392,21 @@ function MDUX_resetScaleBridge() {
     }
 }
 
+function MDUX_rotationStateBridge() {
+    try {
+        if (!MDUX_requireMagicFinal()) {
+            return "ERROR:Rotation function unavailable";
+        }
+        if (typeof MDUX !== "undefined" && MDUX.getRotationOverrideSummary) {
+            var summary = MDUX.getRotationOverrideSummary();
+            return JSON.stringify(summary);
+        }
+        return "ERROR:Rotation function unavailable";
+    } catch (e) {
+        return "ERROR:" + e;
+    }
+}
+
 function MDUX_isolatePartsBridge() {
     try {
         if (!MDUX_requireMagicFinal()) {

@@ -121,7 +121,66 @@
         if (skipOrthoRefreshTimer) clearTimeout(skipOrthoRefreshTimer);
         skipOrthoRefreshTimer = setTimeout(function () {
             refreshSkipOrthoState().catch(function () {});
+            refreshRotationOverrideState().catch(function () {});
         }, 200);
+    }
+
+    async function refreshRotationOverrideState() {
+        if (!rotationInput) return;
+        try {
+            await ensureBridgeLoaded();
+        } catch (e) {
+            return;
+        }
+        const result = normaliseResult(await evalScript('MDUX_rotationStateBridge()'));
+        if (!result.ok) {
+            if (result.value) {
+                debugStatus.textContent = 'Rotation state error: ' + result.value;
+            }
+            return;
+        }
+        var summary = null;
+        try { summary = result.value ? JSON.parse(result.value) : null; } catch (eParse) { summary = null; }
+        if (!summary) return;
+
+        var nextPlaceholder = 'Leave blank to skip';
+
+        if (summary.reason === 'no-document') {
+            rotationInput.value = '';
+            rotationInput.dataset.autoValue = '';
+            rotationInput.dataset.multi = 'false';
+            rotationInput.placeholder = 'No document';
+            return;
+        }
+
+        if (summary.reason === 'no-selection') {
+            rotationInput.value = '';
+            rotationInput.dataset.autoValue = '';
+            rotationInput.dataset.multi = 'false';
+            rotationInput.placeholder = nextPlaceholder;
+            return;
+        }
+
+        if (!summary.available) {
+            return;
+        }
+
+        var formatted = summary.formatted || '';
+        var prevAuto = rotationInput.dataset.autoValue || '';
+        var isFocused = document.activeElement === rotationInput;
+        if (!isFocused || formatted !== prevAuto) {
+            rotationInput.value = formatted;
+            rotationInput.dataset.autoValue = formatted;
+        }
+
+        if (summary.count > 1) {
+            rotationInput.dataset.multi = 'true';
+            nextPlaceholder = 'Mixed rotations';
+        } else {
+            rotationInput.dataset.multi = 'false';
+        }
+
+        rotationInput.placeholder = nextPlaceholder;
     }
 
     async function refreshSkipOrthoState() {
@@ -177,7 +236,9 @@
         }
         let rotationValue = null;
         const rotationText = rotationInput.value.trim();
-        if (rotationText) {
+        const autoValue = rotationInput.dataset.autoValue || '';
+        const isAutoMulti = rotationInput.dataset.multi === 'true' && rotationText === autoValue && rotationText.length > 0;
+        if (rotationText && !isAutoMulti) {
             rotationValue = parseFloat(rotationText);
             if (!isFinite(rotationValue)) {
                 setProcessStatus('Rotation override must be a valid number.', true);
@@ -497,7 +558,14 @@
         applyIgnoreBtn.addEventListener('click', applyIgnore);
         clearRotationBtn.addEventListener('click', () => {
             rotationInput.value = '';
+            rotationInput.dataset.autoValue = '';
+            rotationInput.dataset.multi = 'false';
+            rotationInput.placeholder = 'Leave blank to skip';
             setProcessStatus('');
+        });
+        rotationInput.addEventListener('input', () => {
+            rotationInput.dataset.autoValue = '';
+            rotationInput.dataset.multi = 'false';
         });
         skipOrthoOption.addEventListener('change', () => {
             skipOrthoOption.indeterminate = false;
@@ -546,6 +614,8 @@
         skipOrthoOption.indeterminate = false;
         skipOrthoOption.checked = false;
         rotationInput.value = '';
+        rotationInput.dataset.autoValue = '';
+        rotationInput.dataset.multi = 'false';
         skipFinalOption.checked = false;
         scaleSlider.value = 100;
         scaleLabel.textContent = '100%';
@@ -565,6 +635,7 @@
         csInterface.addEventListener('documentAfterActivate', scheduleSkipOrthoRefresh);
         csInterface.addEventListener('documentChanged', scheduleSkipOrthoRefresh);
         refreshSkipOrthoState().catch(function () {});
+        refreshRotationOverrideState().catch(function () {});
     }
 
     window.addEventListener('beforeunload', function () {
