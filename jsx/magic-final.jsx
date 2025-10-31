@@ -84,6 +84,7 @@ var MAX_ITER = 8; // maximum refinement iterations
 
 var ORTHO_LOCK_TAG = "MD:ORTHO_LOCK"; // marker note to skip re-orthogonalizing processed paths
 var ROT_OVERRIDE_PREFIX = "MD:ROT="; // marker prefix for rotation override notes
+var ROT_BASE_PREFIX = "MD:BASE_ROT="; // base rotation metadata for paths
 var POINT_ROT_PREFIX = "MD:POINT_ROT="; // marker prefix for anchor rotation notes
 var PLACED_ROT_PREFIX = "MD:PLACED_ROT="; // marker prefix for placed item rotation notes
 var PLACED_SCALE_PREFIX = "MD:PLACED_SCALE="; // marker prefix for placed item custom scale
@@ -1972,10 +1973,79 @@ function clearOriginalLayerName(pathItem) {
 // ROTATION OVERRIDE (for paths)
 // ========================================
 
-function setRotationOverride(pathItem, angleDeg) {
+function computePathPrimaryAngle(pathItem) {
+    if (!pathItem) return 0;
+    var pts = null;
+    try { pts = pathItem.pathPoints; } catch (e) { return 0; }
+    if (!pts || pts.length < 2) return 0;
+    for (var i = 0; i < pts.length - 1; i++) {
+        var curr = pts[i].anchor;
+        var next = pts[i + 1].anchor;
+        var dx = next[0] - curr[0];
+        var dy = next[1] - curr[1];
+        if (Math.abs(dx) > 1e-4 || Math.abs(dy) > 1e-4) {
+            return normalizeAngle(Math.atan2(dy, dx) * (180 / Math.PI));
+        }
+    }
+    if (pathItem.closed && pts.length > 1) {
+        var last = pts[pts.length - 1].anchor;
+        var first = pts[0].anchor;
+        var dxClose = first[0] - last[0];
+        var dyClose = first[1] - last[1];
+        if (Math.abs(dxClose) > 1e-4 || Math.abs(dyClose) > 1e-4) {
+            return normalizeAngle(Math.atan2(dyClose, dxClose) * (180 / Math.PI));
+        }
+    }
+    return 0;
+}
+
+function getBaseRotation(pathItem) {
+    if (!pathItem) return null;
+    var tokens = readNoteTokens(pathItem);
+    for (var i = 0; i < tokens.length; i++) {
+        if (tokens[i].toUpperCase().indexOf(ROT_BASE_PREFIX) === 0) {
+            var raw = tokens[i].substring(ROT_BASE_PREFIX.length);
+            var val = parseFloat(raw);
+            if (!isNaN(val)) return normalizeAngle(val);
+        }
+    }
+    return null;
+}
+
+function setBaseRotation(pathItem, angleDeg) {
     if (!pathItem) return;
     var tokens = readNoteTokens(pathItem);
-    var tag = ROT_OVERRIDE_PREFIX + normalizeAngle(angleDeg);
+    var tag = ROT_BASE_PREFIX + normalizeAngle(angleDeg);
+    var replaced = false;
+    for (var i = 0; i < tokens.length; i++) {
+        if (tokens[i].toUpperCase().indexOf(ROT_BASE_PREFIX) === 0) {
+            tokens[i] = tag;
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced) tokens.push(tag);
+    writeNoteTokens(pathItem, tokens);
+}
+
+function ensureBaseRotation(pathItem) {
+    var base = getBaseRotation(pathItem);
+    if (base === null) {
+        base = computePathPrimaryAngle(pathItem);
+        setBaseRotation(pathItem, base);
+    }
+    return base;
+}
+
+function setRotationOverride(pathItem, angleDeg) {
+    if (!pathItem) return;
+    var base = ensureBaseRotation(pathItem);
+    if (base === null || !isFinite(base)) {
+        base = 0;
+    }
+    var delta = normalizeAngle(angleDeg - base);
+    var tokens = readNoteTokens(pathItem);
+    var tag = ROT_OVERRIDE_PREFIX + delta;
     var replaced = false;
     for (var i = 0; i < tokens.length; i++) {
         if (tokens[i].toUpperCase().indexOf(ROT_OVERRIDE_PREFIX) === 0) {
@@ -2001,14 +2071,26 @@ function clearRotationOverride(pathItem) {
 
 function getRotationOverride(pathItem) {
     var tokens = readNoteTokens(pathItem);
+    var delta = null;
     for (var i = 0; i < tokens.length; i++) {
         if (tokens[i].toUpperCase().indexOf(ROT_OVERRIDE_PREFIX) === 0) {
             var raw = tokens[i].substring(ROT_OVERRIDE_PREFIX.length);
             var val = parseFloat(raw);
-            if (!isNaN(val)) return normalizeAngle(val);
+            if (!isNaN(val)) {
+                delta = normalizeAngle(val);
+                break;
+            }
         }
     }
-    return null;
+    var base = getBaseRotation(pathItem);
+    if (base === null || !isFinite(base)) {
+        base = ensureBaseRotation(pathItem);
+    }
+    if (delta === null) {
+        return base !== null ? normalizeAngle(base) : null;
+    }
+    if (base === null) base = 0;
+    return normalizeAngle(base + delta);
 }
 
 // ========================================
@@ -2059,27 +2141,100 @@ function getPointRotation(pathItem) {
 // PLACED ITEM METADATA
 // ========================================
 
-function getPlacedRotation(item) {
+function normalizeSignedAngleValue(angle) {
+    if (typeof angle !== "number" || !isFinite(angle)) return 0;
+    while (angle > 180) angle -= 360;
+    while (angle < -180) angle += 360;
+    return angle;
+}
+
+function computePlacedPrimaryAngle(item) {
+    if (!item) return 0;
+    try {
+        var m = item.matrix;
+        return Math.atan2(m.mValueB, m.mValueA) * (180 / Math.PI);
+    } catch (e) {
+        return 0;
+    }
+}
+
+function getPlacedBaseRotation(item) {
     if (!item) return null;
     var tokens = readNoteTokens(item);
     for (var i = 0; i < tokens.length; i++) {
-        if (tokens[i].toUpperCase().indexOf(PLACED_ROT_PREFIX) === 0) {
-            var raw = tokens[i].substring(PLACED_ROT_PREFIX.length);
-            logDebug("getPlacedRotation: raw string = '" + raw + "'");
+        if (tokens[i].toUpperCase().indexOf(PLACED_BASE_ROT_PREFIX) === 0) {
+            var raw = tokens[i].substring(PLACED_BASE_ROT_PREFIX.length);
             var val = parseFloat(raw);
-            logDebug("getPlacedRotation: parseFloat result = " + val);
-            // DO NOT normalize - this is a delta that can be negative
             if (!isNaN(val)) return val;
         }
     }
     return null;
 }
 
-function setPlacedRotation(item, angleDeg) {
+function setPlacedBaseRotation(item, angleDeg) {
     if (!item) return;
     var tokens = readNoteTokens(item);
-    // DO NOT normalize - store the delta as-is (can be negative)
-    var tag = PLACED_ROT_PREFIX + angleDeg.toFixed(6);
+    var tag = PLACED_BASE_ROT_PREFIX + angleDeg.toFixed(6);
+    var replaced = false;
+    for (var i = 0; i < tokens.length; i++) {
+        if (tokens[i].toUpperCase().indexOf(PLACED_BASE_ROT_PREFIX) === 0) {
+            tokens[i] = tag;
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced) tokens.push(tag);
+    writeNoteTokens(item, tokens);
+}
+
+function clearPlacedBaseRotation(item) {
+    if (!item) return;
+    var tokens = readNoteTokens(item);
+    var filtered = [];
+    for (var i = 0; i < tokens.length; i++) {
+        if (tokens[i].toUpperCase().indexOf(PLACED_BASE_ROT_PREFIX) === 0) continue;
+        filtered.push(tokens[i]);
+    }
+    writeNoteTokens(item, filtered);
+}
+
+function ensurePlacedBaseRotation(item) {
+    var base = getPlacedBaseRotation(item);
+    if (base === null || !isFinite(base)) {
+        base = computePlacedPrimaryAngle(item);
+        setPlacedBaseRotation(item, base);
+    }
+    return base;
+}
+
+function getPlacedRotationDelta(item) {
+    if (!item) return null;
+    var tokens = readNoteTokens(item);
+    for (var i = 0; i < tokens.length; i++) {
+        if (tokens[i].toUpperCase().indexOf(PLACED_ROT_PREFIX) === 0) {
+            var raw = tokens[i].substring(PLACED_ROT_PREFIX.length);
+            var val = parseFloat(raw);
+            if (!isNaN(val)) return normalizeSignedAngleValue(val);
+        }
+    }
+    return null;
+}
+
+function getPlacedRotation(item) {
+    var delta = getPlacedRotationDelta(item);
+    var base = getPlacedBaseRotation(item);
+    if (delta === null) {
+        if (base === null || !isFinite(base)) return null;
+        return normalizeAngle(base);
+    }
+    if (base === null || !isFinite(base)) base = 0;
+    return normalizeAngle(base + delta);
+}
+
+function setPlacedRotationDelta(item, deltaDeg) {
+    if (!item) return;
+    var tokens = readNoteTokens(item);
+    var tag = PLACED_ROT_PREFIX + normalizeSignedAngleValue(deltaDeg).toFixed(6);
     var replaced = false;
     for (var i = 0; i < tokens.length; i++) {
         if (tokens[i].toUpperCase().indexOf(PLACED_ROT_PREFIX) === 0) {
@@ -2090,6 +2245,14 @@ function setPlacedRotation(item, angleDeg) {
     }
     if (!replaced) tokens.push(tag);
     writeNoteTokens(item, tokens);
+}
+
+function setPlacedRotation(item, angleDeg) {
+    if (!item) return;
+    var base = ensurePlacedBaseRotation(item);
+    if (base === null || !isFinite(base)) base = 0;
+    var delta = normalizeSignedAngleValue(angleDeg - base);
+    setPlacedRotationDelta(item, delta);
 }
 
 function clearPlacedRotation(item) {
@@ -2138,46 +2301,6 @@ function clearPlacedScale(item) {
     var filtered = [];
     for (var i = 0; i < tokens.length; i++) {
         if (tokens[i].toUpperCase().indexOf(PLACED_SCALE_PREFIX) === 0) continue;
-        filtered.push(tokens[i]);
-    }
-    writeNoteTokens(item, filtered);
-}
-
-function getPlacedBaseRotation(item) {
-    if (!item) return null;
-    var tokens = readNoteTokens(item);
-    for (var i = 0; i < tokens.length; i++) {
-        if (tokens[i].toUpperCase().indexOf(PLACED_BASE_ROT_PREFIX) === 0) {
-            var raw = tokens[i].substring(PLACED_BASE_ROT_PREFIX.length);
-            var val = parseFloat(raw);
-            if (!isNaN(val)) return normalizeAngle(val);
-        }
-    }
-    return null;
-}
-
-function setPlacedBaseRotation(item, angleDeg) {
-    if (!item) return;
-    var tokens = readNoteTokens(item);
-    var tag = PLACED_BASE_ROT_PREFIX + normalizeAngle(angleDeg);
-    var replaced = false;
-    for (var i = 0; i < tokens.length; i++) {
-        if (tokens[i].toUpperCase().indexOf(PLACED_BASE_ROT_PREFIX) === 0) {
-            tokens[i] = tag;
-            replaced = true;
-            break;
-        }
-    }
-    if (!replaced) tokens.push(tag);
-    writeNoteTokens(item, tokens);
-}
-
-function clearPlacedBaseRotation(item) {
-    if (!item) return;
-    var tokens = readNoteTokens(item);
-    var filtered = [];
-    for (var i = 0; i < tokens.length; i++) {
-        if (tokens[i].toUpperCase().indexOf(PLACED_BASE_ROT_PREFIX) === 0) continue;
         filtered.push(tokens[i]);
     }
     writeNoteTokens(item, filtered);
@@ -2409,6 +2532,7 @@ function setStaticTextColor(control, rgbArray) {
 // ========================================
 
 (function () {
+    try {
     // --- CONFIG ---
     var CLOSE_DIST = 10; // px for loose connection grouping
     var UNIT_MERGE_DIST = 6; // px tolerance to merge clustered unit anchors
@@ -4352,6 +4476,22 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             }
         }
 
+        if (rotationList.length === 0) {
+            forEachPathInItems(items, function (fallbackPath) {
+                if (!fallbackPath) return;
+                var pts = null;
+                try { pts = fallbackPath.pathPoints; } catch (ePts) { pts = null; }
+                if (!pts || pts.length < 2) return;
+                var first = pts[0];
+                var second = pts[1];
+                var dx = second.anchor[0] - first.anchor[0];
+                var dy = second.anchor[1] - first.anchor[1];
+                if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return;
+                var fallbackAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+                addRotation(fallbackAngle);
+            });
+        }
+
         rotationList.sort(function (a, b) {
             return a - b;
         });
@@ -5039,8 +5179,13 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
     function setRotationOverride(pathItem, angleDeg) {
         if (!pathItem) return;
+        var base = ensureBaseRotation(pathItem);
+        if (base === null || !isFinite(base)) {
+            base = 0;
+        }
+        var delta = normalizeAngle(angleDeg - base);
         var tokens = readNoteTokens(pathItem);
-        var tag = ROT_OVERRIDE_PREFIX + normalizeAngle(angleDeg);
+        var tag = ROT_OVERRIDE_PREFIX + delta;
         var replaced = false;
         for (var i = 0; i < tokens.length; i++) {
             if (tokens[i].toUpperCase().indexOf(ROT_OVERRIDE_PREFIX) === 0) {
@@ -5066,14 +5211,26 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
     function getRotationOverride(pathItem) {
         var tokens = readNoteTokens(pathItem);
+        var delta = null;
         for (var i = 0; i < tokens.length; i++) {
             if (tokens[i].toUpperCase().indexOf(ROT_OVERRIDE_PREFIX) === 0) {
                 var raw = tokens[i].substring(ROT_OVERRIDE_PREFIX.length);
                 var val = parseFloat(raw);
-                if (!isNaN(val)) return normalizeAngle(val);
+                if (!isNaN(val)) {
+                    delta = normalizeAngle(val);
+                    break;
+                }
             }
         }
-        return null;
+        var base = getBaseRotation(pathItem);
+        if (base === null || !isFinite(base)) {
+            base = ensureBaseRotation(pathItem);
+        }
+        if (delta === null) {
+            return base !== null ? normalizeAngle(base) : null;
+        }
+        if (base === null) base = 0;
+        return normalizeAngle(base + delta);
     }
 
     function loadSettingsFromSelection(selectionItems) {
@@ -7742,6 +7899,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // --- GLOBAL DEBUG LOG ---
     var GLOBAL_DEBUG_LOG = [];
     function addDebug(msg) {
+        // Collect in memory
+        GLOBAL_DEBUG_LOG.push(msg);
+
+        // Also write to file
         try {
             var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\debug.log");
             logFile.open("a");
@@ -7750,6 +7911,39 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         } catch (e) {
             // Silently fail if logging doesn't work
         }
+    }
+
+    function showDebugDialog() {
+        if (GLOBAL_DEBUG_LOG.length === 0) return;
+
+        var dlg = new Window("dialog", "Debug Log");
+        dlg.preferredSize = [900, 600];
+
+        var textGroup = dlg.add("group");
+        textGroup.orientation = "column";
+        textGroup.alignment = ["fill", "fill"];
+        textGroup.alignChildren = ["fill", "fill"];
+
+        var debugText = textGroup.add("edittext", undefined, "", {multiline: true, scrolling: true});
+        debugText.preferredSize = [880, 550];
+        debugText.text = GLOBAL_DEBUG_LOG.join("\n");
+        debugText.graphics.font = ScriptUI.newFont("Courier New", "REGULAR", 10);
+        debugText.graphics.backgroundColor = debugText.graphics.newBrush(debugText.graphics.BrushType.SOLID_COLOR, [0.1, 0.1, 0.1]);
+        debugText.graphics.foregroundColor = debugText.graphics.newPen(debugText.graphics.PenType.SOLID_COLOR, [0.9, 0.9, 0.9], 1);
+
+        var btnGroup = dlg.add("group");
+        btnGroup.alignment = ["center", "bottom"];
+
+        var copyBtn = btnGroup.add("button", undefined, "Copy to Clipboard");
+        copyBtn.onClick = function() {
+            // Copy is not directly supported, but user can select all and Ctrl+C
+            debugText.active = true;
+            debugText.textselection = [0, debugText.text.length];
+        };
+
+        var closeBtn = btnGroup.add("button", undefined, "Close", {name: "ok"});
+
+        dlg.show();
     }
 
     // --- COLLECT PATHS ---
@@ -7902,7 +8096,15 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     function isPathInList(list, path) {
         if (!list || !path) return false;
         for (var i = 0; i < list.length; i++) {
-            if (list[i] === path) return true;
+            try {
+                // Validate both objects are still valid before comparing
+                if (list[i] && list[i].typename && path && path.typename) {
+                    if (list[i] === path) return true;
+                }
+            } catch (e) {
+                // Object is invalid (e.g., deleted by nuclear deletion), skip it
+                continue;
+            }
         }
         return false;
     }
@@ -8005,37 +8207,55 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         return existing;
     }
 
-    function getPlacedRotation(item) {
+    function computePlacedPrimaryAngle(item) {
+        if (!item) return 0;
+        try {
+            var m = item.matrix;
+            return Math.atan2(m.mValueB, m.mValueA) * (180 / Math.PI);
+        } catch (e) {
+            return 0;
+        }
+    }
+
+    function ensurePlacedBaseRotation(item) {
+        var base = getPlacedBaseRotation(item);
+        if (base === null || !isFinite(base)) {
+            base = computePlacedPrimaryAngle(item);
+            setPlacedBaseRotation(item, base);
+        }
+        return base;
+    }
+
+    function getPlacedRotationDelta(item) {
         if (!item) return null;
         var tokens = readNoteTokens(item);
         for (var i = 0; i < tokens.length; i++) {
             if (tokens[i].toUpperCase().indexOf(PLACED_ROT_PREFIX) === 0) {
                 var raw = tokens[i].substring(PLACED_ROT_PREFIX.length);
-                logDebug("getPlacedRotation: raw string = '" + raw + "'");
                 var val = parseFloat(raw);
-                logDebug("getPlacedRotation: parseFloat result = " + val);
-                // DO NOT normalize - this is a delta that can be negative
-                if (!isNaN(val)) return val;
+                if (!isNaN(val)) return normalizeSignedAngleValue(val);
             }
         }
         return null;
     }
 
+    function getPlacedRotation(item) {
+        var delta = getPlacedRotationDelta(item);
+        var base = getPlacedBaseRotation(item);
+        if (delta === null) {
+            if (base === null || !isFinite(base)) return null;
+            return normalizeAngle(base);
+        }
+        if (base === null || !isFinite(base)) base = 0;
+        return normalizeAngle(base + delta);
+    }
+
     function setPlacedRotation(item, angleDeg) {
         if (!item) return;
-        var tokens = readNoteTokens(item);
-        // DO NOT normalize - store the delta as-is (can be negative)
-        var tag = PLACED_ROT_PREFIX + angleDeg.toFixed(6);
-        var replaced = false;
-        for (var i = 0; i < tokens.length; i++) {
-            if (tokens[i].toUpperCase().indexOf(PLACED_ROT_PREFIX) === 0) {
-                tokens[i] = tag;
-                replaced = true;
-                break;
-            }
-        }
-        if (!replaced) tokens.push(tag);
-        writeNoteTokens(item, tokens);
+        var base = ensurePlacedBaseRotation(item);
+        if (base === null || !isFinite(base)) base = 0;
+        var delta = normalizeSignedAngleValue(angleDeg - base);
+        setPlacedRotationDelta(item, delta);
     }
 
     function clearPlacedRotation(item) {
@@ -8130,9 +8350,14 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
 
     // Handle rotation override from unified dialog (if provided)
+    var GLOBAL_ROTATION_OVERRIDE = null;
     if (startupChoice.rotationOverride !== null && startupChoice.rotationOverride !== undefined) {
         var normalized = normalizeAngle(startupChoice.rotationOverride);
-        addDebug("[Rotation Override] Applying " + normalized + "° to " + allPaths.length + " paths");
+        GLOBAL_ROTATION_OVERRIDE = normalized;  // Store for use in anchor point collection
+        addDebug("========================================");
+        addDebug("[ROTATION OVERRIDE] GLOBAL: " + normalized + "°");
+        addDebug("[ROTATION OVERRIDE] Applying to " + allPaths.length + " ductwork line paths");
+        addDebug("========================================");
         var appliedCount = 0;
         for (var rIdx = 0; rIdx < allPaths.length; rIdx++) {
             if (allPaths[rIdx]) {
@@ -8141,9 +8366,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 appliedCount++;
             }
         }
-        addDebug("[Rotation Override] Applied to " + appliedCount + " paths");
+        addDebug("[ROTATION OVERRIDE] Applied to " + appliedCount + " ductwork line paths");
     } else {
-        addDebug("[Rotation Override] No rotation override specified");
+        addDebug("========================================");
+        addDebug("[ROTATION OVERRIDE] GLOBAL: None specified");
+        addDebug("========================================");
     }
 
     // --- SEGMENT BUILDING ---
@@ -10581,6 +10808,139 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         removeConflictingArtAndAnchors(ignoredAnchors);
     }
 
+    // STEP 2.5: When rotation override is specified, DELETE all existing components and anchors
+    // Nuclear option: removes ALL placed items and anchor markers, then recreates everything fresh
+    // This ensures consistent rotation but loses any custom rotations or scaling
+    // MUST happen BEFORE anchor creation (STEP 3-5) so fresh anchors can be created
+    if (GLOBAL_ROTATION_OVERRIDE !== null) {
+        addDebug("");
+        addDebug("========================================");
+        addDebug("[ROTATION OVERRIDE] NUCLEAR OPTION: Deleting all existing components and anchors");
+        addDebug("========================================");
+
+        var componentLayerNames = [
+            "Units", "Square Registers", "Rectangular Registers", "Circular Registers",
+            "Exhaust Registers", "Orange Register", "Secondary Exhaust", "Thermostats"
+        ];
+
+        var totalDeletedPlacedItems = 0;
+        var totalDeletedAnchors = 0;
+
+        for (var clIdx = 0; clIdx < componentLayerNames.length; clIdx++) {
+            var layerName = componentLayerNames[clIdx];
+            try {
+                var layer = null;
+                try {
+                    layer = doc.layers.getByName(layerName);
+                } catch (eGetLayer) {
+                    // Layer doesn't exist, skip
+                    continue;
+                }
+
+                if (!layer) continue;
+
+                var layerDeletedItems = 0;
+                var layerDeletedAnchors = 0;
+
+                // Unlock layer temporarily if needed
+                var wasLocked = false;
+                try {
+                    wasLocked = layer.locked;
+                    if (wasLocked) layer.locked = false;
+                } catch (e) {}
+
+                addDebug("[ROTATION OVERRIDE] Processing layer: " + layerName);
+
+                // Collect all items to delete FIRST, then delete them
+                // This avoids "Object is invalid" errors from accessing collections while modifying them
+                var itemsToDelete = [];
+
+                // Collect placed items (handle invalid items after undo)
+                try {
+                    for (var pi = 0; pi < layer.placedItems.length; pi++) {
+                        try {
+                            var placedItem = layer.placedItems[pi];
+                            // Validate object is still valid by accessing a property
+                            if (placedItem && placedItem.typename) {
+                                itemsToDelete.push(placedItem);
+                            }
+                        } catch (e) {
+                            // Invalid item (e.g., after undo), skip it
+                        }
+                    }
+                } catch (ePlacedItems) {
+                    addDebug("[ROTATION OVERRIDE]   Error collecting placed items: " + ePlacedItems);
+                }
+
+                // Collect path items (anchors) (handle invalid items after undo)
+                try {
+                    for (var pathi = 0; pathi < layer.pathItems.length; pathi++) {
+                        try {
+                            var pathItem = layer.pathItems[pathi];
+                            // Validate object is still valid by accessing a property
+                            if (pathItem && pathItem.typename) {
+                                itemsToDelete.push(pathItem);
+                            }
+                        } catch (e) {
+                            // Invalid item (e.g., after undo), skip it
+                        }
+                    }
+                } catch (ePathItems) {
+                    addDebug("[ROTATION OVERRIDE]   Error collecting path items: " + ePathItems);
+                }
+
+                // Now delete all collected items
+                addDebug("[ROTATION OVERRIDE]   Deleting " + itemsToDelete.length + " items from " + layerName);
+                for (var delIdx = 0; delIdx < itemsToDelete.length; delIdx++) {
+                    try {
+                        var item = itemsToDelete[delIdx];
+                        if (!item) continue;
+
+                        // Check typename INSIDE try-catch (can fail after undo)
+                        var itemType = null;
+                        try {
+                            itemType = item.typename;
+                        } catch (eType) {
+                            // Object is invalid (e.g., after undo), skip it
+                            continue;
+                        }
+
+                        item.remove();
+
+                        if (itemType === "PlacedItem") {
+                            layerDeletedItems++;
+                            totalDeletedPlacedItems++;
+                        } else {
+                            layerDeletedAnchors++;
+                            totalDeletedAnchors++;
+                        }
+                    } catch (eDelete) {
+                        // Silently skip - item might already be deleted or invalid after undo
+                    }
+                }
+
+                // Restore lock state
+                try {
+                    if (wasLocked) layer.locked = true;
+                } catch (e) {}
+
+                addDebug("[ROTATION OVERRIDE]   Deleted from " + layerName + ": " + layerDeletedItems + " items, " + layerDeletedAnchors + " anchors");
+            } catch (eLayer) {
+                addDebug("[ROTATION OVERRIDE]   Error processing layer " + layerName + ": " + eLayer);
+            }
+        }
+
+        addDebug("========================================");
+        addDebug("[ROTATION OVERRIDE] Total deleted: " + totalDeletedPlacedItems + " placed items, " + totalDeletedAnchors + " anchor markers");
+        addDebug("[ROTATION OVERRIDE] Everything will be recreated fresh with " + GLOBAL_ROTATION_OVERRIDE + "° rotation");
+        addDebug("========================================");
+        addDebug("");
+
+        // Clear the created anchor paths array since we just deleted all anchors
+        CREATED_ANCHOR_PATHS = [];
+        addDebug("[ROTATION OVERRIDE] Cleared CREATED_ANCHOR_PATHS array to remove deleted anchor references");
+    }
+
     // Consolidate any pre-existing Unit anchors before new placement
     try { mergeAnchorsOnLayer("Units", UNIT_MERGE_DIST); } catch (e) {}
 
@@ -10932,8 +11292,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     return;
                 }
 
+                addDebug("");
+                addDebug("========== " + type.name + " ==========");
+                addDebug("[" + type.name + "] Collecting anchors from layer: " + type.layer);
                 var anchorPts = collectAnchorPoints_local(docParam, layer);
-                addDebug("[" + type.name + "] File: " + type.file + " | Anchors: " + anchorPts.length);
+                addDebug("[" + type.name + "] Collected " + anchorPts.length + " anchor points");
                 var keySet = {};
                 for (var aIdx = 0; aIdx < anchorPts.length; aIdx++) {
                     var ap = anchorPts[aIdx].pos;
@@ -10977,23 +11340,62 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     if (!item) return;
                     if (typeof targetAngle !== 'number' || !isFinite(targetAngle)) targetAngle = 0;
                     if (typeof baseAngle !== 'number' || !isFinite(baseAngle)) baseAngle = 0;
+
                     var targetAbsolute = normalizeSignedAngle_local(targetAngle);
                     var baseAbsolute = normalizeSignedAngle_local(baseAngle);
-                    var appliedAbsolute = null;
+
+                    var storedAbsoluteRaw = null;
+                    var storedAbsoluteSigned = null;
+                    try {
+                        storedAbsoluteRaw = getPlacedRotation(item);
+                    } catch (eStored) {
+                        storedAbsoluteRaw = null;
+                    }
+                    if (storedAbsoluteRaw !== null && isFinite(storedAbsoluteRaw)) {
+                        storedAbsoluteSigned = normalizeSignedAngle_local(storedAbsoluteRaw);
+                    }
+
+                    var matrixAbsolute = null;
                     try {
                         var m = item.matrix;
-                        appliedAbsolute = Math.atan2(m.mValueB, m.mValueA) * (180 / Math.PI);
-                    } catch (e) {
-                        appliedAbsolute = null;
+                        matrixAbsolute = Math.atan2(m.mValueB, m.mValueA) * (180 / Math.PI);
+                    } catch (eMatrix) {
+                        matrixAbsolute = null;
                     }
-                    if (appliedAbsolute === null || !isFinite(appliedAbsolute)) appliedAbsolute = baseAbsolute;
-                    appliedAbsolute = normalizeSignedAngle_local(appliedAbsolute);
+
+                    var appliedAbsolute = storedAbsoluteSigned;
+                    if (appliedAbsolute === null || !isFinite(appliedAbsolute)) {
+                        if (matrixAbsolute !== null && isFinite(matrixAbsolute)) {
+                            appliedAbsolute = normalizeSignedAngle_local(matrixAbsolute);
+                        } else {
+                            appliedAbsolute = baseAbsolute;
+                        }
+                    }
+
                     var delta = normalizeSignedAngle_local(targetAbsolute - appliedAbsolute);
                     if (Math.abs(delta) > 0.1) {
-                        try { item.rotate(delta, true, true, true, true, Transformation.CENTER); } catch (e) {}
+                        try { item.rotate(delta, true, true, true, true, Transformation.CENTER); } catch (eRotate) {}
                     }
+
                     var absoluteUnsigned = normalizeAngle(targetAbsolute);
                     setPlacedRotation(item, absoluteUnsigned);
+
+                    function formatAngle(val) {
+                        return (typeof val === 'number' && isFinite(val)) ? (Math.round(val * 1000) / 1000) : "null";
+                    }
+                    var nameForLog = "";
+                    try {
+                        nameForLog = item.name || item.typename || "";
+                    } catch (eName) {
+                        nameForLog = "";
+                    }
+                    logDebug("[RotatePlacedItem] name=" + nameForLog +
+                             " base=" + formatAngle(baseAbsolute) +
+                             " target=" + formatAngle(targetAbsolute) +
+                             " stored=" + formatAngle(storedAbsoluteSigned) +
+                             " matrix=" + formatAngle(matrixAbsolute) +
+                             " applied=" + formatAngle(appliedAbsolute) +
+                             " delta=" + formatAngle(delta));
                 }
 
                 function centerPageItemAt_local(item, anchor) {
@@ -11050,95 +11452,78 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                                 existingItems[nearestKey] = itm;
                             }
 
-                        // Get actual rotation from matrix
-                        var actualRot = null;
-                        try {
-                            var m = itm.matrix;
-                            actualRot = Math.atan2(m.mValueB, m.mValueA) * (180 / Math.PI);
-                        } catch (e) {}
-
-                        // Get actual scale from matrix
-                        var actualScale = getItemScale_local(itm);
-
-                        // Get stored metadata values
-                        var storedRotAbsolute = getPlacedRotation(itm);  // This is the ABSOLUTE target rotation
-                        var storedBaseRot = getPlacedBaseRotation(itm);  // This is always 0
-                        var storedScale = getPlacedScale(itm);
-
-                        // DEBUG: Log the raw note
-                        var rawNote = itm.note || "";
-                        logDebug("RAW NOTE at " + key + ": " + rawNote);
-
-                        // Check if we have initial captured transforms (highest priority)
-                        var hasInitialTransform = initialPlacedTransforms[key] !== undefined;
-                        var initialRot = hasInitialTransform ? initialPlacedTransforms[key].rotation : null;
-                        var initialScale = hasInitialTransform ? initialPlacedTransforms[key].scale : null;
-
-                        // For rotation: Use stored ABSOLUTE rotation or detect manual changes
-                        var baseRotation = storedBaseRot;
-                        if (baseRotation === null || !isFinite(baseRotation)) {
-                            if (storedRotAbsolute !== null && actualRot !== null && isFinite(storedRotAbsolute)) {
-                                baseRotation = normalizeSignedAngle_local(actualRot - storedRotAbsolute);
-                            } else if (initialRot !== null && storedRotAbsolute !== null && isFinite(storedRotAbsolute)) {
-                                baseRotation = normalizeSignedAngle_local(initialRot - storedRotAbsolute);
-                            } else if (actualRot !== null) {
-                                baseRotation = normalizeSignedAngle_local(actualRot);
-                            } else {
-                                baseRotation = 0;
-                            }
-                        } else {
-                            baseRotation = normalizeSignedAngle_local(baseRotation);
-                        }
-
-                        if (type.layer !== "Thermostats") {
-                            var currentRot = null;
-
-                            // Priority order for rotation:
-                            // 1. Stored metadata (if exists) - this preserves custom rotations
-                            // 2. Anchor point rotation (from path notes) - this allows orthogonal rotation updates
-                            // 3. Initial capture (first run only)
-                            // 4. Actual matrix rotation (fallback)
-
-                            if (storedRotAbsolute !== null) {
-                                // Have metadata - trust it completely (preserves custom rotations)
-                                currentRot = storedRotAbsolute;
-                            } else if (typeof rotation === 'number' && isFinite(rotation)) {
-                                // No metadata but anchor has rotation - use that (orthogonal rotation)
-                                currentRot = rotation;
-                            } else if (initialRot !== null) {
-                                // No metadata or anchor rotation - use initial capture (first run)
-                                currentRot = initialRot;
-                            } else if (actualRot !== null) {
-                                // Fall back to actual matrix rotation
-                                currentRot = actualRot;
-                            }
-
-                            // Log capture
-                            var captureMsg = "CAPTURE at " + key + ":\n";
-                            captureMsg += "actualRot (matrix) = " + actualRot + "\n";
-                            captureMsg += "storedRotAbsolute = " + storedRotAbsolute + "\n";
-                            captureMsg += "initialRot = " + initialRot + "\n";
-                            captureMsg += "currentRot (chosen) = " + currentRot;
-                            logDebug(captureMsg);
-
-                            if (currentRot !== null) {
-                                if (!customTransforms[key]) customTransforms[key] = {};
-                                customTransforms[key].rotation = currentRot;
-                            }
-
+                            var key = nearestKey;
+                            if (!key) continue;
                             if (!customTransforms[key]) customTransforms[key] = {};
-                            customTransforms[key].baseRotation = baseRotation;
+                            var entry = customTransforms[key];
+
+                            // Get rotations and scales
+                            var actualRot = null;
+                            try {
+                                var m = itm.matrix;
+                                actualRot = Math.atan2(m.mValueB, m.mValueA) * (180 / Math.PI);
+                            } catch (e) {}
+
+                            var actualScale = getItemScale_local(itm);
+                            var storedRotAbsolute = getPlacedRotation(itm);  // ABSOLUTE rotation target
+                            var storedBaseRot = getPlacedBaseRotation(itm);
+                            var storedScale = getPlacedScale(itm);
+
+                            var rawNote = itm.note || "";
+                            logDebug("RAW NOTE at " + key + ": " + rawNote);
+
+                            var hasInitialTransform = initialPlacedTransforms[key] !== undefined;
+                            var initialRot = hasInitialTransform ? initialPlacedTransforms[key].rotation : null;
+                            var initialScale = hasInitialTransform ? initialPlacedTransforms[key].scale : null;
+
+                            var anchorRotForKey = anchorRotations.hasOwnProperty(key) ? anchorRotations[key] : null;
+
+                            var absoluteRotation = null;
+                            if (storedRotAbsolute !== null && isFinite(storedRotAbsolute)) {
+                                absoluteRotation = storedRotAbsolute;
+                            } else if (initialRot !== null && isFinite(initialRot)) {
+                                absoluteRotation = initialRot;
+                            } else if (actualRot !== null && isFinite(actualRot)) {
+                                absoluteRotation = normalizeAngle(actualRot);
+                            }
+                            entry.absoluteRotation = absoluteRotation;
+
+                            var baseRotation = storedBaseRot;
+                            if (baseRotation === null || !isFinite(baseRotation)) {
+                                if (anchorRotForKey !== null && isFinite(anchorRotForKey) && actualRot !== null && isFinite(actualRot)) {
+                                    baseRotation = normalizeSignedAngle_local(actualRot - anchorRotForKey);
+                                } else if (absoluteRotation !== null && isFinite(absoluteRotation) && actualRot !== null && isFinite(actualRot)) {
+                                    baseRotation = normalizeSignedAngle_local(actualRot - absoluteRotation);
+                                } else if (absoluteRotation !== null && isFinite(absoluteRotation) && anchorRotForKey !== null && isFinite(anchorRotForKey)) {
+                                    baseRotation = normalizeSignedAngle_local(absoluteRotation - anchorRotForKey);
+                                } else if (actualRot !== null && isFinite(actualRot)) {
+                                    baseRotation = normalizeSignedAngle_local(actualRot);
+                                } else if (initialRot !== null && isFinite(initialRot)) {
+                                    baseRotation = normalizeSignedAngle_local(initialRot);
+                                } else {
+                                    baseRotation = 0;
+                                }
+                            } else {
+                                baseRotation = normalizeSignedAngle_local(baseRotation);
+                            }
+
+                            entry.baseRotation = baseRotation;
                             if (storedBaseRot === null || !isFinite(storedBaseRot)) {
                                 try { setPlacedBaseRotation(itm, baseRotation); } catch (e) {}
                             }
-                        }
 
-                        // Same for scale - just pass through
-                        var currentScale = initialScale !== null ? initialScale : actualScale;
-                        if (currentScale !== null) {
-                            if (!customTransforms[key]) customTransforms[key] = {};
-                            customTransforms[key].scale = currentScale;
-                        }
+                            if (storedScale !== null && isFinite(storedScale)) {
+                                entry.scale = storedScale;
+                            } else if (initialScale !== null && isFinite(initialScale)) {
+                                entry.scale = initialScale;
+                            } else if (actualScale !== null && isFinite(actualScale)) {
+                                entry.scale = actualScale;
+                            }
+
+                            logDebug("CAPTURE at " + key + ": actualRot=" + actualRot +
+                                     " anchorRot=" + anchorRotForKey +
+                                     " absoluteRotation=" + absoluteRotation +
+                                     " baseRotation=" + baseRotation);
                         }
                     } catch (e) {
                         // Item may be invalid after copy/paste
@@ -11152,13 +11537,13 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     var key = a[0].toFixed(2) + "_" + a[1].toFixed(2);
 
                     // Check if this location has custom transforms
-                    var customRot = null;
                     var customScale = null;
                     var baseRotation = null;
+                    var fallbackRotation = null;
                     if (customTransforms[key]) {
-                        customRot = customTransforms[key].rotation;
                         customScale = customTransforms[key].scale;
                         baseRotation = customTransforms[key].baseRotation;
+                        fallbackRotation = customTransforms[key].absoluteRotation;
                     }
 
                     var targetItem = null;
@@ -11212,23 +11597,27 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         }
 
                         var desiredRotation = null;
-                        // Priority: custom rotation (from metadata) overrides anchor rotation
-                        if (typeof customRot === 'number' && isFinite(customRot)) {
-                            desiredRotation = customRot;
-                        } else if (typeof rotation === 'number' && isFinite(rotation)) {
+                        if (typeof rotation === 'number' && isFinite(rotation)) {
                             desiredRotation = rotation;
+                        } else if (typeof fallbackRotation === 'number' && isFinite(fallbackRotation)) {
+                            desiredRotation = fallbackRotation;
+                        } else if (typeof baseRotation === 'number' && isFinite(baseRotation)) {
+                            desiredRotation = normalizeAngle(baseRotation);
                         }
 
                         // Debug logging
-                        logDebug("ROTATION DECISION at " + key + ":");
-                        logDebug("  customRot = " + customRot);
-                        logDebug("  rotation (anchor) = " + rotation);
-                        logDebug("  desiredRotation (chosen) = " + desiredRotation);
-                        logDebug("  baseRotation = " + baseRotation);
+                        addDebug("[PLACE " + type.name + " at " + key + "]");
+                        addDebug("  rotation (from anchor) = " + (rotation !== null ? rotation + "°" : "null"));
+                        addDebug("  fallbackRotation = " + (fallbackRotation !== null ? fallbackRotation + "°" : "null"));
+                        addDebug("  baseRotation = " + (baseRotation !== null ? baseRotation + "°" : "null"));
+                        addDebug("  desiredRotation (FINAL) = " + (desiredRotation !== null ? desiredRotation + "°" : "null"));
+                        addDebug("  createdNew = " + createdNew);
 
                         // Apply rotation if needed
                         if (type.layer !== "Thermostats" && desiredRotation !== null) {
+                            addDebug("  APPLYING rotation: " + desiredRotation + "° (base: " + baseRotation + "°)");
                             rotatePageItemToAbsolute(targetItem, desiredRotation, baseRotation);
+                            customTransforms[key].absoluteRotation = desiredRotation;
 
                             // Fix bounding box orientation by re-assigning the file reference
                             // This forces Illustrator to update the bounding box to match the rotated art
@@ -11286,8 +11675,26 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
                     if (p.locked) return;
 
-                    var rotation = getPointRotation(p);
-                    if (rotation === null) rotation = getRotationOverride(p);
+                    // Priority: global rotation override > path rotation override > stored point rotation
+                    // This ensures re-processing with a new angle override updates existing parts correctly
+                    var rotation = null;
+                    var rotationSource = "";
+                    if (typeof GLOBAL_ROTATION_OVERRIDE === 'number' && GLOBAL_ROTATION_OVERRIDE !== null) {
+                        rotation = GLOBAL_ROTATION_OVERRIDE;
+                        rotationSource = "GLOBAL_OVERRIDE";
+                    } else {
+                        var pathOverride = getRotationOverride(p);
+                        var pointRotation = getPointRotation(p);
+                        if (pathOverride !== null) {
+                            rotation = pathOverride;
+                            rotationSource = "PATH_OVERRIDE";
+                        } else if (pointRotation !== null) {
+                            rotation = pointRotation;
+                            rotationSource = "POINT_METADATA";
+                        } else {
+                            rotationSource = "NONE";
+                        }
+                    }
 
                     for (var j = 0; j < p.pathPoints.length; j++) {
                         var a = p.pathPoints[j].anchor;
@@ -11295,6 +11702,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         if (!seen[key]) {
                             seen[key] = true;
                             pts.push({ pos: [a[0], a[1]], rotation: rotation });
+                            addDebug("[ANCHOR " + key + "] Rotation: " + (rotation !== null ? rotation + "° from " + rotationSource : "null"));
                         }
                     }
                 }
@@ -11375,8 +11783,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
     // Ensure Thermostat Lines explicitly gets its graphic style applied to every path (defensive)
     try {
+        // NOTE: Naming inconsistency is intentional for backward compatibility with existing templates:
+        // - Graphic style is "Thermostat Line" (SINGULAR)
+        // - Layer is "Thermostat Lines" (PLURAL)
         var _thermostatStyle = null;
-        try { _thermostatStyle = doc.graphicStyles.getByName("Thermostat Lines"); } catch (e) { _thermostatStyle = null; }
+        try { _thermostatStyle = doc.graphicStyles.getByName("Thermostat Line"); } catch (e) { _thermostatStyle = null; }
         var _thermostatLayer = null;
         try { _thermostatLayer = doc.layers.getByName("Thermostat Lines"); } catch (e) { _thermostatLayer = null; }
 
@@ -11444,7 +11855,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             }
         } else {
             if (!_thermostatStyle) {
-                addDebug("[Thermostat Style] ERROR: 'Thermostat Lines' graphic style not found. Import graphic styles first.");
+                addDebug("[Thermostat Style] ERROR: 'Thermostat Line' graphic style not found. Import graphic styles first.");
             }
             if (!_thermostatLayer) {
                 addDebug("[Thermostat Style] ERROR: 'Thermostat Lines' layer not found.");
@@ -11605,4 +12016,20 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     try {
         registerMDUXExports();
     } catch (e) {}
+
+    addDebug("=== MAGIC DUCTWORK COMPLETE ===");
+
+    } catch (scriptError) {
+        // Catch ANY error from the entire script
+        addDebug("");
+        addDebug("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        addDebug("FATAL ERROR: " + scriptError);
+        addDebug("Stack: " + (scriptError.stack || "N/A"));
+        addDebug("Line: " + (scriptError.line || "N/A"));
+        addDebug("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+        alert("Error: " + scriptError);
+    } finally {
+        // ALWAYS show debug dialog, even on error
+        try { showDebugDialog(); } catch (e) {}
+    }
 })();
