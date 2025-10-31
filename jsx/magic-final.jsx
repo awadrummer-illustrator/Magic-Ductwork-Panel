@@ -1,3 +1,53 @@
+// Minimal JSON polyfill for ExtendScript environments lacking native support
+if (typeof JSON === "undefined") {
+    JSON = {};
+}
+if (typeof JSON.stringify !== "function") {
+    JSON.stringify = function (value) {
+        function quote(str) {
+            return '"' + str.replace(/\\/g, '\\\\')
+                             .replace(/"/g, '\\"')
+                             .replace(/\r/g, '\\r')
+                             .replace(/\n/g, '\\n')
+                             .replace(/\f/g, '\\f')
+                             .replace(/\t/g, '\\t')
+                             .replace(/\b/g, '\\b') + '"';
+        }
+        function stringify(val) {
+            if (val === null) return "null";
+            var type = typeof val;
+            if (type === "number" || type === "boolean") return String(val);
+            if (type === "string") return quote(val);
+            if (val instanceof Array) {
+                var arr = [];
+                for (var i = 0; i < val.length; i++) arr.push(stringify(val[i]));
+                return "[" + arr.join(",") + "]";
+            }
+            if (type === "object") {
+                var props = [];
+                for (var key in val) {
+                    if (val.hasOwnProperty(key) && typeof val[key] !== "undefined" && typeof val[key] !== "function") {
+                        props.push(quote(String(key)) + ":" + stringify(val[key]));
+                    }
+                }
+                return "{" + props.join(",") + "}";
+            }
+            return "null";
+        }
+        return stringify(value);
+    };
+}
+if (typeof JSON.parse !== "function") {
+    JSON.parse = function (text) {
+        if (typeof text !== "string") return null;
+        try {
+            return eval('(' + text + ')');
+        } catch (e) {
+            return null;
+        }
+    };
+}
+
 /**
  * MagicFinal Constants Configuration
  *
@@ -42,6 +92,10 @@ var BLUE_RIGHTANGLE_BRANCH_TAG = "MD:BLUE90_BRANCH"; // marks blue 90° branch p
 var ORIGINAL_LAYER_PREFIX = "MD:ORIG_LAYER="; // marker prefix for remembering original layer
 var BRANCH_START_PREFIX = "MD:BRANCH_START="; // marker prefix for custom branch start width
 var REGISTER_WIRE_TAG = "MD:REGISTER_WIRE"; // marker to identify generated register wire connectors
+var PRE_ORTHO_PREFIX = "MD:PREORTHO="; // marker prefix for storing pre-orthogonalization geometry
+var PRE_SCALE_PREFIX = "MD:PRESCALE="; // marker prefix for storing pre-scale metadata
+var CENTERLINE_NOTE_TAG = "MD:CENTERLINE"; // marker to identify processed centerlines
+var CENTERLINE_ID_PREFIX = "MD:CLID="; // marker prefix for per-centerline unique id
 
 // ========================================
 // FEATURE FLAGS
@@ -1441,6 +1495,397 @@ function hasNoteTag(pathItem, tag) {
     return arrayIndexOf(tokens, tag) !== -1;
 }
 
+function storePreOrthoGeometry(pathItem) {
+    if (!pathItem) return;
+    var pts = null;
+    try {
+        pts = pathItem.pathPoints;
+    } catch (e) {
+        return;
+    }
+    if (!pts || pts.length === 0) return;
+    var payload = {
+        closed: !!pathItem.closed,
+        points: []
+    };
+    for (var i = 0; i < pts.length; i++) {
+        var point = pts[i];
+        payload.points.push({
+            anchor: [point.anchor[0], point.anchor[1]],
+            left: [point.leftDirection[0], point.leftDirection[1]],
+            right: [point.rightDirection[0], point.rightDirection[1]]
+        });
+    }
+    var encoded = null;
+    try {
+        encoded = encodeURIComponent(JSON.stringify(payload));
+    } catch (eJSON) {
+        return;
+    }
+    var tokens = readNoteTokens(pathItem);
+    var filtered = [];
+    for (var t = 0; t < tokens.length; t++) {
+        if (!tokens[t]) continue;
+        if (tokens[t].indexOf(PRE_ORTHO_PREFIX) === 0) continue;
+        filtered.push(tokens[t]);
+    }
+    filtered.push(PRE_ORTHO_PREFIX + encoded);
+    writeNoteTokens(pathItem, filtered);
+}
+
+function getPreOrthoGeometry(pathItem) {
+    if (!pathItem) return null;
+    var tokens = readNoteTokens(pathItem);
+    for (var i = 0; i < tokens.length; i++) {
+        var token = tokens[i];
+        if (token && token.indexOf(PRE_ORTHO_PREFIX) === 0) {
+            var dataString = token.substring(PRE_ORTHO_PREFIX.length);
+            try {
+                var decoded = decodeURIComponent(dataString);
+                return JSON.parse(decoded);
+            } catch (e) {
+                return null;
+            }
+        }
+    }
+    return null;
+}
+
+function clearPreOrthoGeometry(pathItem) {
+    if (!pathItem) return;
+    var tokens = readNoteTokens(pathItem);
+    var filtered = [];
+    for (var i = 0; i < tokens.length; i++) {
+        if (!tokens[i]) continue;
+        if (tokens[i].indexOf(PRE_ORTHO_PREFIX) === 0) continue;
+        filtered.push(tokens[i]);
+    }
+    writeNoteTokens(pathItem, filtered);
+}
+
+function applyPreOrthoGeometry(pathItem, geometry) {
+    if (!pathItem || !geometry || !geometry.points || !geometry.points.length) {
+        return false;
+    }
+    try {
+        pathItem.closed = !!geometry.closed;
+    } catch (eClosed) {}
+    var anchorArray = [];
+    for (var i = 0; i < geometry.points.length; i++) {
+        var point = geometry.points[i];
+        anchorArray.push([point.anchor[0], point.anchor[1]]);
+    }
+    try {
+        pathItem.setEntirePath(anchorArray);
+    } catch (eSet) {
+        return false;
+    }
+    var pts = null;
+    try {
+        pts = pathItem.pathPoints;
+    } catch (ePts) {
+        return false;
+    }
+    if (!pts || pts.length !== geometry.points.length) {
+        return false;
+    }
+    for (var j = 0; j < pts.length; j++) {
+        try {
+            var dataPoint = geometry.points[j];
+            pts[j].anchor = [dataPoint.anchor[0], dataPoint.anchor[1]];
+            pts[j].leftDirection = [dataPoint.left[0], dataPoint.left[1]];
+            pts[j].rightDirection = [dataPoint.right[0], dataPoint.right[1]];
+        } catch (eAssign) {
+            // Continue applying remaining points
+        }
+    }
+    return true;
+}
+
+function matrixToObject(matrix) {
+    if (!matrix) return null;
+    return {
+        a: matrix.mValueA,
+        b: matrix.mValueB,
+        c: matrix.mValueC,
+        d: matrix.mValueD,
+        tx: matrix.mValueTX,
+        ty: matrix.mValueTY
+    };
+}
+
+function objectToMatrix(obj) {
+    if (!obj) return null;
+    var m = app.getIdentityMatrix ? app.getIdentityMatrix() : new Matrix();
+    m.mValueA = obj.a;
+    m.mValueB = obj.b;
+    m.mValueC = obj.c;
+    m.mValueD = obj.d;
+    m.mValueTX = obj.tx;
+    m.mValueTY = obj.ty;
+    return m;
+}
+
+function writePreScaleData(item, data) {
+    if (!item || !data) return;
+    var encoded;
+    try {
+        encoded = encodeURIComponent(JSON.stringify(data));
+    } catch (e) {
+        return;
+    }
+    var tokens = readNoteTokens(item);
+    var tag = PRE_SCALE_PREFIX + encoded;
+    var replaced = false;
+    for (var i = 0; i < tokens.length; i++) {
+        if (tokens[i] && tokens[i].indexOf(PRE_SCALE_PREFIX) === 0) {
+            tokens[i] = tag;
+            replaced = true;
+            break;
+        }
+    }
+    if (!replaced) {
+        tokens.push(tag);
+    }
+
+    try {
+        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\write-metadata.log");
+        logFile.open("a");
+        logFile.writeln("[WRITE] Writing metadata: lastPercent=" + data.lastPercent);
+        logFile.writeln("[WRITE]   Item: " + item.typename);
+        logFile.close();
+    } catch (e) {}
+
+    writeNoteTokens(item, tokens);
+}
+
+function storePreScaleData(item) {
+    if (!item) return null;
+    var existing = getPreScaleData(item);
+    if (existing) return existing;
+
+    var data = {
+        basePercent: 100,
+        lastPercent: 100,
+        matrix: null,
+        strokeWidth: null
+    };
+    try {
+        data.matrix = matrixToObject(item.matrix);
+    } catch (eMatrix) {
+        data.matrix = null;
+    }
+
+    // Don't store strokeWidth for ductwork lines - they use appearance attributes
+    var layerName = "";
+    try { layerName = item.layer ? item.layer.name : ""; } catch (e) { layerName = ""; }
+    var isLineLayer = layerName && isDuctworkLineLayer(layerName);
+
+    if (item.typename === "PathItem" && !isLineLayer) {
+        try {
+            data.strokeWidth = item.strokeWidth;
+        } catch (eSW) {
+            data.strokeWidth = null;
+        }
+    }
+    if (item.typename === "PlacedItem") {
+        var currentMetaScale = getPlacedScale(item);
+        if (typeof currentMetaScale === "number" && isFinite(currentMetaScale) && currentMetaScale > 0) {
+            data.lastPercent = currentMetaScale;
+        }
+    }
+    writePreScaleData(item, data);
+    return data;
+}
+
+function getPreScaleData(item) {
+    if (!item) return null;
+    var tokens = readNoteTokens(item);
+
+    try {
+        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\read-metadata.log");
+        logFile.open("a");
+        logFile.writeln("[READ] Reading metadata from: " + item.typename);
+        logFile.writeln("[READ]   Found " + tokens.length + " tokens");
+        logFile.close();
+    } catch (e) {}
+
+    for (var i = 0; i < tokens.length; i++) {
+        var token = tokens[i];
+        if (token && token.indexOf(PRE_SCALE_PREFIX) === 0) {
+            var payload = token.substring(PRE_SCALE_PREFIX.length);
+            try {
+                var decoded = decodeURIComponent(payload);
+                var data = JSON.parse(decoded);
+                if (typeof data.basePercent !== "number" || !isFinite(data.basePercent) || data.basePercent <= 0) {
+                    data.basePercent = 100;
+                }
+                if (typeof data.lastPercent !== "number" || !isFinite(data.lastPercent) || data.lastPercent <= 0) {
+                    data.lastPercent = data.basePercent || 100;
+                }
+                if (typeof data.strokeWidth === "undefined") {
+                    data.strokeWidth = null;
+                }
+                if (!data.hasOwnProperty("matrix")) {
+                    data.matrix = null;
+                }
+
+                try {
+                    var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\read-metadata.log");
+                    logFile.open("a");
+                    logFile.writeln("[READ]   Found scale data: lastPercent=" + data.lastPercent);
+                    logFile.close();
+                } catch (e) {}
+
+                return data;
+            } catch (eParse) {
+                return null;
+            }
+        }
+    }
+
+    try {
+        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\read-metadata.log");
+        logFile.open("a");
+        logFile.writeln("[READ]   No scale data found");
+        logFile.close();
+    } catch (e) {}
+
+    return null;
+}
+
+function clearPreScaleData(item) {
+    if (!item) return;
+    try {
+        if (item.__MDUXScaleState) {
+            item.__MDUXScaleState = { lastPercent: 100 };
+        }
+    } catch (eState) {}
+    var tokens = readNoteTokens(item);
+    var filtered = [];
+    for (var i = 0; i < tokens.length; i++) {
+        if (!tokens[i]) continue;
+        if (tokens[i].indexOf(PRE_SCALE_PREFIX) === 0) continue;
+        filtered.push(tokens[i]);
+    }
+    writeNoteTokens(item, filtered);
+}
+
+function applyScaleToItem(item, percent) {
+    if (!item || !isFinite(percent) || percent <= 0) return false;
+    var layerName = "";
+    try { layerName = item.layer ? item.layer.name : ""; } catch (eLayer) { layerName = ""; }
+    var isLineLayer = layerName && isDuctworkLineLayer(layerName);
+    var typeName = item.typename;
+
+    var data = getPreScaleData(item);
+    if (!data) {
+        data = storePreScaleData(item);
+        if (!data) return false;
+    }
+
+    if (isLineLayer && (typeName === "PathItem" || typeName === "CompoundPathItem")) {
+        var state = null;
+        try {
+            state = item.__MDUXScaleState || null;
+        } catch (eState) {
+            state = null;
+        }
+        if (!state) {
+            state = { lastPercent: 100 };
+            try { item.__MDUXScaleState = state; } catch (eAssign) {}
+        }
+
+        var lastPercent = 100;
+        if (data && typeof data.lastPercent === "number" && isFinite(data.lastPercent) && data.lastPercent > 0) {
+            lastPercent = data.lastPercent;
+        } else if (state && typeof state.lastPercent === "number" && isFinite(state.lastPercent) && state.lastPercent > 0) {
+            lastPercent = state.lastPercent;
+        }
+        if (typeof data.basePercent !== "number" || !isFinite(data.basePercent) || data.basePercent <= 0) {
+            data.basePercent = 100;
+        }
+
+        var scaleFactor = (percent / lastPercent) * 100;
+        if (!isFinite(scaleFactor) || scaleFactor <= 0) {
+            scaleFactor = 100;
+        }
+
+        try {
+            item.resize(100, 100, false, false, false, false, scaleFactor, Transformation.CENTER);
+            data.lastPercent = percent;
+            writePreScaleData(item, data);
+            try { state.lastPercent = percent; } catch (eSetState) {}
+            return true;
+        } catch (eApply) {
+            return false;
+        }
+    }
+
+    var currentPercent = data.lastPercent;
+    if (typeName === "PlacedItem") {
+        var storedScale = getPlacedScale(item);
+        if (typeof storedScale === "number" && isFinite(storedScale) && storedScale > 0) {
+            currentPercent = storedScale;
+        }
+    }
+    if (typeof currentPercent !== "number" || !isFinite(currentPercent) || currentPercent <= 0) {
+        currentPercent = 100;
+    }
+
+    var ratio = percent / currentPercent;
+    if (!isFinite(ratio) || ratio <= 0) {
+        return false;
+    }
+
+    if (Math.abs(ratio - 1) < 0.0001) {
+        data.lastPercent = percent;
+        writePreScaleData(item, data);
+        if (typeName === "PlacedItem") {
+            if (Math.abs(percent - 100) < 0.0001) {
+                clearPlacedScale(item);
+            } else {
+                setPlacedScale(item, percent);
+            }
+        }
+        return true;
+    }
+
+    var resizePercent = ratio * 100;
+    var scaled = false;
+    try {
+        if (item.resize) {
+            item.resize(resizePercent, resizePercent, true, true, true, true, true, Transformation.CENTER);
+            scaled = true;
+        }
+    } catch (eResize) {
+        scaled = false;
+    }
+    if (!scaled) {
+        try {
+            if (item.resize) {
+                item.resize(resizePercent, resizePercent);
+                scaled = true;
+            }
+        } catch (eResizeFallback) {
+            scaled = false;
+        }
+    }
+
+    if (scaled) {
+        data.lastPercent = percent;
+        writePreScaleData(item, data);
+        if (typeName === "PlacedItem") {
+            if (Math.abs(percent - 100) < 0.0001) {
+                clearPlacedScale(item);
+            } else {
+                setPlacedScale(item, percent);
+            }
+        }
+    }
+
+    return scaled;
+}
 // ========================================
 // BRANCH WIDTH METADATA
 // ========================================
@@ -2001,6 +2446,8 @@ function setStaticTextColor(control, rgbArray) {
     var PLACED_BASE_ROT_PREFIX = "MD:PLACED_BASE_ROT="; // marker prefix for placed item base rotation from linked file
     var CENTERLINE_NOTE_TAG = "MD:CENTERLINE"; // marker to identify processed centerlines
     var CENTERLINE_ID_PREFIX = "MD:CLID="; // marker prefix for per-centerline unique id
+    var PRE_ORTHO_PREFIX = "MD:PREORTHO="; // stores pre-orthogonalization geometry
+    var PRE_SCALE_PREFIX = "MD:PRESCALE="; // stores pre-scale metadata
     var BLUE_RIGHTANGLE_BRANCH_TAG = "MD:BLUE90_BRANCH"; // marks blue 90° branch paths that need special handling
     var ORIGINAL_LAYER_PREFIX = "MD:ORIG_LAYER="; // marker prefix for remembering original layer
     var CONNECTION_DIST = 2; // px stricter threshold for actual compounding
@@ -2080,53 +2527,53 @@ function setStaticTextColor(control, rgbArray) {
         "Thermostat Lines"
     ];
 
-    var EMORY_LINE_LAYERS = [
-        "Green Ductwork Emory",
-        "Light Green Ductwork Emory",
-        "Blue Ductwork Emory",
-        "Orange Ductwork Emory",
-        "Light Orange Ductwork Emory",
-        "Thermostat Lines"
-    ];
+var EMORY_LINE_LAYERS = [
+    "Green Ductwork Emory",
+    "Light Green Ductwork Emory",
+    "Blue Ductwork Emory",
+    "Orange Ductwork Emory",
+    "Light Orange Ductwork Emory",
+    "Thermostat Lines"
+];
 
-    var EMORY_STYLE_MAP = {
-        "Green Ductwork Emory": "Green Ductwork Emory",
-        "Light Green Ductwork Emory": "Light Green Ductwork Emory",
-        "Blue Ductwork Emory": "Blue Ductwork Emory",
-        "Orange Ductwork Emory": "Orange Ductwork Emory",
-        "Light Orange Ductwork Emory": "Light Orange Ductwork Emory",
-        "Thermostat Lines": "Thermostat Line Emory"
-    };
+var EMORY_STYLE_MAP = {
+    "Green Ductwork Emory": "Green Ductwork Emory",
+    "Light Green Ductwork Emory": "Light Green Ductwork Emory",
+    "Blue Ductwork Emory": "Blue Ductwork Emory",
+    "Orange Ductwork Emory": "Orange Ductwork Emory",
+    "Light Orange Ductwork Emory": "Light Orange Ductwork Emory",
+    "Thermostat Lines": "Thermostat Line Emory"
+};
 
-    var NORMAL_STYLE_MAP = {
-        "Green Ductwork": "Green Ductwork",
-        "Light Green Ductwork": "Light Green Ductwork",
-        "Blue Ductwork": "Blue Ductwork",
-        "Orange Ductwork": "Orange Ductwork",
-        "Light Orange Ductwork": "Light Orange Ductwork",
-        "Thermostat Lines": "Thermostat Lines"
-    };
+var NORMAL_STYLE_MAP = {
+    "Green Ductwork": "Green Ductwork",
+    "Light Green Ductwork": "Light Green Ductwork",
+    "Blue Ductwork": "Blue Ductwork",
+    "Orange Ductwork": "Orange Ductwork",
+    "Light Orange Ductwork": "Light Orange Ductwork",
+    "Thermostat Lines": "Thermostat Lines"
+};
 
-    var DUCTWORK_COLOR_OPTIONS = [
-        "Green Ductwork",
-        "Light Green Ductwork",
-        "Blue Ductwork",
-        "Orange Ductwork",
-        "Light Orange Ductwork"
-    ];
+var DUCTWORK_COLOR_OPTIONS = [
+    "Green Ductwork",
+    "Light Green Ductwork",
+    "Blue Ductwork",
+    "Orange Ductwork",
+    "Light Orange Ductwork"
+];
 
-    var LAYER_TO_COLOR_NAME = {
-        "Green Ductwork": "Green Ductwork",
-        "Light Green Ductwork": "Light Green Ductwork",
-        "Blue Ductwork": "Blue Ductwork",
-        "Orange Ductwork": "Orange Ductwork",
-        "Light Orange Ductwork": "Light Orange Ductwork",
-        "Green Ductwork Emory": "Green Ductwork",
-        "Light Green Ductwork Emory": "Light Green Ductwork",
-        "Blue Ductwork Emory": "Blue Ductwork",
-        "Orange Ductwork Emory": "Orange Ductwork",
-        "Light Orange Ductwork Emory": "Light Orange Ductwork"
-    };
+var LAYER_TO_COLOR_NAME = {
+    "Green Ductwork": "Green Ductwork",
+    "Light Green Ductwork": "Light Green Ductwork",
+    "Blue Ductwork": "Blue Ductwork",
+    "Orange Ductwork": "Orange Ductwork",
+    "Light Orange Ductwork": "Light Orange Ductwork",
+    "Green Ductwork Emory": "Green Ductwork",
+    "Light Green Ductwork Emory": "Light Green Ductwork",
+    "Blue Ductwork Emory": "Blue Ductwork",
+    "Orange Ductwork Emory": "Orange Ductwork",
+    "Light Orange Ductwork Emory": "Light Orange Ductwork"
+};
 
     function getColorNameForLayer(layerName) {
         if (!layerName) return null;
@@ -3342,6 +3789,512 @@ function setStaticTextColor(control, rgbArray) {
             try { alert("Revert to Lines failed: " + revertErr); } catch (alertErr) {}
         }
     }
+
+    function revertSelectionToPreOrtho(selectionItems) {
+        var stats = {
+            total: 0,
+            reverted: 0,
+            skipped: 0
+        };
+
+        if (!selectionItems || (selectionItems.length === 0 && !selectionItems.typename)) {
+            return stats;
+        }
+
+        var paths = [];
+
+        function collect(item) {
+            if (!item) return;
+            try {
+                var typeName = item.typename;
+                if (typeName === "PathItem") {
+                    paths.push(item);
+                } else if (typeName === "GroupItem") {
+                    for (var gi = 0; gi < item.pageItems.length; gi++) {
+                        collect(item.pageItems[gi]);
+                    }
+                } else if (typeName === "CompoundPathItem") {
+                    for (var ci = 0; ci < item.pathItems.length; ci++) {
+                        collect(item.pathItems[ci]);
+                    }
+                }
+            } catch (e) {}
+        }
+
+        if (selectionItems.length === undefined && selectionItems.typename) {
+            collect(selectionItems);
+        } else {
+            for (var i = 0; i < selectionItems.length; i++) {
+                collect(selectionItems[i]);
+            }
+        }
+
+        stats.total = paths.length;
+
+        for (var p = 0; p < paths.length; p++) {
+            var pathItem = paths[p];
+            if (!pathItem) {
+                stats.skipped++;
+                continue;
+            }
+            var geometry = getPreOrthoGeometry(pathItem);
+            if (!geometry) {
+                stats.skipped++;
+                continue;
+            }
+            if (applyPreOrthoGeometry(pathItem, geometry)) {
+                stats.reverted++;
+            } else {
+                stats.skipped++;
+            }
+            clearPreOrthoGeometry(pathItem);
+        }
+
+        return stats;
+    }
+
+    function layerNameInList(name, list) {
+        if (!name || !list) return false;
+        for (var i = 0; i < list.length; i++) {
+            if (list[i] === name) return true;
+        }
+        return false;
+    }
+
+function collectScaleTargetsFromItem(item, targets, visited) {
+    if (!item) return;
+    if (!visited) visited = [];
+    if (arrayIndexOf(visited, item) !== -1) return;
+    visited.push(item);
+
+        var layerName = "";
+        try { layerName = item.layer ? item.layer.name : ""; } catch (e) { layerName = ""; }
+        var typeName = item.typename;
+        var isPieceLayer = layerNameInList(layerName, DUCTWORK_PIECES);
+        var isLineLayer = isDuctworkLineLayer(layerName);
+
+        if (isPieceLayer) {
+            if (arrayIndexOf(targets, item) === -1) targets.push(item);
+            return;
+        }
+
+        // Include ductwork lines for stroke scaling using resize method
+        if (isLineLayer && (typeName === "PathItem" || typeName === "CompoundPathItem")) {
+            if (arrayIndexOf(targets, item) === -1) targets.push(item);
+            return;
+        }
+
+        if (typeName === "GroupItem" || typeName === "Layer") {
+            try {
+                for (var gi = 0; gi < item.pageItems.length; gi++) {
+                    collectScaleTargetsFromItem(item.pageItems[gi], targets, visited);
+                }
+            } catch (eGroup) {}
+            return;
+        }
+
+        // DO NOT recurse into CompoundPathItem children - the reference script doesn't
+        // Scale the CompoundPathItem itself, which is already handled above
+        if (typeName === "CompoundPathItem") {
+            // Already handled above in the ductwork line check
+            return;
+        }
+
+        if (typeName === "PathItem" || typeName === "PlacedItem" || typeName === "RasterItem" || typeName === "TextFrame") {
+            if (arrayIndexOf(targets, item) === -1) targets.push(item);
+        }
+    }
+
+    function collectScaleTargets(selectionItems) {
+        var targets = [];
+        if (!selectionItems) return targets;
+        if (selectionItems.length === undefined && selectionItems.typename) {
+            collectScaleTargetsFromItem(selectionItems, targets, []);
+        } else {
+            for (var i = 0; i < selectionItems.length; i++) {
+                collectScaleTargetsFromItem(selectionItems[i], targets, []);
+            }
+        }
+        return targets;
+    }
+
+    function scaleSelectionAbsolute(percent, selectionItems) {
+        var stats = {
+            total: 0,
+            scaled: 0,
+            skipped: 0
+        };
+        if (!app.documents.length) return stats;
+        var doc = app.activeDocument;
+        if (!selectionItems) {
+            try { selectionItems = doc.selection; } catch (eSel) { selectionItems = null; }
+        }
+        if (!selectionItems || (selectionItems.length === 0 && !selectionItems.typename)) {
+            return stats;
+        }
+
+        var targets = collectScaleTargets(selectionItems);
+        stats.total = targets.length;
+
+        for (var i = 0; i < targets.length; i++) {
+            var target = targets[i];
+            if (!target) {
+                stats.skipped++;
+                continue;
+            }
+            storePreScaleData(target);
+            if (applyScaleToItem(target, percent)) {
+                stats.scaled++;
+            } else {
+                stats.skipped++;
+            }
+        }
+
+        try { doc.selection = targets; } catch (eSel2) {}
+        try { app.redraw(); } catch (eRedraw) {}
+        return stats;
+    }
+
+    function resetSelectionScale(selectionItems) {
+        var stats = {
+            total: 0,
+            reset: 0,
+            skipped: 0
+        };
+        if (!app.documents.length) return stats;
+        var doc = app.activeDocument;
+        if (!selectionItems) {
+            try { selectionItems = doc.selection; } catch (eSel) { selectionItems = null; }
+        }
+        if (!selectionItems || (selectionItems.length === 0 && !selectionItems.typename)) {
+            return stats;
+        }
+
+        var targets = collectScaleTargets(selectionItems);
+        stats.total = targets.length;
+        for (var i = 0; i < targets.length; i++) {
+            var target = targets[i];
+            if (!target) {
+                stats.skipped++;
+                continue;
+            }
+
+            var data = getPreScaleData(target);
+            if (!data) {
+                data = storePreScaleData(target);
+            }
+
+            var resetPercent = 100;
+            if (data && typeof data.basePercent === "number" && isFinite(data.basePercent) && data.basePercent > 0) {
+                resetPercent = data.basePercent;
+            }
+
+            var success = applyScaleToItem(target, resetPercent);
+
+            if (!success) {
+                var isLineLayer = false;
+                try {
+                    var lyrName = target.layer ? target.layer.name : "";
+                    isLineLayer = isDuctworkLineLayer(lyrName);
+                } catch (eLayerCheck) {
+                    isLineLayer = false;
+                }
+                if (isLineLayer) {
+                    try {
+                        applyCenterlineStrokeColor(target);
+                        success = true;
+                    } catch (eStyle) {
+                        success = false;
+                    }
+                }
+            }
+
+            if (success) {
+                if (Math.abs(resetPercent - 100) < 0.0001) {
+                    clearPreScaleData(target);
+                }
+                stats.reset++;
+            } else {
+                stats.skipped++;
+            }
+        }
+        try { doc.selection = targets; } catch (eSel2) {}
+        try { app.redraw(); } catch (eRedraw) {}
+        return stats;
+    }
+
+    function rotateSelection(angle, selectionItems) {
+        var stats = {
+            total: 0,
+            rotated: 0,
+            skipped: 0
+        };
+        if (!app.documents.length) return stats;
+        var doc = app.activeDocument;
+        if (!selectionItems) {
+            try { selectionItems = doc.selection; } catch (eSel) { selectionItems = null; }
+        }
+        if (!selectionItems || (selectionItems.length === 0 && !selectionItems.typename)) {
+            return stats;
+        }
+
+        var targets = [];
+        function collect(item) {
+            if (!item) return;
+            var layerName = "";
+            try { layerName = item.layer ? item.layer.name : ""; } catch (e) { layerName = ""; }
+            if (layerNameInList(layerName, DUCTWORK_PIECES)) {
+                if (arrayIndexOf(targets, item) === -1) targets.push(item);
+                return;
+            }
+            var typeName = item.typename;
+            if (typeName === "GroupItem") {
+                try {
+                    for (var gi = 0; gi < item.pageItems.length; gi++) {
+                        collect(item.pageItems[gi]);
+                    }
+                } catch (eGroup) {}
+            } else if (typeName === "CompoundPathItem") {
+                try {
+                    for (var ci = 0; ci < item.pathItems.length; ci++) {
+                        collect(item.pathItems[ci]);
+                    }
+                } catch (eComp) {}
+            }
+        }
+
+        if (selectionItems.length === undefined && selectionItems.typename) {
+            collect(selectionItems);
+        } else {
+            for (var i = 0; i < selectionItems.length; i++) {
+                collect(selectionItems[i]);
+            }
+        }
+
+        stats.total = targets.length;
+        for (var t = 0; t < targets.length; t++) {
+            var target = targets[t];
+            if (!target) {
+                stats.skipped++;
+                continue;
+            }
+            try {
+                target.rotate(angle, true, true, true, true, Transformation.CENTER);
+                stats.rotated++;
+                if (target.typename === "PlacedItem") {
+                    var appliedAngle = null;
+                    try {
+                        var m = target.matrix;
+                        appliedAngle = Math.atan2(m.mValueB, m.mValueA) * (180 / Math.PI);
+                    } catch (eMatrix) {
+                        appliedAngle = null;
+                    }
+                    if (appliedAngle !== null && isFinite(appliedAngle)) {
+                        setPlacedRotation(target, normalizeAngle(appliedAngle));
+                    }
+                }
+            } catch (eRotate) {
+                stats.skipped++;
+            }
+        }
+        try { doc.selection = targets; } catch (eSelReset) {}
+        try { app.redraw(); } catch (eRedraw) {}
+        return stats;
+    }
+
+    function setLayerLockRecursive(layer, locked) {
+        if (!layer) return;
+        try { layer.locked = locked; } catch (e) {}
+        try {
+            for (var i = 0; i < layer.layers.length; i++) {
+                setLayerLockRecursive(layer.layers[i], locked);
+            }
+        } catch (eSub) {}
+    }
+
+    function isolateLayers(allowedNames, message) {
+        if (!app.documents.length) return "ERROR:No Illustrator document is open.";
+        var doc = app.activeDocument;
+        var allowedMap = {};
+        for (var i = 0; i < allowedNames.length; i++) {
+            allowedMap[allowedNames[i]] = true;
+        }
+        for (var li = 0; li < doc.layers.length; li++) {
+            var layer = doc.layers[li];
+            var allow = !!allowedMap[layer.name];
+            setLayerLockRecursive(layer, !allow);
+            if (allow) {
+                try { layer.visible = true; } catch (eVis) {}
+            }
+        }
+        try { app.redraw(); } catch (eRedraw) {}
+        return message;
+    }
+
+    function isolateDuctworkParts() {
+        return isolateLayers(DUCTWORK_PIECES, "Isolated ductwork part layers.");
+    }
+
+    function isolateDuctworkLines() {
+        return isolateLayers(DUCTWORK_LINES, "Isolated ductwork line layers.");
+    }
+
+    function unlockAllDuctworkLayers() {
+        if (!app.documents.length) return "ERROR:No Illustrator document is open.";
+        var doc = app.activeDocument;
+        var allowed = DUCTWORK_PIECES.concat(DUCTWORK_LINES);
+        var allowedMap = {};
+        for (var i = 0; i < allowed.length; i++) {
+            allowedMap[allowed[i]] = true;
+        }
+        for (var li = 0; li < doc.layers.length; li++) {
+            var layer = doc.layers[li];
+            if (allowedMap[layer.name]) {
+                setLayerLockRecursive(layer, false);
+                try { layer.visible = true; } catch (eVis) {}
+            }
+        }
+        try { app.redraw(); } catch (eRedraw) {}
+        return "Unlocked ductwork layers.";
+    }
+
+    function importDuctworkGraphicStyles() {
+        if (!app.documents.length) return "ERROR:No Illustrator document is open.";
+        var destDoc = app.activeDocument;
+        var sourceFile = new File("E:/Work/Work/Floorplans/Ductwork Assets/DuctworkLines.ai");
+        if (!sourceFile.exists) {
+            return "ERROR:DuctworkLines.ai not found.";
+        }
+        var sourceDoc = null;
+        try {
+            sourceDoc = app.open(sourceFile);
+            app.activeDocument = sourceDoc;
+            for (var L = 0; L < sourceDoc.layers.length; L++) {
+                try {
+                    sourceDoc.layers[L].locked = false;
+                    sourceDoc.layers[L].visible = true;
+                } catch (eUnlock) {}
+            }
+            var items = sourceDoc.pageItems;
+            if (!items || items.length === 0) {
+                sourceDoc.close(SaveOptions.DONOTSAVECHANGES);
+                app.activeDocument = destDoc;
+                return "ERROR:Source document contained no artwork.";
+            }
+            for (var i = 0; i < items.length; i++) {
+                try { items[i].selected = true; } catch (eSel) {}
+            }
+            app.copy();
+            sourceDoc.close(SaveOptions.DONOTSAVECHANGES);
+        } catch (e) {
+            try {
+                if (sourceDoc) sourceDoc.close(SaveOptions.DONOTSAVECHANGES);
+            } catch (eClose) {}
+            app.activeDocument = destDoc;
+            return "ERROR:Error importing styles: " + e;
+        }
+
+        app.activeDocument = destDoc;
+        destDoc.selection = null;
+        var tempLayerName = "__MDUX_STYLE_IMPORT__";
+        var tempLayer;
+        try {
+            tempLayer = destDoc.layers.getByName(tempLayerName);
+        } catch (eTemp) {
+            tempLayer = destDoc.layers.add();
+            tempLayer.name = tempLayerName;
+        }
+        tempLayer.locked = false;
+        destDoc.activeLayer = tempLayer;
+        app.executeMenuCommand("pasteInPlace");
+        var pasted = null;
+        try { pasted = destDoc.selection; } catch (eSel) { pasted = null; }
+        if (pasted) {
+            if (pasted.length === undefined) pasted = [pasted];
+            for (var p = pasted.length - 1; p >= 0; p--) {
+                try { pasted[p].remove(); } catch (eRem) {}
+            }
+        }
+        destDoc.selection = null;
+        try {
+            if (!tempLayer.pageItems.length && !tempLayer.groupItems.length) {
+                tempLayer.remove();
+            }
+        } catch (eRemove) {}
+        try { app.redraw(); } catch (eRedraw2) {}
+        return "Graphic styles imported.";
+    }
+
+    function createStandardLayerBlock() {
+        if (!app.documents.length) return "ERROR:No Illustrator document is open.";
+        try {
+            ensureFinalLayerBlockOrder();
+            try { app.redraw(); } catch (eRedraw) {}
+            return "Standard ductwork layers ensured.";
+        } catch (e) {
+            return "ERROR:" + e;
+        }
+    }
+
+    function registerMDUXExports() {
+        try {
+            var mdNamespace = null;
+            if (typeof MDUX !== "undefined" && MDUX) {
+                mdNamespace = MDUX;
+            } else if ($.global.MDUX) {
+                mdNamespace = $.global.MDUX;
+            } else {
+                mdNamespace = {};
+            }
+            $.global.MDUX = mdNamespace;
+            try {
+                MDUX = mdNamespace;
+            } catch (eAssign) {
+                // ignore assignment issues
+            }
+            mdNamespace.revertSelectionToPreOrtho = function (selectionItems) {
+                var items = selectionItems;
+                if (!items && app.documents.length) {
+                    try { items = app.activeDocument.selection; } catch (eSel) { items = null; }
+                }
+                return revertSelectionToPreOrtho(items);
+            };
+            mdNamespace.rotateSelection = function (angle, selectionItems) {
+                return rotateSelection(angle, selectionItems);
+            };
+            mdNamespace.scaleSelectionAbsolute = function (percent, selectionItems) {
+                return scaleSelectionAbsolute(percent, selectionItems);
+            };
+            mdNamespace.resetSelectionScale = function (selectionItems) {
+                return resetSelectionScale(selectionItems);
+            };
+            mdNamespace.isolateDuctworkParts = function () {
+                return isolateDuctworkParts();
+            };
+            mdNamespace.isolateDuctworkLines = function () {
+                return isolateDuctworkLines();
+            };
+            mdNamespace.unlockAllDuctworkLayers = function () {
+                return unlockAllDuctworkLayers();
+            };
+            mdNamespace.importDuctworkGraphicStyles = function () {
+                return importDuctworkGraphicStyles();
+            };
+            mdNamespace.createStandardLayerBlock = function () {
+                return createStandardLayerBlock();
+            };
+            mdNamespace.checkSkipOrthoState = function (selectionItems) {
+                var items = selectionItems;
+                if (!items && app.documents.length) {
+                    try { items = app.activeDocument.selection; } catch (eSel) { items = null; }
+                }
+                return checkSkipOrthoState(items);
+            };
+        } catch (e) {}
+    }
+    
+    registerMDUXExports();
+
 
     // Helper function to check if two bounds overlap
     function boundsOverlap(bounds1, bounds2) {
@@ -6670,11 +7623,44 @@ function setStaticTextColor(control, rgbArray) {
     }
 
     var selectionContext = collectSelectionContext(originalSelectionItems);
-    var startupChoice = showUnifiedDuctworkDialog(selectionContext, selectionContext.storedSettings);
+
+    var forcedOptions = null;
+    try {
+        if ($.global.MDUX && $.global.MDUX.forcedOptions) {
+            forcedOptions = $.global.MDUX.forcedOptions;
+            delete $.global.MDUX.forcedOptions;
+        }
+    } catch (forcedErr) {
+        forcedOptions = null;
+    }
+
+    var startupChoice;
+    if (forcedOptions) {
+        startupChoice = {
+            action: forcedOptions.action || "process",
+            mode: "normal",
+            rotationOverride: (typeof forcedOptions.rotationOverride === "number" && isFinite(forcedOptions.rotationOverride)) ? forcedOptions.rotationOverride : null,
+            skipFinalRegisterSegment: !!forcedOptions.skipFinalRegisterSegment
+        };
+        if (typeof forcedOptions.skipOrtho === "boolean") {
+            var skipValue = !!forcedOptions.skipOrtho;
+            startupChoice.skipOrthoState = {
+                checkboxValue: skipValue,
+                initialValue: !skipValue,
+                changed: true
+            };
+        }
+    } else {
+        startupChoice = showUnifiedDuctworkDialog(selectionContext, selectionContext.storedSettings);
+    }
     if (startupChoice && typeof startupChoice.skipFinalRegisterSegment !== "undefined") {
         SKIP_FINAL_REGISTER_ORTHO = !!startupChoice.skipFinalRegisterSegment;
     }
     if (!startupChoice || startupChoice.action === "cancel") {
+        return;
+    }
+    if (startupChoice.action === "library") {
+        try { registerMDUXExports(); } catch (eReg) {}
         return;
     }
     if (startupChoice.action === "flipOnly") {
@@ -7228,6 +8214,7 @@ function setStaticTextColor(control, rgbArray) {
             return false;
         }
         if (!pts || pts.length < 2) return false;
+        storePreOrthoGeometry(pathItem);
         var registerAnchorIndex = null;
         if (branchData && typeof branchData.branchAnchorIndex === "number") {
             var maxAnchorIndex = pts.length - 1;
@@ -9019,9 +10006,9 @@ function setStaticTextColor(control, rgbArray) {
         // Always use base graphic styles for ductwork lines; Emory rectangles keep their styles separately
         var styleEmoryAppend = "";
         var styleMappings = [
-            { layerName: "Blue Ductwork", styleName: "Blue Ductwork" + styleEmoryAppend },
             { layerName: "Green Ductwork", styleName: "Green Ductwork" + styleEmoryAppend },
             { layerName: "Light Green Ductwork", styleName: "Light Green Ductwork" + styleEmoryAppend },
+            { layerName: "Blue Ductwork", styleName: "Blue Ductwork" + styleEmoryAppend },
             { layerName: "Orange Ductwork", styleName: "Orange Ductwork" + styleEmoryAppend },
             { layerName: "Light Orange Ductwork", styleName: "Light Orange Ductwork" + styleEmoryAppend },
             { layerName: "Thermostat Lines", styleName: "Thermostat Lines" }
@@ -9236,11 +10223,11 @@ function setStaticTextColor(control, rgbArray) {
             { name: "Circular Registers", color: [200,200,200] },
             { name: "Orange Register", color: [128,128,128] },
             { name: "Square Registers", color: [254,124,0] },
-            { name: "Green Ductwork", color: [0,89,31] },
-            { name: "Light Green Ductwork", color: [102,255,153] },
-            { name: "Blue Ductwork", color: [0,199,209] },
+            { name: "Light Orange Ductwork", color: [153,51,0] },
             { name: "Orange Ductwork", color: [243,189,141] },
-            { name: "Light Orange Ductwork", color: [153,51,0] }
+            { name: "Blue Ductwork", color: [0,199,209] },
+            { name: "Light Green Ductwork", color: [102,255,153] },
+            { name: "Green Ductwork", color: [0,89,31] }
             // NOTE: No separate Emory layers - both Normal and Emory modes use the same ductwork layers
             // The difference is in the graphic styles applied and the Double Ductwork (rectangles/connectors)
         ];
@@ -9398,7 +10385,7 @@ function setStaticTextColor(control, rgbArray) {
     // Both Normal AND Emory mode use compounding to create proper centerlines
     // The Double Ductwork (rectangles/connectors) are generated separately AFTER compounding
     addDebug("\n=== COMPOUNDING CONNECTED PATHS ===");
-    var baseCompoundLayers = ["Blue Ductwork", "Orange Ductwork", "Green Ductwork", "Light Orange Ductwork"];
+    var baseCompoundLayers = ["Green Ductwork", "Blue Ductwork", "Orange Ductwork", "Light Orange Ductwork"];
     var layersToProcess = [];
     for (var baseIdx = 0; baseIdx < baseCompoundLayers.length; baseIdx++) {
         var baseLayerName = baseCompoundLayers[baseIdx];
@@ -10215,10 +11202,10 @@ function setStaticTextColor(control, rgbArray) {
             "Circular Registers",
             "Orange Register",
             "Square Registers",
-            "Green Ductwork",
-            "Blue Ductwork",
+            "Light Orange Ductwork",
             "Orange Ductwork",
-            "Light Orange Ductwork"
+            "Blue Ductwork",
+            "Green Ductwork"
         ];
 
         // Create any missing layers (best-effort) without altering other layers otherwise
@@ -10321,4 +11308,8 @@ function setStaticTextColor(control, rgbArray) {
 
     // Run final ordering pass (best-effort, non-fatal)
     try { ensureFinalLayerBlockOrder(); } catch (e) { /* swallow */ }
+
+    try {
+        registerMDUXExports();
+    } catch (e) {}
 })();
