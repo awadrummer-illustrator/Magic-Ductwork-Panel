@@ -268,6 +268,14 @@
             setSelectionStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
             return;
         }
+
+        // First, reset graphic styles on ductwork lines to ensure proper scaling
+        try {
+            await evalScript('MDUX.resetDuctworkLineStyles()');
+        } catch (e) {
+            // Non-fatal - continue with scaling even if reset fails
+        }
+
         const result = normaliseResult(await evalScript('MDUX_scaleSelectionBridge(' + percent + ')'));
         if (!result.ok) {
             setSelectionStatus('Error: ' + result.value, true);
@@ -411,19 +419,22 @@
                     debugStatus.textContent = 'Ignore apply error: ' + stats.error;
                 } else if (stats.total === 0) {
                     if (stats.reason === 'no-selection') {
-                        setIgnoreStatus('Select one or more open duct lines before applying ignore points.', true);
+                        setIgnoreStatus('Select duct lines or ductwork parts to add to ignored layer.', true);
                         debugStatus.textContent = 'Ignore apply: no selection';
                     } else {
-                        setIgnoreStatus('No eligible duct lines found in the selection.', true);
-                        debugStatus.textContent = 'Ignore apply: no eligible lines';
+                        setIgnoreStatus('No eligible items found in the selection.', true);
+                        debugStatus.textContent = 'Ignore apply: no eligible items';
                     }
-                } else if (stats.added > 0) {
+                } else if (stats.added > 0 || stats.moved > 0) {
+                    const parts = [];
+                    if (stats.added > 0) parts.push(stats.added + ' anchor(s)');
+                    if (stats.moved > 0) parts.push(stats.moved + ' part(s) moved');
                     const skippedFragment = stats.skipped ? ' Skipped ' + stats.skipped + '.' : '';
-                    setIgnoreStatus('Placed ignore markers on ' + stats.added + ' of ' + stats.total + ' line(s).' + skippedFragment);
-                    debugStatus.textContent = 'Ignore apply result: added ' + stats.added + ' skipped ' + (stats.skipped || 0);
+                    setIgnoreStatus('Ignored ' + parts.join(', ') + '.' + skippedFragment);
+                    debugStatus.textContent = 'Ignore apply result: added ' + (stats.added || 0) + ', moved ' + (stats.moved || 0) + ', skipped ' + (stats.skipped || 0);
                 } else {
-                    setIgnoreStatus('Unable to place ignore markers for the current selection.', true);
-                    debugStatus.textContent = 'Ignore apply: unable to place markers';
+                    setIgnoreStatus('Unable to process selection.', true);
+                    debugStatus.textContent = 'Ignore apply: unable to process';
                 }
             } else {
                 setIgnoreStatus(result.value || 'Ignore markers created.');

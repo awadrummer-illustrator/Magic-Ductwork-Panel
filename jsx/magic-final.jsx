@@ -1785,37 +1785,12 @@ function applyScaleToItem(item, percent) {
     }
 
     if (isLineLayer && (typeName === "PathItem" || typeName === "CompoundPathItem")) {
-        var state = null;
+        // For ductwork lines: DON'T use metadata at all!
+        // The caller (panel.js) will handle resetting graphic styles before calling this
+        // We just scale from 100% to the target percent
         try {
-            state = item.__MDUXScaleState || null;
-        } catch (eState) {
-            state = null;
-        }
-        if (!state) {
-            state = { lastPercent: 100 };
-            try { item.__MDUXScaleState = state; } catch (eAssign) {}
-        }
-
-        var lastPercent = 100;
-        if (data && typeof data.lastPercent === "number" && isFinite(data.lastPercent) && data.lastPercent > 0) {
-            lastPercent = data.lastPercent;
-        } else if (state && typeof state.lastPercent === "number" && isFinite(state.lastPercent) && state.lastPercent > 0) {
-            lastPercent = state.lastPercent;
-        }
-        if (typeof data.basePercent !== "number" || !isFinite(data.basePercent) || data.basePercent <= 0) {
-            data.basePercent = 100;
-        }
-
-        var scaleFactor = (percent / lastPercent) * 100;
-        if (!isFinite(scaleFactor) || scaleFactor <= 0) {
-            scaleFactor = 100;
-        }
-
-        try {
-            item.resize(100, 100, false, false, false, false, scaleFactor, Transformation.CENTER);
-            data.lastPercent = percent;
-            writePreScaleData(item, data);
-            try { state.lastPercent = percent; } catch (eSetState) {}
+            // Scale directly to the target percent (assumes caller reset the graphic style first)
+            item.resize(100, 100, false, false, false, false, percent, Transformation.CENTER);
             return true;
         } catch (eApply) {
             return false;
@@ -2719,6 +2694,21 @@ var LAYER_TO_COLOR_NAME = {
     if (app.documents.length === 0) return;
     var doc = app.activeDocument;
     var sel = doc.selection;
+
+    var forcedBootstrap = null;
+    try {
+        if ($.global.MDUX && $.global.MDUX.forcedOptions) {
+            forcedBootstrap = $.global.MDUX.forcedOptions;
+        }
+    } catch (eForcedBootstrap) {
+        forcedBootstrap = null;
+    }
+    if (forcedBootstrap && forcedBootstrap.action === "library") {
+        try { registerMDUXExports(); } catch (eRegister) {}
+        try { delete $.global.MDUX.forcedOptions; } catch (eDeleteForced) {}
+        return;
+    }
+
     if (!sel || sel.length === 0) {
         alert("Select paths to process.");
         return;
@@ -3970,56 +3960,23 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             return stats;
         }
 
-        var targets = collectScaleTargets(selectionItems);
-        stats.total = targets.length;
-        for (var i = 0; i < targets.length; i++) {
-            var target = targets[i];
-            if (!target) {
-                stats.skipped++;
-                continue;
-            }
+        var scaleStats = scaleSelectionAbsolute(100, selectionItems);
+        stats.total = scaleStats.total;
+        stats.reset = scaleStats.scaled;
+        stats.skipped = scaleStats.skipped;
 
-            var data = getPreScaleData(target);
-            if (!data) {
-                data = storePreScaleData(target);
-            }
-
-            var resetPercent = 100;
-            if (data && typeof data.basePercent === "number" && isFinite(data.basePercent) && data.basePercent > 0) {
-                resetPercent = data.basePercent;
-            }
-
-            var success = applyScaleToItem(target, resetPercent);
-
-            if (!success) {
-                var isLineLayer = false;
-                try {
-                    var lyrName = target.layer ? target.layer.name : "";
-                    isLineLayer = isDuctworkLineLayer(lyrName);
-                } catch (eLayerCheck) {
-                    isLineLayer = false;
+        if (scaleStats.scaled > 0) {
+            var resetTargets = collectScaleTargets(selectionItems);
+            for (var i = 0; i < resetTargets.length; i++) {
+                var resetItem = resetTargets[i];
+                if (!resetItem) continue;
+                var data = getPreScaleData(resetItem);
+                if (!data) continue;
+                if (Math.abs(data.lastPercent - 100) < 0.0001 && Math.abs((data.basePercent || 100) - 100) < 0.0001) {
+                    clearPreScaleData(resetItem);
                 }
-                if (isLineLayer) {
-                    try {
-                        applyCenterlineStrokeColor(target);
-                        success = true;
-                    } catch (eStyle) {
-                        success = false;
-                    }
-                }
-            }
-
-            if (success) {
-                if (Math.abs(resetPercent - 100) < 0.0001) {
-                    clearPreScaleData(target);
-                }
-                stats.reset++;
-            } else {
-                stats.skipped++;
             }
         }
-        try { doc.selection = targets; } catch (eSel2) {}
-        try { app.redraw(); } catch (eRedraw) {}
         return stats;
     }
 
@@ -4236,6 +4193,67 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         }
     }
 
+    /**
+     * Reset graphic styles on ductwork line items in the selection.
+     * This reapplies the appropriate graphic style to each ductwork line,
+     * effectively resetting stroke widths to their default values.
+     * @param {Array} selectionItems - Items to process (defaults to current selection)
+     * @returns {number} Number of items whose styles were reset
+     */
+    function resetDuctworkLineStyles(selectionItems) {
+        if (!app.documents.length) return 0;
+        var doc = app.activeDocument;
+
+        var items = selectionItems;
+        if (!items) {
+            try { items = doc.selection; } catch (eSel) { items = null; }
+        }
+        if (!items || items.length === 0) return 0;
+
+        var resetCount = 0;
+
+        // Process each selected item
+        for (var i = 0; i < items.length; i++) {
+            var item = items[i];
+            if (!item) continue;
+
+            try {
+                var layerName = item.layer ? item.layer.name : null;
+                if (!layerName) continue;
+
+                // Check if this item is on a ductwork line layer
+                var isDuctworkLine = false;
+                for (var j = 0; j < DUCTWORK_LINES.length; j++) {
+                    if (layerName === DUCTWORK_LINES[j]) {
+                        isDuctworkLine = true;
+                        break;
+                    }
+                }
+
+                if (!isDuctworkLine) continue;
+
+                // Get the appropriate graphic style for this layer
+                var styleName = NORMAL_STYLE_MAP[layerName];
+                if (!styleName) continue;
+
+                var graphicStyle = getGraphicStyleByNameFlexible(styleName);
+                if (!graphicStyle) continue;
+
+                // Reapply the graphic style
+                try {
+                    graphicStyle.applyTo(item);
+                    resetCount++;
+                } catch (eApply) {
+                    // Failed to apply, continue
+                }
+            } catch (eItem) {
+                // Failed to process item, continue
+            }
+        }
+
+        return resetCount;
+    }
+
     function registerMDUXExports() {
         try {
             var mdNamespace = null;
@@ -4267,6 +4285,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             };
             mdNamespace.resetSelectionScale = function (selectionItems) {
                 return resetSelectionScale(selectionItems);
+            };
+            mdNamespace.resetDuctworkLineStyles = function (selectionItems) {
+                return resetDuctworkLineStyles(selectionItems);
             };
             mdNamespace.isolateDuctworkParts = function () {
                 return isolateDuctworkParts();
@@ -7596,11 +7617,20 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // --- GLOBAL DEBUG LOG ---
     var GLOBAL_DEBUG_LOG = [];
     function addDebug(msg) {
-        // Removed: Debug logging was only for Emory mode
-        return;
+        try {
+            var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\debug.log");
+            logFile.open("a");
+            logFile.writeln("[" + new Date().toISOString() + "] " + msg);
+            logFile.close();
+        } catch (e) {
+            // Silently fail if logging doesn't work
+        }
     }
 
     // --- COLLECT PATHS ---
+    addDebug("=== MAGIC DUCTWORK STARTING ===");
+    addDebug("Selection has " + sel.length + " items");
+
     var allPaths = [];
     var SELECTED_PATHS = [];
     var CREATED_ANCHOR_PATHS = [];
@@ -7617,6 +7647,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
     for (var i = 0; i < sel.length; i++) walkAndCollect(sel[i]);
     SELECTED_PATHS = allPaths.slice();
+    addDebug("Collected " + allPaths.length + " paths from selection");
     if (allPaths.length === 0) {
         alert("No valid path items.");
         return;
@@ -7976,12 +8007,18 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // Handle rotation override from unified dialog (if provided)
     if (startupChoice.rotationOverride !== null && startupChoice.rotationOverride !== undefined) {
         var normalized = normalizeAngle(startupChoice.rotationOverride);
+        addDebug("[Rotation Override] Applying " + normalized + "° to " + allPaths.length + " paths");
+        var appliedCount = 0;
         for (var rIdx = 0; rIdx < allPaths.length; rIdx++) {
             if (allPaths[rIdx]) {
                 setRotationOverride(allPaths[rIdx], normalized);
                 clearOrthoLock(allPaths[rIdx]);
+                appliedCount++;
             }
         }
+        addDebug("[Rotation Override] Applied to " + appliedCount + " paths");
+    } else {
+        addDebug("[Rotation Override] No rotation override specified");
     }
 
     // --- SEGMENT BUILDING ---
@@ -8185,6 +8222,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
         var rotationOverride = getRotationOverride(pathItem);
         var hasRotationOverride = rotationOverride !== null;
+        if (hasRotationOverride) {
+            addDebug("[Orthogonalize] Path has rotation override: " + rotationOverride + "°");
+        } else {
+            addDebug("[Orthogonalize] Path has NO rotation override");
+        }
         if (!hasRotationOverride && branchData && branchData.mainPath) {
             try {
                 var mainPathItem = branchData.mainPath;
@@ -8281,39 +8323,45 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var localX = dx * cosTheta + dy * sinTheta;
                 var localY = -dx * sinTheta + dy * cosTheta;
                 var localAngle = Math.atan2(localY, localX) * (180 / Math.PI);
-                if (!isSteepAngle(localAngle)) {
-                    var targetX = localX;
-                    var targetY = localY;
-                    if (Math.abs(localX) > Math.abs(localY)) {
-                        targetY = 0;
-                    } else {
-                        targetX = 0;
-                    }
-                    var newDX = targetX * cosTheta - targetY * sinTheta;
-                    var newDY = targetX * sinTheta + targetY * cosTheta;
-                    var newX = curr.anchor[0] + newDX;
-                    var newY = curr.anchor[1] + newDY;
-                    if (!almostEqualPoints([newX, newY], next.anchor)) {
-                        next.anchor = [newX, newY];
-                        changed = true;
-                    }
-                    curr.rightDirection = curr.anchor.slice();
-                    next.leftDirection = next.anchor.slice();
-                    next.rightDirection = next.anchor.slice();
-                    if (i > 0) {
-                        var prev = pts[i - 1];
-                        prev.rightDirection = prev.anchor.slice();
-                        curr.leftDirection = curr.anchor.slice();
-                        curr.rightDirection = curr.anchor.slice();
-                    } else {
-                        curr.leftDirection = curr.anchor.slice();
-                        curr.rightDirection = curr.anchor.slice();
-                    }
+                var worldAngle = Math.atan2(dy, dx) * (180 / Math.PI);
+                addDebug("[Orthogonalize Seg " + i + "] World angle: " + worldAngle.toFixed(1) + "°, Local angle: " + localAngle.toFixed(1) + "°");
+
+                var targetX = localX;
+                var targetY = localY;
+                if (Math.abs(localX) >= Math.abs(localY)) {
+                    targetY = 0;
+                    addDebug("[Orthogonalize Seg " + i + "] Snapping to horizontal in rotated grid");
+                } else {
+                    targetX = 0;
+                    addDebug("[Orthogonalize Seg " + i + "] Snapping to vertical in rotated grid");
                 }
+
+                var newDX = targetX * cosTheta - targetY * sinTheta;
+                var newDY = targetX * sinTheta + targetY * cosTheta;
+                var newWorldAngle = Math.atan2(newDY, newDX) * (180 / Math.PI);
+                addDebug("[Orthogonalize Seg " + i + "] New world angle: " + newWorldAngle.toFixed(1) + "°");
+
+                var newX = curr.anchor[0] + newDX;
+                var newY = curr.anchor[1] + newDY;
+                if (!almostEqualPoints([newX, newY], next.anchor)) {
+                    next.anchor = [newX, newY];
+                    changed = true;
+                }
+
+                curr.rightDirection = curr.anchor.slice();
+                next.leftDirection = next.anchor.slice();
+                next.rightDirection = next.anchor.slice();
+                if (i > 0) {
+                    var prevRot = pts[i - 1];
+                    prevRot.rightDirection = prevRot.anchor.slice();
+                }
+                curr.leftDirection = curr.anchor.slice();
+                curr.rightDirection = curr.anchor.slice();
             } else {
                 var angle = Math.atan2(dy, dx) * (180 / Math.PI);
                 if (!isSteepAngle(angle)) {
-                    var newX = next.anchor[0], newY = next.anchor[1];
+                    var newX = next.anchor[0];
+                    var newY = next.anchor[1];
                     if (Math.abs(dx) > Math.abs(dy)) {
                         newY = curr.anchor[1];
                     } else {
@@ -8329,12 +8377,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     if (i > 0) {
                         var prev = pts[i - 1];
                         prev.rightDirection = prev.anchor.slice();
-                        curr.leftDirection = curr.anchor.slice();
-                        curr.rightDirection = curr.anchor.slice();
-                    } else {
-                        curr.leftDirection = curr.anchor.slice();
-                        curr.rightDirection = curr.anchor.slice();
                     }
+                    curr.leftDirection = curr.anchor.slice();
+                    curr.rightDirection = curr.anchor.slice();
                 }
             }
             } catch (e) {
@@ -8551,17 +8596,56 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
             var dx = neighbor.anchor[0] - point.anchor[0];
             var dy = neighbor.anchor[1] - point.anchor[1];
-            var absX = Math.abs(dx);
-            var absY = Math.abs(dy);
+            var rotationOverride = getRotationOverride(path);
+            var localDX = dx;
+            var localDY = dy;
+            if (rotationOverride !== null) {
+                var theta = (-rotationOverride) * (Math.PI / 180);
+                var cosT = Math.cos(theta);
+                var sinT = Math.sin(theta);
+                var tmpX = dx * cosT - dy * sinT;
+                var tmpY = dx * sinT + dy * cosT;
+                localDX = tmpX;
+                localDY = tmpY;
+            }
+
+            var absX = Math.abs(localDX);
+            var absY = Math.abs(localDY);
             var type = null;
             if (absX > absY + 0.01) {
                 type = "horizontal";
             } else if (absY > absX + 0.01) {
                 type = "vertical";
             }
+
+            if (!type) {
+                return {
+                    type: null,
+                    pos: [point.anchor[0], point.anchor[1]],
+                    rotation: rotationOverride,
+                    direction: null
+                };
+            }
+
+            var baseAngle = rotationOverride !== null ? rotationOverride : 0;
+            if (type === "vertical") {
+                baseAngle += 90;
+            }
+            var angleRad = baseAngle * (Math.PI / 180);
+            var dir = [Math.cos(angleRad), Math.sin(angleRad)];
+            var mag = Math.sqrt(dir[0] * dir[0] + dir[1] * dir[1]);
+            if (mag > 0) {
+                dir[0] /= mag;
+                dir[1] /= mag;
+            } else {
+                dir = null;
+            }
+
             return {
                 type: type,
-                pos: [point.anchor[0], point.anchor[1]]
+                pos: [point.anchor[0], point.anchor[1]],
+                rotation: rotationOverride,
+                direction: dir
             };
         } catch (e) {
             return null;
@@ -8736,6 +8820,28 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         if (!connections) return false;
         var moved = false;
 
+        function midpoint(a, b) {
+            return [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2];
+        }
+
+        function projectPointOntoLine(point, linePoint, lineDir) {
+            if (!lineDir || !linePoint) return point;
+            var px = point[0] - linePoint[0];
+            var py = point[1] - linePoint[1];
+            var dot = px * lineDir[0] + py * lineDir[1];
+            return [linePoint[0] + lineDir[0] * dot, linePoint[1] + lineDir[1] * dot];
+        }
+
+        function intersectLines(p0, d0, p1, d1) {
+            if (!d0 || !d1) return null;
+            var det = d0[0] * d1[1] - d0[1] * d1[0];
+            if (Math.abs(det) < 1e-6) return null;
+            var diffX = p1[0] - p0[0];
+            var diffY = p1[1] - p0[1];
+            var t = (diffX * d1[1] - diffY * d1[0]) / det;
+            return [p0[0] + d0[0] * t, p0[1] + d0[1] * t];
+        }
+
         var pairs = connections.pairs || [];
         for (var i = 0; i < pairs.length; i++) {
             var pair = pairs[i];
@@ -8748,15 +8854,25 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             var infoA = getEndpointOrientationInfo(pair.a.path, pair.a.index);
             var infoB = getEndpointOrientationInfo(pair.b.path, pair.b.index);
 
-            var finalX = pair.center ? pair.center[0] : ptA.anchor[0];
-            var finalY = pair.center ? pair.center[1] : ptA.anchor[1];
+            var baseCenter = pair.center ? [pair.center[0], pair.center[1]] : midpoint(ptA.anchor, ptB.anchor);
+            var finalPos = baseCenter;
 
-            if (infoA && infoA.type === "vertical") finalX = infoA.pos[0];
-            if (infoB && infoB.type === "vertical") finalX = infoB.pos[0];
-            if (infoA && infoA.type === "horizontal") finalY = infoA.pos[1];
-            if (infoB && infoB.type === "horizontal") finalY = infoB.pos[1];
-
-            var finalPos = [finalX, finalY];
+            if (infoA && infoA.direction && infoB && infoB.direction) {
+                var intersect = intersectLines(infoA.pos, infoA.direction, infoB.pos, infoB.direction);
+                if (intersect) {
+                    finalPos = intersect;
+                } else {
+                    finalPos = projectPointOntoLine(finalPos, infoA.pos, infoA.direction);
+                    finalPos = projectPointOntoLine(finalPos, infoB.pos, infoB.direction);
+                }
+            } else {
+                if (infoA && infoA.direction) {
+                    finalPos = projectPointOntoLine(finalPos, infoA.pos, infoA.direction);
+                }
+                if (infoB && infoB.direction) {
+                    finalPos = projectPointOntoLine(finalPos, infoB.pos, infoB.direction);
+                }
+            }
 
             if (!almostEqualPoints(ptA.anchor, finalPos)) {
                 ptA.anchor = finalPos.slice();
@@ -8802,6 +8918,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 targetPt = entry.target.slice();
             }
             if (!targetPt) continue;
+
+            var endpointInfo = getEndpointOrientationInfo(entry.endpoint.path, entry.endpoint.index);
+            if (endpointInfo && endpointInfo.direction) {
+                targetPt = projectPointOntoLine(targetPt, endpointInfo.pos, endpointInfo.direction);
+            }
 
             if (!almostEqualPoints(endpointPoint.anchor, targetPt)) {
                 endpointPoint.anchor = targetPt.slice();
@@ -10299,11 +10420,25 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     ACTIVE_CENTERLINES = geometryPaths.slice();
 
     var preOrthoConnections = collectEndpointConnections(geometryPaths, RECONNECT_CAPTURE_DIST);
+
+    // Verify rotation override is on paths before orthogonalization
+    addDebug("[Pre-Orthogonalize Check] Checking " + geometryPaths.length + " paths for rotation override");
+    var pathsWithOverride = 0;
+    for (var checkIdx = 0; checkIdx < geometryPaths.length; checkIdx++) {
+        var checkOverride = getRotationOverride(geometryPaths[checkIdx]);
+        if (checkOverride !== null) {
+            pathsWithOverride++;
+            addDebug("[Pre-Orthogonalize Check] Path " + checkIdx + " has override: " + checkOverride + "°");
+        }
+    }
+    addDebug("[Pre-Orthogonalize Check] " + pathsWithOverride + " of " + geometryPaths.length + " paths have rotation override");
+
     var iteration = 0;
     var changed = true;
     while (changed && iteration < MAX_ITER) {
         iteration++;
         changed = false;
+        addDebug("[Orthogonalize Iteration " + iteration + "] Starting");
         var allSegments = buildSegmentsForPaths(geometryPaths);
         if (snapAnchors(geometryPaths, allSegments)) changed = true;
         for (var i = 0; i < geometryPaths.length; i++) {
@@ -10761,6 +10896,8 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     anchorRotations[aKey] = aInfo.rotation;
                 }
 
+                // Build list of existing items with their positions (tolerance-based matching)
+                var POSITION_TOLERANCE = 2.0; // pixels - tolerance for matching existing items to anchor points
                 for (var i = 0; i < docParam.placedItems.length; i++) {
                     var itm = docParam.placedItems[i];
                     try {
@@ -10768,9 +10905,25 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                             var boundsExisting = itm.geometricBounds;
                             var centerXExisting = (boundsExisting[0] + boundsExisting[2]) / 2;
                             var centerYExisting = (boundsExisting[1] + boundsExisting[3]) / 2;
-                            var key = centerXExisting.toFixed(2) + "_" + centerYExisting.toFixed(2);
-                            if (!keySet[key]) continue;
-                            existingItems[key] = itm;
+
+                            // Find nearest anchor point within tolerance
+                            var nearestKey = null;
+                            var nearestDist = POSITION_TOLERANCE;
+                            for (var ak = 0; ak < anchorPts.length; ak++) {
+                                var anchorPos = anchorPts[ak].pos;
+                                var dx = anchorPos[0] - centerXExisting;
+                                var dy = anchorPos[1] - centerYExisting;
+                                var dist = Math.sqrt(dx * dx + dy * dy);
+                                if (dist < nearestDist) {
+                                    nearestDist = dist;
+                                    nearestKey = anchorPos[0].toFixed(2) + "_" + anchorPos[1].toFixed(2);
+                                }
+                            }
+
+                            // Only add if we found a nearby anchor point
+                            if (nearestKey && !existingItems[nearestKey]) {
+                                existingItems[nearestKey] = itm;
+                            }
 
                         // Get actual rotation from matrix
                         var actualRot = null;
@@ -11102,7 +11255,12 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         var _thermostatLayer = null;
         try { _thermostatLayer = doc.layers.getByName("Thermostat Lines"); } catch (e) { _thermostatLayer = null; }
 
+        addDebug("[Thermostat Style] Style found: " + !!_thermostatStyle + ", Layer found: " + !!_thermostatLayer);
+
         if (_thermostatStyle && _thermostatLayer) {
+            var _thermostatPathCount = 0;
+            var _thermostatCompoundCount = 0;
+
             function _applyThermostatStyleToContainer(cont) {
                 try {
                     // Apply to PathItems
@@ -11111,7 +11269,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                             try {
                                 var p = cont.pathItems[pi];
                                 try { p.unapplyAll(); } catch (e) {}
-                                try { _thermostatStyle.applyTo(p); } catch (e) {}
+                                try { _thermostatStyle.applyTo(p); _thermostatPathCount++; } catch (e) {}
                             } catch (e) {}
                         }
                     }
@@ -11122,7 +11280,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                             try {
                                 var cp = cont.compoundPathItems[ci];
                                 try { cp.unapplyAll(); } catch (e) {}
-                                try { _thermostatStyle.applyTo(cp); } catch (e) {}
+                                try { _thermostatStyle.applyTo(cp); _thermostatCompoundCount++; } catch (e) {}
                             } catch (e) {}
                         }
                     }
@@ -11152,14 +11310,24 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
                 _applyThermostatStyleToContainer(_thermostatLayer);
 
+                addDebug("[Thermostat Style] Applied to " + _thermostatPathCount + " paths and " + _thermostatCompoundCount + " compound paths");
+
                 try { _thermostatLayer.locked = _prevLocked; } catch (e) {}
                 try { _thermostatLayer.visible = _prevVisible; } catch (e) {}
             } catch (e) {
                 // swallow
             }
+        } else {
+            if (!_thermostatStyle) {
+                addDebug("[Thermostat Style] ERROR: 'Thermostat Lines' graphic style not found. Import graphic styles first.");
+            }
+            if (!_thermostatLayer) {
+                addDebug("[Thermostat Style] ERROR: 'Thermostat Lines' layer not found.");
+            }
         }
     } catch (e) {
         // non-fatal
+        addDebug("[Thermostat Style] Exception: " + e);
     }
 
     applyManualCenterlineStrokeStyles();

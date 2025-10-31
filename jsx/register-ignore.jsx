@@ -209,7 +209,8 @@ function MDUX_applyIgnoreToSelection() {
     var stats = {
         total: 0,
         added: 0,
-        skipped: 0
+        skipped: 0,
+        moved: 0
     };
 
     if (app.documents.length === 0) {
@@ -218,19 +219,28 @@ function MDUX_applyIgnoreToSelection() {
     }
 
     var doc = app.activeDocument;
-    var targets = MDUX_collectSelectedOpenPaths(doc);
-    stats.total = targets.length;
-
-    if (stats.total === 0) {
+    var selection = null;
+    try { selection = doc.selection; } catch (e) { selection = null; }
+    if (!selection || selection.length === 0) {
         stats.reason = "no-selection";
         return stats;
     }
+
+    // Ductwork piece layer names
+    var ductworkPieceLayers = [
+        "Thermostats", "Units", "Secondary Exhaust", "Exhaust Registers",
+        "Orange Register", "Rectangular Registers", "Square Registers", "Circular Registers"
+    ];
 
     var ignoreLayer = MDUX_getIgnoreLayer(doc, true);
     if (!ignoreLayer) {
         stats.error = "Unable to create or access the Ignore layer.";
         return stats;
     }
+
+    // Process open paths (ductwork lines)
+    var targets = MDUX_collectSelectedOpenPaths(doc);
+    stats.total = targets.length;
 
     for (var i = 0; i < targets.length; i++) {
         var pathItem = targets[i];
@@ -253,6 +263,53 @@ function MDUX_applyIgnoreToSelection() {
             ignorePath.opacity = 0;
             stats.added++;
         } catch (eAdd) {
+            stats.skipped++;
+        }
+    }
+
+    // Process ductwork parts (PlacedItems) - move them and their anchors to Ignored layer
+    var ductworkParts = [];
+    for (var s = 0; s < selection.length; s++) {
+        var item = selection[s];
+        try {
+            if (item.typename === "PlacedItem" && item.layer) {
+                var layerName = item.layer.name;
+                for (var dl = 0; dl < ductworkPieceLayers.length; dl++) {
+                    if (layerName === ductworkPieceLayers[dl]) {
+                        ductworkParts.push(item);
+                        break;
+                    }
+                }
+            }
+        } catch (e) {}
+    }
+
+    stats.total += ductworkParts.length;
+
+    for (var p = 0; p < ductworkParts.length; p++) {
+        var part = ductworkParts[p];
+        try {
+            // Get center position before moving
+            var bounds = part.geometricBounds;
+            var centerX = (bounds[0] + bounds[2]) / 2;
+            var centerY = (bounds[1] + bounds[3]) / 2;
+
+            // Move the part to the Ignore layer
+            part.move(ignoreLayer, ElementPlacement.PLACEATEND);
+            stats.moved++;
+
+            // Create an invisible anchor point at the center position
+            try {
+                var anchorPath = ignoreLayer.pathItems.add();
+                anchorPath.stroked = false;
+                anchorPath.filled = false;
+                anchorPath.closed = false;
+                anchorPath.name = "__MDUX_ignore_point";
+                anchorPath.setEntirePath([[centerX, centerY], [centerX, centerY]]);
+                anchorPath.opacity = 0;
+                stats.added++;
+            } catch (eAnchor) {}
+        } catch (eMove) {
             stats.skipped++;
         }
     }
