@@ -637,6 +637,7 @@ function MDUX_runEmoryDuctwork() {
 
         $.writeln("[EMORY] Scanning for ductwork paths and registers");
 
+        // Find ductwork paths
         for (var i = 0; i < allItems.length; i++) {
             var item = allItems[i];
             if (item.typename === "PathItem") {
@@ -645,13 +646,32 @@ function MDUX_runEmoryDuctwork() {
                 if (layerName && (layerName.indexOf("Ductwork") !== -1 || layerName.indexOf("ductwork") !== -1)) {
                     ductworkPaths.push(item);
                 }
-            } else if (item.typename === "PlacedItem") {
-                try {
-                    var bounds = item.geometricBounds;
-                    var centerX = (bounds[0] + bounds[2]) / 2;
-                    var centerY = (bounds[1] + bounds[3]) / 2;
-                    registerPoints.push({ x: centerX, y: centerY, item: item });
-                } catch (e) {}
+            }
+        }
+
+        // Find register anchor points on register layers
+        var registerLayerNames = ["Square Registers", "Rectangular Registers", "Registers"];
+        for (var layerIdx = 0; layerIdx < registerLayerNames.length; layerIdx++) {
+            var layerName = registerLayerNames[layerIdx];
+            var registerLayer = null;
+            try {
+                for (var li = 0; li < doc.layers.length; li++) {
+                    if (doc.layers[li].name === layerName) {
+                        registerLayer = doc.layers[li];
+                        break;
+                    }
+                }
+            } catch (e) {}
+
+            if (registerLayer && registerLayer.pathItems) {
+                for (var pi = 0; pi < registerLayer.pathItems.length; pi++) {
+                    var regPath = registerLayer.pathItems[pi];
+                    if (regPath && regPath.pathPoints && regPath.pathPoints.length > 0) {
+                        // Use first anchor point as register location
+                        var anchor = regPath.pathPoints[0].anchor;
+                        registerPoints.push({ x: anchor[0], y: anchor[1] });
+                    }
+                }
             }
         }
 
