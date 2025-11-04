@@ -3,6 +3,7 @@
 
     const csInterface = new CSInterface();
     const processBtn = document.getElementById('process-btn');
+    const processEmoryBtn = document.getElementById('process-emory-btn');
     const processStatus = document.getElementById('process-status');
     const revertBtn = document.getElementById('revert-ortho-btn');
     const revertStatus = document.getElementById('revert-status');
@@ -285,6 +286,29 @@
         scheduleSkipOrthoRefresh();
     }
 
+    async function handleProcessEmoryClick() {
+        processEmoryBtn.disabled = true;
+        setProcessStatus('Running Emory ductwork processing…');
+
+        try {
+            await ensureBridgeLoaded();
+        } catch (e) {
+            setProcessStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
+            processEmoryBtn.disabled = false;
+            return;
+        }
+
+        const result = normaliseResult(await evalScript('MDUX_runEmoryDuctwork()'));
+        if (result.ok) {
+            setProcessStatus('Ready.');
+            debugStatus.textContent = 'Emory process completed';
+        } else {
+            setProcessStatus('Error: ' + result.value, true);
+            debugStatus.textContent = 'Emory process failed: ' + result.value;
+        }
+        processEmoryBtn.disabled = false;
+    }
+
     async function rotateSelection(angle) {
         if (!isFinite(angle)) {
             setSelectionStatus('Rotation value must be numeric.', true);
@@ -556,6 +580,7 @@
 
     function attachListeners() {
         processBtn.addEventListener('click', handleProcessClick);
+        processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
         revertBtn.addEventListener('click', handleRevertPreOrtho);
         applyIgnoreBtn.addEventListener('click', applyIgnore);
         clearRotationBtn.addEventListener('click', () => {

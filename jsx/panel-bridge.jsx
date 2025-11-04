@@ -594,3 +594,39 @@ function MDUX_createLayersBridge() {
     return "ERROR:Create layers (exception): " + e;
 }
 }
+
+function MDUX_runEmoryDuctwork() {
+    try {
+        if (!app.documents.length) {
+            return "ERROR:No document open";
+        }
+
+        // Set up global flag to suppress the debug dialog
+        if (!$.global.EmoryScriptOptions) {
+            $.global.EmoryScriptOptions = {};
+        }
+        $.global.EmoryScriptOptions.suppressDialog = true;
+        $.global.EmoryScriptOptions.wireToRegister = true;
+
+        // Get the path to the Emory script
+        var scriptPath = "E:\\Work\\Work\\Floorplans\\Custom Sketchup, Illustrator and Photoshop Scripts and Extensions\\Illustrator\\Scripts\\Emory Ductwork\\01 - Emory Ductwork-claude - Copy.jsx";
+        var scriptFile = new File(scriptPath);
+
+        if (!scriptFile.exists) {
+            return "ERROR:Emory script not found at: " + scriptPath;
+        }
+
+        // Execute the Emory script
+        $.evalFile(scriptFile);
+
+        // Clean up global flag
+        if ($.global.EmoryScriptOptions) {
+            $.global.EmoryScriptOptions.suppressDialog = false;
+        }
+
+        return "Emory ductwork processing complete";
+
+    } catch (e) {
+        return "ERROR:" + e.toString();
+    }
+}
