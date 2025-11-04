@@ -601,31 +601,126 @@ function MDUX_runEmoryDuctwork() {
             return "ERROR:No document open";
         }
 
-        // Set up global flag to suppress the debug dialog
-        if (!$.global.EmoryScriptOptions) {
-            $.global.EmoryScriptOptions = {};
+        var doc = app.activeDocument;
+        var REGISTER_WIRE_TAG = "MD:REGISTER_WIRE";
+        var WIRE_CONNECTION_TOLERANCE = 10;
+        var swappedCount = 0;
+        var wireCount = 0;
+
+        // Step 1: Swap all placed items to Emory versions
+        var allItems = doc.pageItems;
+        for (var i = 0; i < allItems.length; i++) {
+            var item = allItems[i];
+            if (item.typename === "PlacedItem") {
+                try {
+                    var currentFile = item.file;
+                    if (currentFile) {
+                        var currentPath = currentFile.fsName;
+                        if (currentPath.indexOf(" Emory") === -1) {
+                            var emoryPath = currentPath.replace(/(\.[^.]+)$/, " Emory$1");
+                            var emoryFile = new File(emoryPath);
+                            if (emoryFile.exists) {
+                                item.file = emoryFile;
+                                swappedCount++;
+                            }
+                        }
+                    }
+                } catch (e) {}
+            }
         }
-        $.global.EmoryScriptOptions.suppressDialog = true;
-        $.global.EmoryScriptOptions.wireToRegister = true;
 
-        // Get the path to the Emory script
-        var scriptPath = "E:\\Work\\Work\\Floorplans\\Custom Sketchup, Illustrator and Photoshop Scripts and Extensions\\Illustrator\\Scripts\\Emory Ductwork\\01 - Emory Ductwork-claude - Copy.jsx";
-        var scriptFile = new File(scriptPath);
+        // Step 2: Generate register wires
+        var ductworkPaths = [];
+        var registerPoints = [];
 
-        if (!scriptFile.exists) {
-            return "ERROR:Emory script not found at: " + scriptPath;
+        for (var i = 0; i < allItems.length; i++) {
+            var item = allItems[i];
+            if (item.typename === "PathItem") {
+                var layerName = "";
+                try { layerName = item.layer.name; } catch (e) {}
+                if (layerName && (layerName.indexOf("Ductwork") !== -1 || layerName.indexOf("ductwork") !== -1)) {
+                    ductworkPaths.push(item);
+                }
+            } else if (item.typename === "PlacedItem") {
+                try {
+                    var bounds = item.geometricBounds;
+                    var centerX = (bounds[0] + bounds[2]) / 2;
+                    var centerY = (bounds[1] + bounds[3]) / 2;
+                    registerPoints.push({ x: centerX, y: centerY, item: item });
+                } catch (e) {}
+            }
         }
 
-        // Execute the Emory script
-        $.evalFile(scriptFile);
+        for (var i = 0; i < ductworkPaths.length; i++) {
+            var path = ductworkPaths[i];
+            if (!path.pathPoints || path.pathPoints.length < 2) continue;
+            var layer = path.layer;
+            if (!layer) continue;
 
-        // Clean up global flag
-        if ($.global.EmoryScriptOptions) {
-            $.global.EmoryScriptOptions.suppressDialog = false;
+            var endpoints = [
+                { x: path.pathPoints[0].anchor[0], y: path.pathPoints[0].anchor[1] },
+                { x: path.pathPoints[path.pathPoints.length - 1].anchor[0], y: path.pathPoints[path.pathPoints.length - 1].anchor[1] }
+            ];
+
+            for (var j = 0; j < endpoints.length; j++) {
+                var endpoint = endpoints[j];
+                var closestRegister = null;
+                var closestDist = WIRE_CONNECTION_TOLERANCE;
+
+                for (var k = 0; k < registerPoints.length; k++) {
+                    var register = registerPoints[k];
+                    var dx = register.x - endpoint.x;
+                    var dy = register.y - endpoint.y;
+                    var dist = Math.sqrt(dx * dx + dy * dy);
+                    if (dist < closestDist) {
+                        closestDist = dist;
+                        closestRegister = register;
+                    }
+                }
+
+                if (closestRegister) {
+                    try {
+                        var wirePath = layer.pathItems.add();
+                        wirePath.setEntirePath([[endpoint.x, endpoint.y], [closestRegister.x, closestRegister.y]]);
+                        wirePath.closed = false;
+                        wirePath.stroked = true;
+                        wirePath.strokeWidth = 3;
+                        var wireColor = new RGBColor();
+                        wireColor.red = 0;
+                        wireColor.green = 0;
+                        wireColor.blue = 255;
+                        wirePath.strokeColor = wireColor;
+                        wirePath.strokeCap = StrokeCap.ROUNDENDCAP;
+                        wirePath.strokeJoin = StrokeJoin.ROUNDENDJOIN;
+                        wirePath.filled = false;
+
+                        var wirePoints = wirePath.pathPoints;
+                        if (wirePoints && wirePoints.length === 2) {
+                            var wireDX = closestRegister.x - endpoint.x;
+                            var wireDY = closestRegister.y - endpoint.y;
+                            var wireLen = Math.sqrt(wireDX * wireDX + wireDY * wireDY);
+                            if (wireLen > 0) {
+                                var handleLen = Math.min(wireLen * 0.25, 20);
+                                var startPoint = wirePoints[0];
+                                startPoint.leftDirection = [endpoint.x, endpoint.y];
+                                startPoint.rightDirection = [endpoint.x - handleLen, endpoint.y];
+                                startPoint.pointType = PointType.SMOOTH;
+                                var endPoint = wirePoints[1];
+                                endPoint.leftDirection = [closestRegister.x, closestRegister.y + handleLen * 0.6];
+                                endPoint.rightDirection = [closestRegister.x, closestRegister.y];
+                                endPoint.pointType = PointType.SMOOTH;
+                            }
+                        }
+
+                        wirePath.name = "Register Wire";
+                        wirePath.note = REGISTER_WIRE_TAG;
+                        wireCount++;
+                    } catch (e) {}
+                }
+            }
         }
 
-        return "Emory ductwork processing complete";
-
+        return "Swapped " + swappedCount + " items to Emory versions and created " + wireCount + " register wires.";
     } catch (e) {
         return "ERROR:" + e.toString();
     }
