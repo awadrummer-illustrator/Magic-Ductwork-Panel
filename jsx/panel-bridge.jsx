@@ -603,9 +603,11 @@ function MDUX_runEmoryDuctwork() {
 
         var doc = app.activeDocument;
         var REGISTER_WIRE_TAG = "MD:REGISTER_WIRE";
-        var WIRE_CONNECTION_TOLERANCE = 10;
+        var WIRE_CONNECTION_TOLERANCE = 50; // Increased tolerance to 50px
         var swappedCount = 0;
         var wireCount = 0;
+
+        $.writeln("[EMORY] Starting Emory ductwork processing");
 
         // Step 1: Swap all placed items to Emory versions
         var allItems = doc.pageItems;
@@ -633,6 +635,8 @@ function MDUX_runEmoryDuctwork() {
         var ductworkPaths = [];
         var registerPoints = [];
 
+        $.writeln("[EMORY] Scanning for ductwork paths and registers");
+
         for (var i = 0; i < allItems.length; i++) {
             var item = allItems[i];
             if (item.typename === "PathItem") {
@@ -650,6 +654,9 @@ function MDUX_runEmoryDuctwork() {
                 } catch (e) {}
             }
         }
+
+        $.writeln("[EMORY] Found " + ductworkPaths.length + " ductwork paths");
+        $.writeln("[EMORY] Found " + registerPoints.length + " register points");
 
         for (var i = 0; i < ductworkPaths.length; i++) {
             var path = ductworkPaths[i];
@@ -680,6 +687,8 @@ function MDUX_runEmoryDuctwork() {
 
                 if (closestRegister) {
                     try {
+                        $.writeln("[EMORY] Creating wire from [" + endpoint.x.toFixed(1) + "," + endpoint.y.toFixed(1) + "] to [" + closestRegister.x.toFixed(1) + "," + closestRegister.y.toFixed(1) + "] (dist=" + closestDist.toFixed(1) + ")");
+
                         var wirePath = layer.pathItems.add();
                         wirePath.setEntirePath([[endpoint.x, endpoint.y], [closestRegister.x, closestRegister.y]]);
                         wirePath.closed = false;
@@ -715,13 +724,17 @@ function MDUX_runEmoryDuctwork() {
                         wirePath.name = "Register Wire";
                         wirePath.note = REGISTER_WIRE_TAG;
                         wireCount++;
-                    } catch (e) {}
+                    } catch (eWire) {
+                        $.writeln("[EMORY] Wire creation error: " + eWire);
+                    }
                 }
             }
         }
 
+        $.writeln("[EMORY] Complete: Swapped " + swappedCount + " items, created " + wireCount + " wires");
         return "Swapped " + swappedCount + " items to Emory versions and created " + wireCount + " register wires.";
     } catch (e) {
+        $.writeln("[EMORY] Error: " + e);
         return "ERROR:" + e.toString();
     }
 }
