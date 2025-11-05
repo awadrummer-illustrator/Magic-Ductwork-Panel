@@ -2,3 +2,13 @@
 Thumbs.db
 *.log
 *.tmp
+
+# Claude Code development folder
+.claude/
+
+# Debug files
+js/debug-location.jsx
+jsx/debug.log
+
+# Deployment instructions (not part of extension)
+DEPLOYMENT_INSTRUCTIONS.md

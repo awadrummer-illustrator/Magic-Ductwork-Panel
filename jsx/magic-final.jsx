@@ -1650,7 +1650,7 @@ function writePreScaleData(item, data) {
     }
 
     try {
-        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\write-metadata.log");
+        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\write-metadata.log");
         logFile.open("a");
         logFile.writeln("[WRITE] Writing metadata: lastPercent=" + data.lastPercent);
         logFile.writeln("[WRITE]   Item: " + item.typename);
@@ -1704,7 +1704,7 @@ function getPreScaleData(item) {
     var tokens = readNoteTokens(item);
 
     try {
-        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\read-metadata.log");
+        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\read-metadata.log");
         logFile.open("a");
         logFile.writeln("[READ] Reading metadata from: " + item.typename);
         logFile.writeln("[READ]   Found " + tokens.length + " tokens");
@@ -1732,7 +1732,7 @@ function getPreScaleData(item) {
                 }
 
                 try {
-                    var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\read-metadata.log");
+                    var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\read-metadata.log");
                     logFile.open("a");
                     logFile.writeln("[READ]   Found scale data: lastPercent=" + data.lastPercent);
                     logFile.close();
@@ -1746,7 +1746,7 @@ function getPreScaleData(item) {
     }
 
     try {
-        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\read-metadata.log");
+        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\read-metadata.log");
         logFile.open("a");
         logFile.writeln("[READ]   No scale data found");
         logFile.close();
@@ -7904,7 +7904,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
         // Also write to file
         try {
-            var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork\\debug.log");
+            var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\debug.log");
             logFile.open("a");
             logFile.writeln("[" + new Date().toISOString() + "] " + msg);
             logFile.close();

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<ExtensionManifest Version="11.0" ExtensionBundleId="com.chris.magicductwork.bundle" ExtensionBundleVersion="1.0.0" ExtensionBundleName="Magic Ductwork">
+<ExtensionManifest Version="11.0" ExtensionBundleId="com.chris.magicductwork.bundle" ExtensionBundleVersion="1.0.0" ExtensionBundleName="Magic Ductwork Panel">
     <ExtensionList>
         <Extension Id="com.chris.magicductwork.panel" Version="1.0.0"/>
     </ExtensionList>
@@ -30,7 +30,7 @@
                 </Lifecycle>
                 <UI>
                     <Type>Panel</Type>
-                    <Menu>Magic Ductwork</Menu>
+                    <Menu>Magic Ductwork Panel</Menu>
                     <Geometry>
                         <Size>
                             <Height>420</Height>
