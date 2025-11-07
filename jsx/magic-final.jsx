@@ -11671,8 +11671,14 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     if (existingItems[key]) {
                         targetItem = existingItems[key];
                         createdNew = false;
-                        // Update the file reference (in case it changed)
-                        try { targetItem.file = file; } catch (e) {}
+
+                        // Update file link - this preserves custom rotations and scaling (works like manual relink)
+                        try {
+                            targetItem.file = file;
+                            addDebug("[" + type.name + "] Updated file link at " + key + " (preserving custom transforms)");
+                        } catch (e) {
+                            addDebug("[" + type.name + "] Failed to update file link at " + key + ": " + e);
+                        }
                     } else if (!layer.locked) {
                         // Create new placed item
                         try {
@@ -11685,18 +11691,14 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                             placed.position = [a[0]-w0/2, a[1]+h0/2];
                             placed.name = type.name + " (Linked)";
 
-                            // Apply scale only for NEW items
-                            var scaleToApply = globalScale;
-                            if (scaleToApply !== 100) {
-                                try { placed.resize(scaleToApply, scaleToApply, true, true, true, true, scaleToApply, Transformation.CENTER); } catch (e) {}
-                            }
-
                             targetItem = placed;
                             createdNew = true;
+                            addDebug("[" + type.name + "] Created new item at " + key);
                         } catch (e) {}
                     }
 
-                    if (targetItem && !targetItem.locked) {
+                    // Only apply rotation and scale to NEW items
+                    if (targetItem && !targetItem.locked && createdNew) {
                         if (typeof baseRotation !== 'number' || !isFinite(baseRotation)) {
                             try {
                                 var mBase = targetItem.matrix;
@@ -11710,9 +11712,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         if (!customTransforms[key]) customTransforms[key] = {};
                         customTransforms[key].baseRotation = baseRotation;
 
-                        if (createdNew || getPlacedBaseRotation(targetItem) === null) {
-                            try { setPlacedBaseRotation(targetItem, baseRotation); } catch (e) {}
-                        }
+                        try { setPlacedBaseRotation(targetItem, baseRotation); } catch (e) {}
 
                         var desiredRotation = null;
                         if (typeof rotation === 'number' && isFinite(rotation)) {
@@ -11729,45 +11729,32 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         addDebug("  fallbackRotation = " + (fallbackRotation !== null ? fallbackRotation + "°" : "null"));
                         addDebug("  baseRotation = " + (baseRotation !== null ? baseRotation + "°" : "null"));
                         addDebug("  desiredRotation (FINAL) = " + (desiredRotation !== null ? desiredRotation + "°" : "null"));
-                        addDebug("  createdNew = " + createdNew);
 
-                        // Apply rotation if needed
+                        // Apply rotation for NEW items
                         if (type.layer !== "Thermostats" && desiredRotation !== null) {
                             addDebug("  APPLYING rotation: " + desiredRotation + "° (base: " + baseRotation + "°)");
                             rotatePageItemToAbsolute(targetItem, desiredRotation, baseRotation);
                             customTransforms[key].absoluteRotation = desiredRotation;
 
                             // Fix bounding box orientation by re-assigning the file reference
-                            // This forces Illustrator to update the bounding box to match the rotated art
                             try {
                                 var currentFile = targetItem.file;
                                 targetItem.file = currentFile;
                             } catch (e) {}
-                        } else if (type.layer !== "Thermostats") {
-                            // No override/custom rotation, clear metadata to avoid stale notes
-                            try { clearPlacedRotation(targetItem); } catch (e) {}
                         }
 
-                        var desiredScale = null;
+                        // Apply scale for NEW items
+                        var scaleToApply = globalScale;
                         if (typeof customScale === 'number' && isFinite(customScale)) {
-                            desiredScale = customScale;
-                        } else if (createdNew && typeof globalScale === 'number' && isFinite(globalScale)) {
-                            desiredScale = globalScale;
+                            scaleToApply = customScale;
                         }
 
-                        if (desiredScale !== null && isFinite(desiredScale)) {
+                        if (scaleToApply !== 100) {
                             try {
-                                var currentScaleVal = getItemScale_local(targetItem);
-                                if (currentScaleVal && Math.abs(currentScaleVal) > 0.0001) {
-                                    var scaleRatio = (desiredScale / currentScaleVal) * 100;
-                                    if (Math.abs(scaleRatio - 100) > 0.1) {
-                                        targetItem.resize(scaleRatio, scaleRatio, true, true, true, true, scaleRatio, Transformation.CENTER);
-                                    }
-                                }
-                                setPlacedScale(targetItem, desiredScale);
+                                targetItem.resize(scaleToApply, scaleToApply, true, true, true, true, scaleToApply, Transformation.CENTER);
+                                setPlacedScale(targetItem, scaleToApply);
+                                addDebug("  APPLIED scale: " + scaleToApply + "%");
                             } catch (e) {}
-                        } else {
-                            try { clearPlacedScale(targetItem); } catch (e) {}
                         }
 
                         centerPageItemAt_local(targetItem, a);
