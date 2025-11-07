@@ -99,6 +99,41 @@ var CENTERLINE_NOTE_TAG = "MD:CENTERLINE"; // marker to identify processed cente
 var CENTERLINE_ID_PREFIX = "MD:CLID="; // marker prefix for per-centerline unique id
 
 // ========================================
+// HELPER: DYNAMIC LOG FILE PATH
+// ========================================
+
+function getLogFilePath(logFileName) {
+    try {
+        // Get the extension root folder dynamically
+        var logFolder = $.global.MDUX_JSX_FOLDER;
+        if (!logFolder) {
+            // Fallback: use current file location
+            logFolder = File($.fileName).parent;
+        }
+
+        // Convert to string path
+        var logFolderPath = "";
+        try {
+            logFolderPath = logFolder.fsName || logFolder.toString();
+        } catch (e) {
+            logFolderPath = logFolder.toString();
+        }
+
+        // Construct log file path
+        var logFilePath = logFolderPath;
+        if (logFilePath.charAt(logFilePath.length - 1) !== "/" && logFilePath.charAt(logFilePath.length - 1) !== "\\") {
+            logFilePath += "/";
+        }
+        logFilePath += logFileName;
+
+        return logFilePath;
+    } catch (e) {
+        // Fallback to a default path if everything fails
+        return "C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\" + logFileName;
+    }
+}
+
+// ========================================
 // FEATURE FLAGS
 // ========================================
 
@@ -1650,7 +1685,7 @@ function writePreScaleData(item, data) {
     }
 
     try {
-        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\write-metadata.log");
+        var logFile = new File(getLogFilePath("write-metadata.log"));
         logFile.open("a");
         logFile.writeln("[WRITE] Writing metadata: lastPercent=" + data.lastPercent);
         logFile.writeln("[WRITE]   Item: " + item.typename);
@@ -1704,7 +1739,7 @@ function getPreScaleData(item) {
     var tokens = readNoteTokens(item);
 
     try {
-        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\read-metadata.log");
+        var logFile = new File(getLogFilePath("read-metadata.log"));
         logFile.open("a");
         logFile.writeln("[READ] Reading metadata from: " + item.typename);
         logFile.writeln("[READ]   Found " + tokens.length + " tokens");
@@ -1732,7 +1767,7 @@ function getPreScaleData(item) {
                 }
 
                 try {
-                    var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\read-metadata.log");
+                    var logFile = new File(getLogFilePath("read-metadata.log"));
                     logFile.open("a");
                     logFile.writeln("[READ]   Found scale data: lastPercent=" + data.lastPercent);
                     logFile.close();
@@ -1746,7 +1781,7 @@ function getPreScaleData(item) {
     }
 
     try {
-        var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\read-metadata.log");
+        var logFile = new File(getLogFilePath("read-metadata.log"));
         logFile.open("a");
         logFile.writeln("[READ]   No scale data found");
         logFile.close();
@@ -2039,13 +2074,9 @@ function ensureBaseRotation(pathItem) {
 
 function setRotationOverride(pathItem, angleDeg) {
     if (!pathItem) return;
-    var base = ensureBaseRotation(pathItem);
-    if (base === null || !isFinite(base)) {
-        base = 0;
-    }
-    var delta = normalizeAngle(angleDeg - base);
+    // Store the angle directly without computing base rotation
     var tokens = readNoteTokens(pathItem);
-    var tag = ROT_OVERRIDE_PREFIX + delta;
+    var tag = ROT_OVERRIDE_PREFIX + normalizeAngle(angleDeg);
     var replaced = false;
     for (var i = 0; i < tokens.length; i++) {
         if (tokens[i].toUpperCase().indexOf(ROT_OVERRIDE_PREFIX) === 0) {
@@ -2063,34 +2094,54 @@ function clearRotationOverride(pathItem) {
     var tokens = readNoteTokens(pathItem);
     var filtered = [];
     for (var i = 0; i < tokens.length; i++) {
+        // Clear both MD:ROT= and MD:BASE_ROT= tags
         if (tokens[i].toUpperCase().indexOf(ROT_OVERRIDE_PREFIX) === 0) continue;
+        if (tokens[i].toUpperCase().indexOf(ROT_BASE_PREFIX) === 0) continue;
         filtered.push(tokens[i]);
     }
     writeNoteTokens(pathItem, filtered);
 }
 
+// Utility function to clear all rotation metadata from selection
+function clearAllRotationMetadata() {
+    if (!app.activeDocument || !app.activeDocument.selection || app.activeDocument.selection.length === 0) {
+        alert("Please select paths first");
+        return;
+    }
+
+    var count = 0;
+    for (var i = 0; i < app.activeDocument.selection.length; i++) {
+        var item = app.activeDocument.selection[i];
+        if (item.typename === "PathItem") {
+            clearRotationOverride(item);
+            count++;
+        } else if (item.typename === "GroupItem") {
+            var paths = getAllPathItemsInGroup(item);
+            for (var j = 0; j < paths.length; j++) {
+                clearRotationOverride(paths[j]);
+                count++;
+            }
+        }
+    }
+
+    alert("Cleared rotation metadata from " + count + " paths");
+}
+
 function getRotationOverride(pathItem) {
     var tokens = readNoteTokens(pathItem);
-    var delta = null;
     for (var i = 0; i < tokens.length; i++) {
         if (tokens[i].toUpperCase().indexOf(ROT_OVERRIDE_PREFIX) === 0) {
             var raw = tokens[i].substring(ROT_OVERRIDE_PREFIX.length);
             var val = parseFloat(raw);
             if (!isNaN(val)) {
-                delta = normalizeAngle(val);
-                break;
+                // Return the angle directly - no base rotation system
+                return normalizeAngle(val);
             }
         }
     }
-    var base = getBaseRotation(pathItem);
-    if (base === null || !isFinite(base)) {
-        base = ensureBaseRotation(pathItem);
-    }
-    if (delta === null) {
-        return base !== null ? normalizeAngle(base) : null;
-    }
-    if (base === null) base = 0;
-    return normalizeAngle(base + delta);
+    // Only return a rotation override if one was explicitly set (MD:ROT= tag exists)
+    // Paths without explicit override will orthogonalize to standard 0/90/180/270 grid
+    return null;
 }
 
 // ========================================
@@ -4576,6 +4627,12 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 }
                 return checkSkipOrthoState(items);
             };
+            mdNamespace.clearRotationOverride = function (pathItem) {
+                return clearRotationOverride(pathItem);
+            };
+            mdNamespace.getAllPathItemsInGroup = function (groupItem) {
+                return getAllPathItemsInGroup(groupItem);
+            };
         } catch (e) {}
     }
     
@@ -5179,13 +5236,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
     function setRotationOverride(pathItem, angleDeg) {
         if (!pathItem) return;
-        var base = ensureBaseRotation(pathItem);
-        if (base === null || !isFinite(base)) {
-            base = 0;
-        }
-        var delta = normalizeAngle(angleDeg - base);
+        // Store the angle directly without computing base rotation
         var tokens = readNoteTokens(pathItem);
-        var tag = ROT_OVERRIDE_PREFIX + delta;
+        var tag = ROT_OVERRIDE_PREFIX + normalizeAngle(angleDeg);
         var replaced = false;
         for (var i = 0; i < tokens.length; i++) {
             if (tokens[i].toUpperCase().indexOf(ROT_OVERRIDE_PREFIX) === 0) {
@@ -5203,7 +5256,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         var tokens = readNoteTokens(pathItem);
         var filtered = [];
         for (var i = 0; i < tokens.length; i++) {
+            // Clear both MD:ROT= and MD:BASE_ROT= tags
             if (tokens[i].toUpperCase().indexOf(ROT_OVERRIDE_PREFIX) === 0) continue;
+            if (tokens[i].toUpperCase().indexOf(ROT_BASE_PREFIX) === 0) continue;
             filtered.push(tokens[i]);
         }
         writeNoteTokens(pathItem, filtered);
@@ -5211,26 +5266,19 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
     function getRotationOverride(pathItem) {
         var tokens = readNoteTokens(pathItem);
-        var delta = null;
         for (var i = 0; i < tokens.length; i++) {
             if (tokens[i].toUpperCase().indexOf(ROT_OVERRIDE_PREFIX) === 0) {
                 var raw = tokens[i].substring(ROT_OVERRIDE_PREFIX.length);
                 var val = parseFloat(raw);
                 if (!isNaN(val)) {
-                    delta = normalizeAngle(val);
-                    break;
+                    // Return the angle directly - no base rotation system
+                    return normalizeAngle(val);
                 }
             }
         }
-        var base = getBaseRotation(pathItem);
-        if (base === null || !isFinite(base)) {
-            base = ensureBaseRotation(pathItem);
-        }
-        if (delta === null) {
-            return base !== null ? normalizeAngle(base) : null;
-        }
-        if (base === null) base = 0;
-        return normalizeAngle(base + delta);
+        // Only return a rotation override if one was explicitly set (MD:ROT= tag exists)
+        // Paths without explicit override will orthogonalize to standard 0/90/180/270 grid
+        return null;
     }
 
     function loadSettingsFromSelection(selectionItems) {
@@ -7904,12 +7952,14 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
         // Also write to file
         try {
-            var logFile = new File("C:\\Users\\Chris\\AppData\\Roaming\\Adobe\\CEP\\extensions\\Magic-Ductwork-Panel\\debug.log");
+            var logFile = new File(getLogFilePath("debug.log"));
             logFile.open("a");
             logFile.writeln("[" + new Date().toISOString() + "] " + msg);
             logFile.close();
         } catch (e) {
-            // Silently fail if logging doesn't work
+            // If file logging fails, at least we have in-memory log
+            // Uncomment for debugging logging issues:
+            // alert("Debug logging failed: " + e.toString());
         }
     }
 

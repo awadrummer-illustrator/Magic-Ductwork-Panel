@@ -323,6 +323,45 @@ function MDUX_revertPreOrthoBridge() {
     }
 }
 
+function MDUX_clearRotationMetadataBridge() {
+    try {
+        if (app.documents.length === 0) {
+            return "ERROR:No Illustrator document is open.";
+        }
+        var doc = app.activeDocument;
+        var sel = null;
+        try { sel = doc.selection; } catch (eSel) { sel = null; }
+        if (!sel || sel.length === 0) {
+            return "0";
+        }
+        if (!MDUX_requireMagicFinal()) {
+            return "ERROR:Clear rotation metadata function unavailable";
+        }
+        if (typeof MDUX === "undefined" || !MDUX.clearRotationOverride || !MDUX.getAllPathItemsInGroup) {
+            return "ERROR:Clear rotation metadata function unavailable";
+        }
+
+        var count = 0;
+        for (var i = 0; i < sel.length; i++) {
+            var item = sel[i];
+            if (item.typename === "PathItem") {
+                MDUX.clearRotationOverride(item);
+                count++;
+            } else if (item.typename === "GroupItem") {
+                var paths = MDUX.getAllPathItemsInGroup(item);
+                for (var j = 0; j < paths.length; j++) {
+                    MDUX.clearRotationOverride(paths[j]);
+                    count++;
+                }
+            }
+        }
+
+        return String(count);
+    } catch (e) {
+        return "ERROR:" + e;
+    }
+}
+
 function MDUX_prepareProcessBridge(optionsJSON) {
     try {
         var opts = null;
@@ -595,7 +634,7 @@ function MDUX_createLayersBridge() {
 }
 }
 
-function MDUX_runEmoryDuctwork() {
+function MDUX_runEmoryDuctwork(createRegisterWires) {
     try {
         if (!app.documents.length) {
             return "ERROR:No document open";
@@ -606,6 +645,11 @@ function MDUX_runEmoryDuctwork() {
         var WIRE_CONNECTION_TOLERANCE = 50; // Increased tolerance to 50px
         var swappedCount = 0;
         var wireCount = 0;
+
+        // Default to false if not specified
+        if (typeof createRegisterWires === 'undefined') {
+            createRegisterWires = false;
+        }
 
         $.writeln("[EMORY] Starting Emory ductwork processing");
 
@@ -722,12 +766,14 @@ function MDUX_runEmoryDuctwork() {
             }
         }
 
-        // Step 2: Generate register wires
-        var ductworkPaths = [];
-        var registerPoints = [];
-        var ignoreAnchors = [];
+        // Step 2: Generate register wires (only if enabled)
+        if (createRegisterWires) {
+            $.writeln("[EMORY] Register wire creation enabled");
+            var ductworkPaths = [];
+            var registerPoints = [];
+            var ignoreAnchors = [];
 
-        $.writeln("[EMORY] Scanning for ductwork paths, registers, and ignore anchors");
+            $.writeln("[EMORY] Scanning for ductwork paths, registers, and ignore anchors");
 
         // Find ductwork paths
         for (var i = 0; i < allItems.length; i++) {
@@ -979,9 +1025,18 @@ function MDUX_runEmoryDuctwork() {
                 }
             }
         }
+        } else {
+            $.writeln("[EMORY] Register wire creation skipped (disabled)");
+        }
 
-        $.writeln("[EMORY] Complete: Swapped " + swappedCount + " items, created " + wireCount + " wires");
-        return "Swapped " + swappedCount + " items to Emory versions and created " + wireCount + " register wires.";
+        var message = "Swapped " + swappedCount + " items to Emory versions";
+        if (createRegisterWires) {
+            message += " and created " + wireCount + " register wires";
+        }
+        message += ".";
+
+        $.writeln("[EMORY] Complete: " + message);
+        return message;
     } catch (e) {
         $.writeln("[EMORY] Error: " + e);
         return "ERROR:" + e.toString();

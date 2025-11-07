@@ -37,15 +37,22 @@
                 <input type="checkbox" id="skip-final-option">
                 <span>Skip orthogonalizing final segment into registers</span>
             </label>
+
+            <label class="option-row">
+                <input type="checkbox" id="create-register-wires-option">
+                <span>Create Register Wires</span>
+            </label>
         </div>
 
         <div class="button-row">
             <button id="process-btn" class="primary">Process Ductwork</button>
             <button id="process-emory-btn" class="primary">Process Ductwork Emory</button>
             <button id="revert-ortho-btn" class="secondary">Revert Pre-Ortho</button>
+            <button id="clear-rotation-metadata-btn" class="secondary">Clear Rotation Metadata</button>
         </div>
         <p id="process-status" class="status"></p>
         <p id="revert-status" class="status"></p>
+        <p id="clear-rotation-metadata-status" class="status"></p>
     </section>
 
     <section class="card">

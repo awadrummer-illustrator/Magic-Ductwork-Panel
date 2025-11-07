@@ -7,6 +7,8 @@
     const processStatus = document.getElementById('process-status');
     const revertBtn = document.getElementById('revert-ortho-btn');
     const revertStatus = document.getElementById('revert-status');
+    const clearRotationMetadataBtn = document.getElementById('clear-rotation-metadata-btn');
+    const clearRotationMetadataStatus = document.getElementById('clear-rotation-metadata-status');
     const applyIgnoreBtn = document.getElementById('apply-ignore-btn');
     const ignoreStatus = document.getElementById('ignore-status');
     const reloadBtn = document.getElementById('reload-btn');
@@ -15,6 +17,7 @@
     const rotationInput = document.getElementById('rotation-input');
     const clearRotationBtn = document.getElementById('clear-rotation-btn');
     const skipFinalOption = document.getElementById('skip-final-option');
+    const createRegisterWiresOption = document.getElementById('create-register-wires-option');
     const rotate90Btn = document.getElementById('rotate-90-btn');
     const rotate45Btn = document.getElementById('rotate-45-btn');
     const rotate180Btn = document.getElementById('rotate-180-btn');
@@ -67,6 +70,11 @@
     function setRevertStatus(message, isError) {
         revertStatus.textContent = message || '';
         revertStatus.classList.toggle('error', !!isError);
+    }
+
+    function setClearRotationMetadataStatus(message, isError) {
+        clearRotationMetadataStatus.textContent = message || '';
+        clearRotationMetadataStatus.classList.toggle('error', !!isError);
     }
 
     function setSelectionStatus(message, isError) {
@@ -298,7 +306,8 @@
             return;
         }
 
-        const result = normaliseResult(await evalScript('MDUX_runEmoryDuctwork()'));
+        const createWires = !!createRegisterWiresOption.checked;
+        const result = normaliseResult(await evalScript('MDUX_runEmoryDuctwork(' + createWires + ')'));
         if (result.ok) {
             setProcessStatus('Ready.');
             debugStatus.textContent = 'Emory process completed';
@@ -578,10 +587,44 @@
         scheduleSkipOrthoRefresh();
     }
 
+    async function handleClearRotationMetadata() {
+        clearRotationMetadataBtn.disabled = true;
+        setClearRotationMetadataStatus('Clearing rotation metadata…');
+        try {
+            await ensureBridgeLoaded();
+        } catch (e) {
+            setClearRotationMetadataStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
+            clearRotationMetadataBtn.disabled = false;
+            return;
+        }
+        const result = normaliseResult(await evalScript('MDUX_clearRotationMetadataBridge()'));
+        if (!result.ok) {
+            setClearRotationMetadataStatus('Error: ' + result.value, true);
+            debugStatus.textContent = 'Clear rotation metadata failed: ' + result.value;
+        } else {
+            var count = 0;
+            try {
+                count = parseInt(result.value, 10);
+            } catch (e) {
+                count = 0;
+            }
+            if (count === 0) {
+                setClearRotationMetadataStatus('No paths selected or no rotation metadata found.', true);
+                debugStatus.textContent = 'Clear rotation metadata: nothing cleared';
+            } else {
+                setClearRotationMetadataStatus('Cleared rotation metadata from ' + count + ' path(s).');
+                debugStatus.textContent = 'Clear rotation metadata: cleared ' + count + ' paths';
+            }
+        }
+        clearRotationMetadataBtn.disabled = false;
+        scheduleSkipOrthoRefresh();
+    }
+
     function attachListeners() {
         processBtn.addEventListener('click', handleProcessClick);
         processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
         revertBtn.addEventListener('click', handleRevertPreOrtho);
+        clearRotationMetadataBtn.addEventListener('click', handleClearRotationMetadata);
         applyIgnoreBtn.addEventListener('click', applyIgnore);
         clearRotationBtn.addEventListener('click', () => {
             rotationInput.value = '';
@@ -644,6 +687,7 @@
         rotationInput.dataset.autoValue = '';
         rotationInput.dataset.multi = 'false';
         skipFinalOption.checked = false;
+        createRegisterWiresOption.checked = false;
         scaleSlider.value = 100;
         scaleLabel.textContent = '100%';
         scaleInput.value = '';
