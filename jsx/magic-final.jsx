@@ -4013,6 +4013,9 @@ var LAYER_TO_COLOR_NAME = {
                 stats.skipped++;
             }
             clearPreOrthoGeometry(pathItem);
+            // CRITICAL: Also clear ORTHO_LOCK flag so path can be re-orthogonalized
+            // Otherwise the path will skip orthogonalization next time and won't create new backup
+            removeNoteTag(pathItem, ORTHO_LOCK_TAG);
         }
 
         return stats;
@@ -8024,13 +8027,24 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         } else if (item.typename === "CompoundPathItem") {
             for (var j = 0; j < item.pathItems.length; j++) walkAndCollect(item.pathItems[j]);
         } else if (item.typename === "PathItem") {
-            // Exclude ductwork parts layer items from path collection
             if (!item.guides && !item.clipping) {
                 try {
                     var itemLayerName = item.layer ? item.layer.name : null;
-                    if (!itemLayerName || !DUCTWORK_PARTS_LAYERS[itemLayerName]) {
-                        allPaths.push(item);
+                    var isOnDuctworkPartsLayer = itemLayerName && DUCTWORK_PARTS_LAYERS[itemLayerName];
+                    var pointCount = item.pathPoints ? item.pathPoints.length : 0;
+
+                    // Exclude MULTI-POINT paths on ductwork parts layers (component outlines)
+                    // But ALLOW 1-POINT paths (anchors) since those are legitimate placement markers
+                    if (isOnDuctworkPartsLayer && pointCount > 1) {
+                        addDebug("[Path Collection] EXCLUDED: " + pointCount + "-point path on '" + itemLayerName + "' layer (component outline)");
+                        return;
                     }
+
+                    if (isOnDuctworkPartsLayer && pointCount === 1) {
+                        addDebug("[Path Collection] INCLUDED: 1-point anchor on '" + itemLayerName + "' layer");
+                    }
+
+                    allPaths.push(item);
                 } catch (e) {
                     // If we can't get layer name, include the path anyway
                     allPaths.push(item);

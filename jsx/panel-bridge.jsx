@@ -1202,6 +1202,67 @@ function MDUX_moveToLayerBridge(optionsJSON) {
         }
         $.writeln("[MOVE] Found " + anchors.length + " anchors in selection");
 
+        // Helper function to find anchors at PlacedItem center
+        function findAnchorsAtCenter(centerX, centerY, tolerance) {
+            var foundAnchors = [];
+            var searchLog = [];
+            $.writeln("[MOVE] Searching for anchors at center [" + centerX + ", " + centerY + "] with tolerance " + tolerance);
+            searchLog.push("Searching for anchors at center [" + centerX.toFixed(2) + ", " + centerY.toFixed(2) + "] with tolerance " + tolerance);
+
+            // Search all ductwork parts layers for anchors
+            for (var layerIdx = 0; layerIdx < doc.layers.length; layerIdx++) {
+                var layer = doc.layers[layerIdx];
+                if (!isValidDuctworkLayer(layer.name)) continue;
+
+                searchLog.push("Checking layer: " + layer.name + " (" + layer.pathItems.length + " paths)");
+
+                try {
+                    // Check all PathItems on this layer
+                    for (var pathIdx = 0; pathIdx < layer.pathItems.length; pathIdx++) {
+                        var path = layer.pathItems[pathIdx];
+
+                        // Only consider 1-point paths (anchors)
+                        if (path.pathPoints && path.pathPoints.length === 1) {
+                            var anchorPt = path.pathPoints[0].anchor;
+                            var dx = anchorPt[0] - centerX;
+                            var dy = anchorPt[1] - centerY;
+                            var dist = Math.sqrt(dx * dx + dy * dy);
+
+                            searchLog.push("  Found 1-pt anchor at [" + anchorPt[0].toFixed(2) + ", " + anchorPt[1].toFixed(2) + "] - distance: " + dist.toFixed(2) + "px");
+
+                            if (dist <= tolerance) {
+                                $.writeln("[MOVE]   Found anchor at [" + anchorPt[0] + ", " + anchorPt[1] + "] on layer '" + layer.name + "' (distance: " + dist.toFixed(2) + ")");
+                                searchLog.push("    MATCH! Adding to foundAnchors");
+                                foundAnchors.push(path);
+                            }
+                        }
+                    }
+                } catch (eLayerSearch) {
+                    $.writeln("[MOVE]   Error searching layer '" + layer.name + "': " + eLayerSearch);
+                    searchLog.push("  Error: " + eLayerSearch);
+                }
+            }
+
+            $.writeln("[MOVE] Found " + foundAnchors.length + " anchors at center");
+            searchLog.push("Found " + foundAnchors.length + " anchors at center");
+
+            // Write search log to file
+            try {
+                var debugLogPath = "C:/Users/Chris/AppData/Roaming/Adobe/CEP/extensions/Magic-Ductwork-Panel/anchor-search-debug.log";
+                var debugFile = new File(debugLogPath);
+                if (debugFile.open("w")) {
+                    for (var i = 0; i < searchLog.length; i++) {
+                        debugFile.writeln(searchLog[i]);
+                    }
+                    debugFile.close();
+                }
+            } catch (eDebug) {
+                $.writeln("[MOVE] Error writing anchor search debug log: " + eDebug);
+            }
+
+            return foundAnchors;
+        }
+
         // Move selection to target layer
         $.writeln("[MOVE] Processing " + selection.length + " selected items...");
         for (var i = 0; i < selection.length; i++) {
@@ -1281,6 +1342,38 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             $.writeln("[MOVE]   Item centered on anchor at " + targetX + ", " + targetY);
 
                             itemsMoved++;
+
+                            // Find and move any anchors at this location (5px tolerance)
+                            try {
+                                var replacementAnchors = findAnchorsAtCenter(targetX, targetY, 5);
+                                for (var anchorIdx = 0; anchorIdx < replacementAnchors.length; anchorIdx++) {
+                                    try {
+                                        var anchorLayer = replacementAnchors[anchorIdx].layer ? replacementAnchors[anchorIdx].layer.name : null;
+                                        if (anchorLayer === targetLayerName) {
+                                            $.writeln("[MOVE]     Anchor already on target layer, skipping");
+                                            continue;
+                                        }
+
+                                        var wasInSelection = false;
+                                        for (var selIdx = 0; selIdx < selection.length; selIdx++) {
+                                            if (selection[selIdx] === replacementAnchors[anchorIdx]) {
+                                                wasInSelection = true;
+                                                break;
+                                            }
+                                        }
+
+                                        if (!wasInSelection) {
+                                            $.writeln("[MOVE]     Moving anchor from '" + anchorLayer + "' to '" + targetLayerName + "'");
+                                            replacementAnchors[anchorIdx].move(targetLayer, ElementPlacement.PLACEATBEGINNING);
+                                            anchorsMoved++;
+                                        }
+                                    } catch (eAnchor) {
+                                        $.writeln("[MOVE]     Error moving anchor: " + eAnchor);
+                                    }
+                                }
+                            } catch (eSearchAnchors) {
+                                $.writeln("[MOVE]   Error searching for anchors after replacement: " + eSearchAnchors);
+                            }
                         } catch (eReplace) {
                             $.writeln("[MOVE]   ERROR replacing item: " + eReplace);
                             // If replacement failed and item still exists, just move it
@@ -1294,9 +1387,49 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                     } else {
                         // No file to replace with, just move the item
                         $.writeln("[MOVE]   Moving PlacedItem without replacement...");
+
+                        // Get item center BEFORE moving it
+                        var bounds = item.geometricBounds;
+                        var centerX = (bounds[0] + bounds[2]) / 2;
+                        var centerY = (bounds[1] + bounds[3]) / 2;
+
                         item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
                         itemsMoved++;
                         $.writeln("[MOVE]   PlacedItem moved successfully");
+
+                        // Find and move any anchors at this item's center (10px tolerance - increased from 5px)
+                        $.writeln("[MOVE]   Searching for anchors at center [" + centerX.toFixed(2) + ", " + centerY.toFixed(2) + "]");
+                        var centerAnchors = findAnchorsAtCenter(centerX, centerY, 10);
+                        $.writeln("[MOVE]   Found " + centerAnchors.length + " anchors at center");
+                        for (var anchorIdx = 0; anchorIdx < centerAnchors.length; anchorIdx++) {
+                            try {
+                                // Skip if anchor is already on target layer or was in the selection
+                                var anchorLayer = centerAnchors[anchorIdx].layer ? centerAnchors[anchorIdx].layer.name : null;
+                                if (anchorLayer === targetLayerName) {
+                                    $.writeln("[MOVE]     Anchor already on target layer, skipping");
+                                    continue;
+                                }
+
+                                // Check if anchor was in original selection (already counted)
+                                var wasInSelection = false;
+                                for (var selIdx = 0; selIdx < selection.length; selIdx++) {
+                                    if (selection[selIdx] === centerAnchors[anchorIdx]) {
+                                        wasInSelection = true;
+                                        break;
+                                    }
+                                }
+
+                                if (!wasInSelection) {
+                                    $.writeln("[MOVE]     Moving anchor from '" + anchorLayer + "' to '" + targetLayerName + "'");
+                                    centerAnchors[anchorIdx].move(targetLayer, ElementPlacement.PLACEATBEGINNING);
+                                    anchorsMoved++;
+                                } else {
+                                    $.writeln("[MOVE]     Anchor was in selection, already counted");
+                                }
+                            } catch (eAnchor) {
+                                $.writeln("[MOVE]     Error moving anchor: " + eAnchor);
+                            }
+                        }
                     }
                 }
                 // Move PathItems (anchors)
@@ -1331,6 +1464,22 @@ function MDUX_moveToLayerBridge(optionsJSON) {
         }
 
         $.writeln("[MOVE] Moved " + itemsMoved + " items, " + anchorsMoved + " anchors, skipped " + itemsSkipped + " items");
+
+        // Write debug log to file
+        try {
+            var debugLogPath = "C:/Users/Chris/AppData/Roaming/Adobe/CEP/extensions/Magic-Ductwork-Panel/move-debug.log";
+            var debugFile = new File(debugLogPath);
+            if (debugFile.open("w")) {
+                debugFile.writeln("Move operation completed:");
+                debugFile.writeln("Items moved: " + itemsMoved);
+                debugFile.writeln("Anchors moved: " + anchorsMoved);
+                debugFile.writeln("Items skipped: " + itemsSkipped);
+                debugFile.writeln("Target layer: " + targetLayerName);
+                debugFile.close();
+            }
+        } catch (eDebug) {
+            $.writeln("[MOVE] Error writing debug log: " + eDebug);
+        }
 
         // Lock and hide Ignore layer if that's the target
         if (isIgnoreLayer) {
