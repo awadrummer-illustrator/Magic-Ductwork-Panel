@@ -9,8 +9,8 @@
     const revertStatus = document.getElementById('revert-status');
     const clearRotationMetadataBtn = document.getElementById('clear-rotation-metadata-btn');
     const clearRotationMetadataStatus = document.getElementById('clear-rotation-metadata-status');
-    const applyIgnoreBtn = document.getElementById('apply-ignore-btn');
-    const ignoreStatus = document.getElementById('ignore-status');
+    // const applyIgnoreBtn = document.getElementById('apply-ignore-btn'); // Removed - button no longer exists
+    // const ignoreStatus = document.getElementById('ignore-status'); // Removed - status no longer exists
     const reloadBtn = document.getElementById('reload-btn');
     const debugStatus = document.getElementById('debug-status');
     const skipOrthoOption = document.getElementById('skip-ortho-option');
@@ -36,6 +36,15 @@
     const layerStatus = document.getElementById('layer-status');
     const importStylesBtn = document.getElementById('import-styles-btn');
     const importStatus = document.getElementById('import-status');
+    const moveToUnitsBtn = document.getElementById('move-to-units-btn');
+    const moveToSquareBtn = document.getElementById('move-to-square-btn');
+    const moveToRectBtn = document.getElementById('move-to-rect-btn');
+    const moveToCircularBtn = document.getElementById('move-to-circular-btn');
+    const moveToExhaustBtn = document.getElementById('move-to-exhaust-btn');
+    const moveToSecondaryExhaustBtn = document.getElementById('move-to-secondary-exhaust-btn');
+    const moveToThermostatsBtn = document.getElementById('move-to-thermostats-btn');
+    const moveToIgnoreBtn = document.getElementById('move-to-ignore-btn');
+    const moveStatus = document.getElementById('move-status');
 
     let scaleDebounce = null;
     let bridgeReloaded = false;
@@ -63,8 +72,9 @@
     }
 
     function setIgnoreStatus(message, isError) {
-        ignoreStatus.textContent = message || '';
-        ignoreStatus.classList.toggle('error', !!isError);
+        // ignoreStatus element removed - function disabled
+        // ignoreStatus.textContent = message || '';
+        // ignoreStatus.classList.toggle('error', !!isError);
     }
 
     function setRevertStatus(message, isError) {
@@ -90,6 +100,11 @@
     function setImportStatus(message, isError) {
         importStatus.textContent = message || '';
         importStatus.classList.toggle('error', !!isError);
+    }
+
+    function setMoveStatus(message, isError) {
+        moveStatus.textContent = message || '';
+        moveStatus.classList.toggle('error', !!isError);
     }
 
     function normaliseResult(value) {
@@ -433,7 +448,7 @@
     }
 
     function onScaleInput() {
-        if (!scaleSlider) return;
+        if (!scaleSlider || !scaleLabel) return;
         var value = parseFloat(scaleSlider.value);
         if (!isFinite(value)) return;
         scaleLabel.textContent = value + '%';
@@ -494,12 +509,12 @@
     }
 
     async function applyIgnore() {
-        applyIgnoreBtn.disabled = true;
+        // applyIgnoreBtn.disabled = true; // Button removed
         try {
             await ensureBridgeLoaded();
         } catch (e) {
             setIgnoreStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
-            applyIgnoreBtn.disabled = false;
+            // applyIgnoreBtn.disabled = false; // Button removed
             return;
         }
         const result = normaliseResult(await evalScript('MDUX_applyIgnoreBridge()'));
@@ -537,7 +552,77 @@
                 debugStatus.textContent = 'Ignore apply result: ' + (result.value || 'OK');
             }
         }
-        applyIgnoreBtn.disabled = false;
+        // applyIgnoreBtn.disabled = false; // Button removed
+        scheduleSkipOrthoRefresh();
+    }
+
+    async function moveToLayer(layerName, fileBaseName) {
+        console.log('[MOVE] Button clicked - Layer:', layerName, 'File:', fileBaseName);
+        setMoveStatus('Moving selection to ' + layerName + '…');
+
+        try {
+            console.log('[MOVE] Loading bridge...');
+            await ensureBridgeLoaded();
+            console.log('[MOVE] Bridge loaded successfully');
+        } catch (e) {
+            console.error('[MOVE] Bridge load failed:', e);
+            setMoveStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
+            return;
+        }
+
+        const payload = JSON.stringify({
+            layerName: layerName,
+            fileBaseName: fileBaseName
+        }).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
+
+        console.log('[MOVE] Payload:', payload);
+        console.log('[MOVE] Calling MDUX_moveToLayerBridge...');
+
+        const result = normaliseResult(await evalScript("MDUX_moveToLayerBridge('" + payload + "')"));
+        console.log('[MOVE] Result received:', result);
+
+        if (!result.ok) {
+            console.error('[MOVE] Error from bridge:', result.value);
+            setMoveStatus('Error: ' + result.value, true);
+            debugStatus.textContent = 'Move to layer failed: ' + result.value;
+            return;
+        }
+
+        console.log('[MOVE] Parsing result value:', result.value);
+        let stats = null;
+        try {
+            stats = result.value ? JSON.parse(result.value) : null;
+            console.log('[MOVE] Parsed stats:', stats);
+        } catch (e) {
+            console.error('[MOVE] Failed to parse stats:', e);
+            stats = null;
+        }
+
+        if (stats && typeof stats.itemsMoved === 'number') {
+            console.log('[MOVE] Items moved:', stats.itemsMoved, 'Anchors moved:', stats.anchorsMoved, 'Skipped:', stats.itemsSkipped);
+            if (stats.itemsMoved === 0 && stats.anchorsMoved === 0) {
+                if (stats.reason === 'no-selection') {
+                    setMoveStatus('No items selected.', true);
+                } else if (stats.itemsSkipped > 0) {
+                    setMoveStatus('Skipped ' + stats.itemsSkipped + ' item(s) - only ductwork parts layers can be moved.', true);
+                } else {
+                    setMoveStatus('No eligible items found in selection.', true);
+                }
+            } else {
+                const parts = [];
+                if (stats.itemsMoved > 0) parts.push(stats.itemsMoved + ' item(s)');
+                if (stats.anchorsMoved > 0) parts.push(stats.anchorsMoved + ' anchor(s)');
+                let message = 'Moved ' + parts.join(', ') + ' to ' + layerName + '.';
+                if (stats.itemsSkipped > 0) {
+                    message += ' Skipped ' + stats.itemsSkipped + ' item(s) not on ductwork parts layers.';
+                }
+                setMoveStatus(message);
+                debugStatus.textContent = 'Moved ' + stats.itemsMoved + ' items, ' + stats.anchorsMoved + ' anchors, skipped ' + stats.itemsSkipped;
+            }
+        } else {
+            console.log('[MOVE] Using fallback status message');
+            setMoveStatus(result.value || 'Selection moved to ' + layerName + '.');
+        }
         scheduleSkipOrthoRefresh();
     }
 
@@ -625,7 +710,7 @@
         processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
         revertBtn.addEventListener('click', handleRevertPreOrtho);
         clearRotationMetadataBtn.addEventListener('click', handleClearRotationMetadata);
-        applyIgnoreBtn.addEventListener('click', applyIgnore);
+        // applyIgnoreBtn.addEventListener('click', applyIgnore); // Removed - button no longer exists
         clearRotationBtn.addEventListener('click', () => {
             rotationInput.value = '';
             rotationInput.dataset.autoValue = '';
@@ -643,38 +728,71 @@
         rotate90Btn.addEventListener('click', () => rotateSelection(90));
         rotate45Btn.addEventListener('click', () => rotateSelection(45));
         rotate180Btn.addEventListener('click', () => rotateSelection(180));
-        rotateCustomBtn.addEventListener('click', () => {
-            const value = parseFloat(customRotationInput.value);
-            if (!isFinite(value)) {
-                setSelectionStatus('Enter a numeric rotation value.', true);
-                return;
-            }
-            rotateSelection(value);
-        });
-        scaleSlider.addEventListener('input', onScaleInput);
-        applyScaleBtn.addEventListener('click', () => {
-            const value = parseFloat(scaleInput.value);
-            if (!isFinite(value) || value <= 0) {
-                setSelectionStatus('Enter a valid scale percentage (e.g., 50, 100, 150).', true);
-                return;
-            }
-            if (value < 25 || value > 500) {
-                setSelectionStatus('Scale must be between 25% and 500%.', true);
-                return;
-            }
-            applyScale(value);
-        });
-        resetScaleBtn.addEventListener('click', () => {
-            scaleSlider.value = 100;
-            scaleLabel.textContent = '100%';
-            scaleInput.value = '';
-            resetScale();
-        });
+        // Custom rotation and scale controls are hidden - only attach listeners if they exist
+        if (rotateCustomBtn) {
+            rotateCustomBtn.addEventListener('click', () => {
+                const value = parseFloat(customRotationInput.value);
+                if (!isFinite(value)) {
+                    setSelectionStatus('Enter a numeric rotation value.', true);
+                    return;
+                }
+                rotateSelection(value);
+            });
+        }
+        if (scaleSlider) {
+            scaleSlider.addEventListener('input', onScaleInput);
+        }
+        if (applyScaleBtn) {
+            applyScaleBtn.addEventListener('click', () => {
+                const value = parseFloat(scaleInput.value);
+                if (!isFinite(value) || value <= 0) {
+                    setSelectionStatus('Enter a valid scale percentage (e.g., 50, 100, 150).', true);
+                    return;
+                }
+                if (value < 25 || value > 500) {
+                    setSelectionStatus('Scale must be between 25% and 500%.', true);
+                    return;
+                }
+                applyScale(value);
+            });
+        }
+        if (resetScaleBtn) {
+            resetScaleBtn.addEventListener('click', () => {
+                scaleSlider.value = 100;
+                scaleLabel.textContent = '100%';
+                scaleInput.value = '';
+                resetScale();
+            });
+        }
         isolatePartsBtn.addEventListener('click', () => isolate('parts'));
         isolateLinesBtn.addEventListener('click', () => isolate('lines'));
         unlockDuctworkBtn.addEventListener('click', () => isolate('unlock'));
         createLayersBtn.addEventListener('click', () => isolate('create'));
         importStylesBtn.addEventListener('click', importGraphicStyles);
+        moveToUnitsBtn.addEventListener('click', () => {
+            moveToLayer('Units', 'Unit.ai');
+        });
+        moveToSquareBtn.addEventListener('click', () => {
+            moveToLayer('Square Registers', 'Square Register.ai');
+        });
+        moveToRectBtn.addEventListener('click', () => {
+            moveToLayer('Rectangular Registers', 'Rectangular Register.ai');
+        });
+        moveToCircularBtn.addEventListener('click', () => {
+            moveToLayer('Circular Registers', 'Circular Register.ai');
+        });
+        moveToExhaustBtn.addEventListener('click', () => {
+            moveToLayer('Exhaust Registers', 'Exhaust Register.ai');
+        });
+        moveToSecondaryExhaustBtn.addEventListener('click', () => {
+            moveToLayer('Secondary Exhaust Registers', 'Secondary Exhaust Register.ai');
+        });
+        moveToThermostatsBtn.addEventListener('click', () => {
+            moveToLayer('Thermostats', 'Thermostat.ai');
+        });
+        moveToIgnoreBtn.addEventListener('click', () => {
+            moveToLayer('Ignore', null);
+        });
         reloadBtn.addEventListener('click', () => window.location.reload());
     }
 
@@ -688,15 +806,17 @@
         rotationInput.dataset.multi = 'false';
         skipFinalOption.checked = false;
         createRegisterWiresOption.checked = false;
-        scaleSlider.value = 100;
-        scaleLabel.textContent = '100%';
-        scaleInput.value = '';
+        // Scale controls are hidden - only set values if they exist
+        if (scaleSlider) scaleSlider.value = 100;
+        if (scaleLabel) scaleLabel.textContent = '100%';
+        if (scaleInput) scaleInput.value = '';
         setProcessStatus('');
         setRevertStatus('');
         setSelectionStatus('');
         setLayerStatus('');
         setImportStatus('');
-        setIgnoreStatus('');
+        // setIgnoreStatus(''); // Removed - status element no longer exists
+        setMoveStatus('');
         try {
             await ensureBridgeLoaded();
         } catch (e) {

@@ -25,12 +25,10 @@
                 <span>Skip orthogonalization (<code>MD:NO_ORTHO</code>)</span>
             </label>
 
-            <div class="option-row rotation-row">
+            <div class="option-row inline">
                 <label for="rotation-input">Rotation override (°):</label>
-                <div class="rotation-field">
-                    <input type="text" id="rotation-input" placeholder="Leave blank to skip" inputmode="decimal">
-                    <button type="button" id="clear-rotation-btn" class="ghost sm">Clear</button>
-                </div>
+                <input type="text" id="rotation-input" class="rotation-input" placeholder="auto" inputmode="decimal">
+                <button type="button" id="clear-rotation-btn" class="ghost sm">Clear</button>
             </div>
 
             <label class="option-row">
@@ -47,6 +45,8 @@
         <div class="button-row">
             <button id="process-btn" class="primary">Process Ductwork</button>
             <button id="process-emory-btn" class="primary">Process Ductwork Emory</button>
+        </div>
+        <div class="button-row">
             <button id="revert-ortho-btn" class="secondary">Revert Pre-Ortho</button>
             <button id="clear-rotation-metadata-btn" class="secondary">Clear Rotation Metadata</button>
         </div>
@@ -57,7 +57,7 @@
 
     <section class="card">
         <h2>Selection Transform</h2>
-        <p class="muted">Rotate or scale the selection. Scaling also adjusts ductwork stroke widths.</p>
+        <p class="muted">Rotate the selection.</p>
 
         <div class="button-row wrap">
             <button id="rotate-90-btn" class="secondary">Rotate 90°</button>
@@ -65,6 +65,7 @@
             <button id="rotate-180-btn" class="secondary">Rotate 180°</button>
         </div>
 
+        <!-- Hidden for now - to be revisited later
         <div class="custom-rotation">
             <label for="custom-rotation-input">Custom rotation (°):</label>
             <input type="number" id="custom-rotation-input" placeholder="e.g. 12.5" step="0.1">
@@ -88,6 +89,7 @@
                 <button id="reset-scale-btn" class="ghost">Reset Scale</button>
             </div>
         </div>
+        -->
 
         <p id="selection-status" class="status"></p>
     </section>
@@ -95,19 +97,35 @@
     <section class="card">
         <h2>Layer Management</h2>
         <p class="muted">Quick isolation tools for ductwork layers.</p>
-        <div class="button-row wrap">
-            <button id="isolate-parts-btn" class="secondary">Isolate Ductwork Parts</button>
-            <button id="isolate-lines-btn" class="secondary">Isolate Ductwork Lines</button>
-            <button id="unlock-ductwork-btn" class="ghost">Unlock All Ductwork Layers</button>
-        </div>
-        <div class="button-row wrap">
-            <button id="create-layers-btn" class="success">Create Standard Layers</button>
-            <button id="import-styles-btn" class="success">Import Graphic Styles</button>
-            <button id="apply-ignore-btn" class="accent">Ignore</button>
+        <div class="layer-button-container">
+            <div class="layer-buttons-left">
+                <button id="isolate-parts-btn" class="secondary">Isolate Ductwork Parts</button>
+                <button id="isolate-lines-btn" class="secondary">Isolate Ductwork Lines</button>
+                <button id="create-layers-btn" class="success">Create Standard Layers</button>
+                <button id="import-styles-btn" class="success">Import Graphic Styles</button>
+            </div>
+            <div class="layer-buttons-right">
+                <button id="unlock-ductwork-btn" class="ghost"><img src="button_images/Unlock All Ductwork Layers.png" alt="">Unlock All Ductwork Layers</button>
+            </div>
         </div>
         <p id="layer-status" class="status"></p>
         <p id="import-status" class="status"></p>
-        <p id="ignore-status" class="status"></p>
+    </section>
+
+    <section class="card">
+        <h2>Move Selection To Layer</h2>
+        <p class="muted">Move selected items and their anchors to a different layer.</p>
+        <div class="move-button-grid">
+            <button id="move-to-units-btn" class="move-btn"><img src="button_images/Unit.png" alt="">Units</button>
+            <button id="move-to-square-btn" class="move-btn"><img src="button_images/Square Register.png" alt="">Square Registers</button>
+            <button id="move-to-rect-btn" class="move-btn"><img src="button_images/Rectangular Register.png" alt="">Rectangular Registers</button>
+            <button id="move-to-circular-btn" class="move-btn"><img src="button_images/Circular Register.png" alt="">Circular Registers</button>
+            <button id="move-to-exhaust-btn" class="move-btn"><img src="button_images/Exhaust Register.png" alt="">Exhaust Registers</button>
+            <button id="move-to-secondary-exhaust-btn" class="move-btn"><img src="button_images/Secondary Exhaust Register.png" alt="">Secondary Exhaust</button>
+            <button id="move-to-thermostats-btn" class="move-btn"><img src="button_images/Thermostat.png" alt="">Thermostats</button>
+            <button id="move-to-ignore-btn" class="ignore-btn"><img src="button_images/Ignore.png" alt="">Ignore</button>
+        </div>
+        <p id="move-status" class="status"></p>
     </section>
 
     </main>

@@ -1042,3 +1042,320 @@ function MDUX_runEmoryDuctwork(createRegisterWires) {
         return "ERROR:" + e.toString();
     }
 }
+
+function MDUX_moveToLayerBridge(optionsJSON) {
+    try {
+        $.writeln("[MOVE] MDUX_moveToLayerBridge called");
+        $.writeln("[MOVE] Input JSON: " + optionsJSON);
+
+        if (!app.documents.length) {
+            $.writeln("[MOVE] ERROR: No documents open");
+            return JSON.stringify({ itemsMoved: 0, anchorsMoved: 0, reason: 'no-document' });
+        }
+
+        var doc = app.activeDocument;
+
+        // Clean up any leftover temp layers from previous errors
+        try {
+            for (var i = doc.layers.length - 1; i >= 0; i--) {
+                var layerName = doc.layers[i].name;
+                if (layerName.indexOf('MDUX_TEMP_') === 0 || layerName === 'Scale Factor Container Layer') {
+                    $.writeln("[MOVE] Cleaning up temp layer: " + layerName);
+                    doc.layers[i].remove();
+                }
+            }
+        } catch (e) {
+            $.writeln("[MOVE] Error cleaning temp layers: " + e);
+        }
+
+        var selection = doc.selection;
+        $.writeln("[MOVE] Selection length: " + (selection ? selection.length : 0));
+
+        if (!selection || selection.length === 0) {
+            $.writeln("[MOVE] ERROR: No selection");
+            return JSON.stringify({ itemsMoved: 0, anchorsMoved: 0, reason: 'no-selection' });
+        }
+
+        var options = JSON.parse(optionsJSON);
+        var targetLayerName = options.layerName;
+        var fileBaseName = options.fileBaseName;
+        $.writeln("[MOVE] Target layer: " + targetLayerName);
+        $.writeln("[MOVE] File base name: " + fileBaseName);
+
+        // Get or create target layer
+        var targetLayer = null;
+        try {
+            targetLayer = doc.layers.getByName(targetLayerName);
+            $.writeln("[MOVE] Found existing layer: " + targetLayerName);
+        } catch (e) {
+            targetLayer = doc.layers.add();
+            targetLayer.name = targetLayerName;
+            $.writeln("[MOVE] Created new layer: " + targetLayerName);
+        }
+
+        var isIgnoreLayer = (targetLayerName === 'Ignore' || targetLayerName === 'Ignored');
+        var wasLocked = targetLayer.locked;
+        var wasVisible = targetLayer.visible;
+        $.writeln("[MOVE] Layer locked: " + wasLocked + ", visible: " + wasVisible);
+
+        // Unlock and show target layer temporarily
+        if (isIgnoreLayer || targetLayer.locked) {
+            targetLayer.locked = false;
+            $.writeln("[MOVE] Unlocked target layer");
+        }
+        if (!targetLayer.visible) {
+            targetLayer.visible = true;
+            $.writeln("[MOVE] Made target layer visible");
+        }
+
+        var itemsMoved = 0;
+        var anchorsMoved = 0;
+        var itemsSkipped = 0;
+        var filePath = null;
+
+        if (fileBaseName) {
+            var COMPONENT_FILES_PATH = 'E:/Work/Work/Floorplans/Ductwork Assets/';
+            filePath = new File(COMPONENT_FILES_PATH + fileBaseName);
+            $.writeln("[MOVE] File path: " + filePath.fsName);
+            if (!filePath.exists) {
+                $.writeln("[MOVE] WARNING: File does not exist");
+                filePath = null;
+            } else {
+                $.writeln("[MOVE] File exists");
+            }
+        }
+
+        // Define valid ductwork parts layers
+        var validDuctworkLayers = [
+            'Units',
+            'Square Registers',
+            'Rectangular Registers',
+            'Circular Registers',
+            'Exhaust Registers',
+            'Secondary Exhaust Registers',
+            'Thermostats',
+            'Ignore',
+            'Ignored'
+        ];
+
+        // Helper function to check if layer is valid
+        function isValidDuctworkLayer(layerName) {
+            for (var i = 0; i < validDuctworkLayers.length; i++) {
+                if (validDuctworkLayers[i] === layerName) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Helper function to get scale of a PlacedItem using matrix
+        function getItemScale(item) {
+            try {
+                if (item.typename !== 'PlacedItem') return 100;
+
+                // Get the transformation matrix
+                var matrix = item.matrix;
+
+                // Calculate scale from matrix
+                // mValueA is horizontal scale, mValueD is vertical scale
+                var scaleX = Math.sqrt(matrix.mValueA * matrix.mValueA + matrix.mValueB * matrix.mValueB);
+                var scaleY = Math.sqrt(matrix.mValueC * matrix.mValueC + matrix.mValueD * matrix.mValueD);
+
+                // Use average of X and Y scale
+                var scale = (scaleX + scaleY) / 2;
+
+                return scale * 100;
+            } catch (e) {
+                $.writeln("[MOVE] Error getting scale: " + e);
+                return 100;
+            }
+        }
+
+        // Find smallest scale on target layer (if not Ignore layer)
+        var smallestScale = 100;
+        if (!isIgnoreLayer && filePath) {
+            $.writeln("[MOVE] Scanning target layer for smallest scale...");
+            try {
+                var layerItems = targetLayer.pageItems;
+                for (var i = 0; i < layerItems.length; i++) {
+                    if (layerItems[i].typename === 'PlacedItem') {
+                        var scale = getItemScale(layerItems[i]);
+                        if (scale < smallestScale) {
+                            smallestScale = scale;
+                        }
+                    }
+                }
+                $.writeln("[MOVE] Smallest scale found: " + smallestScale + "%");
+            } catch (e) {
+                $.writeln("[MOVE] Error scanning for scale: " + e);
+                smallestScale = 100;
+            }
+        }
+
+        // Build map of anchor positions (PathItems with 1 point)
+        var anchors = [];
+        for (var i = 0; i < selection.length; i++) {
+            if (selection[i].typename === 'PathItem' && selection[i].pathPoints.length === 1) {
+                var anchor = selection[i].pathPoints[0].anchor;
+                anchors.push({ x: anchor[0], y: anchor[1] });
+            }
+        }
+        $.writeln("[MOVE] Found " + anchors.length + " anchors in selection");
+
+        // Move selection to target layer
+        $.writeln("[MOVE] Processing " + selection.length + " selected items...");
+        for (var i = 0; i < selection.length; i++) {
+            var item = selection[i];
+            $.writeln("[MOVE] Item " + i + " typename: " + item.typename);
+
+            // Check if item is on a valid ductwork parts layer
+            var itemLayerName = item.layer ? item.layer.name : null;
+            $.writeln("[MOVE]   Item layer: " + itemLayerName);
+
+            if (!isValidDuctworkLayer(itemLayerName)) {
+                $.writeln("[MOVE]   SKIPPED - not on a ductwork parts layer");
+                itemsSkipped++;
+                continue;
+            }
+
+            try {
+                // Move PlacedItems and replace with fresh file centered on anchor
+                if (item.typename === 'PlacedItem') {
+                    $.writeln("[MOVE]   Processing PlacedItem...");
+
+                    // If we have a file to replace with, reload centered on anchor with smallest scale
+                    if (filePath && !isIgnoreLayer) {
+                        try {
+                            $.writeln("[MOVE]   Replacing with fresh file...");
+
+                            // Get item's geometric center
+                            var bounds = item.geometricBounds;
+                            var centerX = (bounds[0] + bounds[2]) / 2;
+                            var centerY = (bounds[1] + bounds[3]) / 2;
+                            $.writeln("[MOVE]   Item center: " + centerX + ", " + centerY);
+
+                            // Find nearest anchor
+                            var nearestAnchor = null;
+                            var minDist = 999999;
+                            for (var a = 0; a < anchors.length; a++) {
+                                var dx = anchors[a].x - centerX;
+                                var dy = anchors[a].y - centerY;
+                                var dist = Math.sqrt(dx * dx + dy * dy);
+                                if (dist < minDist) {
+                                    minDist = dist;
+                                    nearestAnchor = anchors[a];
+                                }
+                            }
+
+                            // Use anchor position if found, otherwise use item center
+                            var targetX = nearestAnchor ? nearestAnchor.x : centerX;
+                            var targetY = nearestAnchor ? nearestAnchor.y : centerY;
+                            $.writeln("[MOVE]   Target center (anchor): " + targetX + ", " + targetY);
+
+                            // Delete the old item
+                            item.remove();
+                            $.writeln("[MOVE]   Old item removed");
+
+                            // Place fresh item from file
+                            var newItem = targetLayer.placedItems.add();
+                            newItem.file = filePath;
+
+                            // Get new item bounds to calculate center offset
+                            var newBounds = newItem.geometricBounds;
+                            var newWidth = Math.abs(newBounds[2] - newBounds[0]);
+                            var newHeight = Math.abs(newBounds[1] - newBounds[3]);
+
+                            // Scale FIRST if needed
+                            if (smallestScale !== 100) {
+                                newItem.resize(smallestScale, smallestScale, true, false, false, false, 100, Transformation.CENTER);
+                                $.writeln("[MOVE]   Scaled to " + smallestScale + "%");
+
+                                // Recalculate bounds after scaling
+                                newBounds = newItem.geometricBounds;
+                                newWidth = Math.abs(newBounds[2] - newBounds[0]);
+                                newHeight = Math.abs(newBounds[1] - newBounds[3]);
+                            }
+
+                            // Position so center aligns with target anchor
+                            newItem.position = [targetX - newWidth / 2, targetY + newHeight / 2];
+                            $.writeln("[MOVE]   Item centered on anchor at " + targetX + ", " + targetY);
+
+                            itemsMoved++;
+                        } catch (eReplace) {
+                            $.writeln("[MOVE]   ERROR replacing item: " + eReplace);
+                            // If replacement failed and item still exists, just move it
+                            try {
+                                if (item && !item.removed) {
+                                    item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
+                                    itemsMoved++;
+                                }
+                            } catch (e) {}
+                        }
+                    } else {
+                        // No file to replace with, just move the item
+                        $.writeln("[MOVE]   Moving PlacedItem without replacement...");
+                        item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
+                        itemsMoved++;
+                        $.writeln("[MOVE]   PlacedItem moved successfully");
+                    }
+                }
+                // Move PathItems (anchors)
+                else if (item.typename === 'PathItem') {
+                    $.writeln("[MOVE]   Moving PathItem with " + item.pathPoints.length + " points...");
+                    item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
+                    if (item.pathPoints.length === 1) {
+                        anchorsMoved++;
+                        $.writeln("[MOVE]   Anchor moved");
+                    } else {
+                        itemsMoved++;
+                        $.writeln("[MOVE]   Path moved");
+                    }
+                }
+                // Move GroupItems
+                else if (item.typename === 'GroupItem') {
+                    $.writeln("[MOVE]   Moving GroupItem...");
+                    item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
+                    itemsMoved++;
+                    $.writeln("[MOVE]   GroupItem moved");
+                }
+                // Move other items
+                else {
+                    $.writeln("[MOVE]   Moving " + item.typename + "...");
+                    item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
+                    itemsMoved++;
+                    $.writeln("[MOVE]   Item moved");
+                }
+            } catch (eMove) {
+                $.writeln("[MOVE]   ERROR moving item: " + eMove);
+            }
+        }
+
+        $.writeln("[MOVE] Moved " + itemsMoved + " items, " + anchorsMoved + " anchors, skipped " + itemsSkipped + " items");
+
+        // Lock and hide Ignore layer if that's the target
+        if (isIgnoreLayer) {
+            targetLayer.locked = true;
+            targetLayer.visible = false;
+            $.writeln("[MOVE] Locked and hid Ignore layer");
+        } else {
+            // Restore original state for non-Ignore layers
+            targetLayer.locked = wasLocked;
+            targetLayer.visible = wasVisible;
+            $.writeln("[MOVE] Restored layer state");
+        }
+
+        doc.selection = null;
+
+        var result = JSON.stringify({
+            itemsMoved: itemsMoved,
+            anchorsMoved: anchorsMoved,
+            itemsSkipped: itemsSkipped
+        });
+        $.writeln("[MOVE] Returning result: " + result);
+        return result;
+    } catch (e) {
+        $.writeln("[MOVE] EXCEPTION: " + e.toString());
+        $.writeln("[MOVE] Stack: " + e.line);
+        return "ERROR:" + e.toString();
+    }
+}
