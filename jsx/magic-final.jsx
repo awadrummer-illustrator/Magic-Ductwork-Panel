@@ -8004,6 +8004,19 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     var SELECTED_PATHS = [];
     var CREATED_ANCHOR_PATHS = [];
     var ACTIVE_CENTERLINES = [];
+
+    // Ductwork parts layers to exclude from path collection
+    var DUCTWORK_PARTS_LAYERS = {
+        "Units": true,
+        "Square Registers": true,
+        "Rectangular Registers": true,
+        "Circular Registers": true,
+        "Exhaust Registers": true,
+        "Orange Register": true,
+        "Secondary Exhaust Registers": true,
+        "Thermostats": true
+    };
+
     function walkAndCollect(item) {
         if (!item) return;
         if (item.typename === "GroupItem") {
@@ -8011,7 +8024,18 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         } else if (item.typename === "CompoundPathItem") {
             for (var j = 0; j < item.pathItems.length; j++) walkAndCollect(item.pathItems[j]);
         } else if (item.typename === "PathItem") {
-            if (!item.guides && !item.clipping) allPaths.push(item);
+            // Exclude ductwork parts layer items from path collection
+            if (!item.guides && !item.clipping) {
+                try {
+                    var itemLayerName = item.layer ? item.layer.name : null;
+                    if (!itemLayerName || !DUCTWORK_PARTS_LAYERS[itemLayerName]) {
+                        allPaths.push(item);
+                    }
+                } catch (e) {
+                    // If we can't get layer name, include the path anyway
+                    allPaths.push(item);
+                }
+            }
         }
     }
     for (var i = 0; i < sel.length; i++) walkAndCollect(sel[i]);
@@ -8647,6 +8671,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             } catch (eDerivedRotation) {}
         }
         if (!hasRotationOverride && hasOrthoLock(pathItem)) {
+            addDebug("[Orthogonalize] Path has ORTHO_LOCK, skipping");
             return false;
         }
 
@@ -8705,6 +8730,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         };
 
         var totalSegments = pathItem.closed ? pts.length : pts.length - 1;
+        addDebug("[Orthogonalize] Processing " + totalSegments + " segments (closed: " + pathItem.closed + ")");
 
         for (var i = 0; i < pts.length; i++) {
             try {
@@ -8761,17 +8787,24 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 curr.rightDirection = curr.anchor.slice();
             } else {
                 var angle = Math.atan2(dy, dx) * (180 / Math.PI);
-                if (!isSteepAngle(angle)) {
+                var isSteep = isSteepAngle(angle);
+                addDebug("[Orthogonalize Seg " + i + "] Angle: " + angle.toFixed(2) + "°, dx: " + dx.toFixed(2) + ", dy: " + dy.toFixed(2) + ", isSteep: " + isSteep);
+                if (!isSteep) {
                     var newX = next.anchor[0];
                     var newY = next.anchor[1];
                     if (Math.abs(dx) > Math.abs(dy)) {
                         newY = curr.anchor[1];
+                        addDebug("[Orthogonalize Seg " + i + "] Snapping to horizontal (newY = " + newY.toFixed(2) + ")");
                     } else {
                         newX = curr.anchor[0];
+                        addDebug("[Orthogonalize Seg " + i + "] Snapping to vertical (newX = " + newX.toFixed(2) + ")");
                     }
-                    if (!almostEqualPoints([newX, newY], next.anchor)) {
+                    var isAlmostEqual = almostEqualPoints([newX, newY], next.anchor);
+                    addDebug("[Orthogonalize Seg " + i + "] almostEqualPoints: " + isAlmostEqual + ", old: [" + next.anchor[0].toFixed(2) + ", " + next.anchor[1].toFixed(2) + "], new: [" + newX.toFixed(2) + ", " + newY.toFixed(2) + "]");
+                    if (!isAlmostEqual) {
                         next.anchor = [newX, newY];
                         changed = true;
+                        addDebug("[Orthogonalize Seg " + i + "] CHANGED anchor");
                     }
                     curr.rightDirection = curr.anchor.slice();
                     next.leftDirection = next.anchor.slice();
@@ -8782,12 +8815,15 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     }
                     curr.leftDirection = curr.anchor.slice();
                     curr.rightDirection = curr.anchor.slice();
+                } else {
+                    addDebug("[Orthogonalize Seg " + i + "] SKIPPED (steep angle)");
                 }
             }
             } catch (e) {
                 // Layer may have become locked or item invalid during execution
             }
         }
+        addDebug("[Orthogonalize] Path changed: " + changed);
         if (changed) {
             flagOrthoLock(pathItem);
         }
@@ -10464,17 +10500,17 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             try {
                 // Validate that the path is still valid
                 if (!path || path.typename !== "PathItem") continue;
-                
+
                 // Clear any graphic style associations first
                 try {
                     path.unapplyAll();
                 } catch (e) {
                     // Ignore if unapplyAll fails
                 }
-                
-                // Reset stroke properties to consistent defaults
+
+                // Reset stroke properties
                 path.stroked = true;
-                path.strokeWidth = 1; // Set consistent default stroke width
+                path.strokeWidth = 1;
                 try {
                     path.strokeColor = doc.swatches[0].color; // Use registration color temporarily
                 } catch (e) {
@@ -10821,6 +10857,104 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
     ACTIVE_CENTERLINES = geometryPaths.slice();
 
+    // STEP 1.5: When rotation override is specified, DELETE selected ductwork parts BEFORE orthogonalization
+    // This ensures we delete components before paths move, then regenerate them at correct angles
+    if (GLOBAL_ROTATION_OVERRIDE !== null) {
+        addDebug("");
+        addDebug("========================================");
+        addDebug("[ROTATION OVERRIDE] Deleting selected ductwork parts");
+        addDebug("========================================");
+
+        var totalDeletedPlacedItems = 0;
+        var totalDeletedAnchors = 0;
+
+        // Get current selection (includes both ductwork paths AND any selected components)
+        var currentSelection = doc.selection;
+        if (currentSelection && currentSelection.length > 0) {
+            addDebug("[ROTATION OVERRIDE] Processing " + currentSelection.length + " selected items");
+
+            // Delete selected ductwork parts (PlacedItems and anchor PathItems)
+            for (var si = currentSelection.length - 1; si >= 0; si--) {
+                try {
+                    var item = currentSelection[si];
+                    if (!item || !item.typename) continue;
+
+                    // Delete selected PlacedItems (registers, units, etc.)
+                    if (item.typename === 'PlacedItem') {
+                        var layerName = item.layer ? item.layer.name : null;
+                        // Only delete if on a ductwork parts layer
+                        var validLayers = ["Units", "Square Registers", "Rectangular Registers", "Circular Registers",
+                                          "Exhaust Registers", "Orange Register", "Secondary Exhaust Registers", "Thermostats"];
+                        var isOnValidLayer = false;
+                        for (var vl = 0; vl < validLayers.length; vl++) {
+                            if (layerName === validLayers[vl]) {
+                                isOnValidLayer = true;
+                                break;
+                            }
+                        }
+                        if (isOnValidLayer) {
+                            item.remove();
+                            totalDeletedPlacedItems++;
+                        }
+                    }
+                    // Delete selected anchor PathItems (1-point paths on ductwork parts layers)
+                    else if (item.typename === 'PathItem' && item.pathPoints && item.pathPoints.length === 1) {
+                        var layerName = item.layer ? item.layer.name : null;
+                        var validLayers = ["Units", "Square Registers", "Rectangular Registers", "Circular Registers",
+                                          "Exhaust Registers", "Orange Register", "Secondary Exhaust Registers", "Thermostats"];
+                        var isOnValidLayer = false;
+                        for (var vl = 0; vl < validLayers.length; vl++) {
+                            if (layerName === validLayers[vl]) {
+                                isOnValidLayer = true;
+                                break;
+                            }
+                        }
+                        if (isOnValidLayer) {
+                            item.remove();
+                            totalDeletedAnchors++;
+                        }
+                    }
+                } catch (eItem) {
+                    addDebug("[ROTATION OVERRIDE] Error deleting item: " + eItem);
+                }
+            }
+        }
+
+        addDebug("========================================");
+        addDebug("[ROTATION OVERRIDE] Total deleted: " + totalDeletedPlacedItems + " items, " + totalDeletedAnchors + " anchors");
+        addDebug("[ROTATION OVERRIDE] Will recreate with " + GLOBAL_ROTATION_OVERRIDE + "° rotation after orthogonalization");
+        addDebug("========================================");
+        addDebug("");
+
+        // Restore selection to just the ductwork line paths (geometryPaths)
+        // AND rebuild geometryPaths to only contain valid path references
+        try {
+            doc.selection = null;
+            var validPaths = [];
+            for (var restoreIdx = 0; restoreIdx < geometryPaths.length; restoreIdx++) {
+                try {
+                    var gPath = geometryPaths[restoreIdx];
+                    if (gPath && gPath.typename === "PathItem") {
+                        validPaths.push(gPath);
+                    }
+                } catch (eCheckPath) {
+                    // Path reference is invalid, skip it
+                }
+            }
+
+            // Update geometryPaths to only contain valid paths
+            geometryPaths = validPaths;
+            addDebug("[ROTATION OVERRIDE] Rebuilt geometryPaths to " + geometryPaths.length + " valid paths");
+
+            if (validPaths.length > 0) {
+                doc.selection = validPaths;
+                addDebug("[ROTATION OVERRIDE] Restored selection to " + validPaths.length + " ductwork line paths");
+            }
+        } catch (eRestoreSel) {
+            addDebug("[ROTATION OVERRIDE] Error restoring selection: " + eRestoreSel);
+        }
+    }
+
     var preOrthoConnections = collectEndpointConnections(geometryPaths, RECONNECT_CAPTURE_DIST);
 
     // Verify rotation override is on paths before orthogonalization
@@ -10856,139 +10990,6 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     var ignoredAnchors = getIgnoredAnchorPoints();
     if (ignoredAnchors.length > 0) {
         removeConflictingArtAndAnchors(ignoredAnchors);
-    }
-
-    // STEP 2.5: When rotation override is specified, DELETE all existing components and anchors
-    // Nuclear option: removes ALL placed items and anchor markers, then recreates everything fresh
-    // This ensures consistent rotation but loses any custom rotations or scaling
-    // MUST happen BEFORE anchor creation (STEP 3-5) so fresh anchors can be created
-    if (GLOBAL_ROTATION_OVERRIDE !== null) {
-        addDebug("");
-        addDebug("========================================");
-        addDebug("[ROTATION OVERRIDE] NUCLEAR OPTION: Deleting all existing components and anchors");
-        addDebug("========================================");
-
-        var componentLayerNames = [
-            "Units", "Square Registers", "Rectangular Registers", "Circular Registers",
-            "Exhaust Registers", "Orange Register", "Secondary Exhaust", "Thermostats"
-        ];
-
-        var totalDeletedPlacedItems = 0;
-        var totalDeletedAnchors = 0;
-
-        for (var clIdx = 0; clIdx < componentLayerNames.length; clIdx++) {
-            var layerName = componentLayerNames[clIdx];
-            try {
-                var layer = null;
-                try {
-                    layer = doc.layers.getByName(layerName);
-                } catch (eGetLayer) {
-                    // Layer doesn't exist, skip
-                    continue;
-                }
-
-                if (!layer) continue;
-
-                var layerDeletedItems = 0;
-                var layerDeletedAnchors = 0;
-
-                // Unlock layer temporarily if needed
-                var wasLocked = false;
-                try {
-                    wasLocked = layer.locked;
-                    if (wasLocked) layer.locked = false;
-                } catch (e) {}
-
-                addDebug("[ROTATION OVERRIDE] Processing layer: " + layerName);
-
-                // Collect all items to delete FIRST, then delete them
-                // This avoids "Object is invalid" errors from accessing collections while modifying them
-                var itemsToDelete = [];
-
-                // Collect placed items (handle invalid items after undo)
-                try {
-                    for (var pi = 0; pi < layer.placedItems.length; pi++) {
-                        try {
-                            var placedItem = layer.placedItems[pi];
-                            // Validate object is still valid by accessing a property
-                            if (placedItem && placedItem.typename) {
-                                itemsToDelete.push(placedItem);
-                            }
-                        } catch (e) {
-                            // Invalid item (e.g., after undo), skip it
-                        }
-                    }
-                } catch (ePlacedItems) {
-                    addDebug("[ROTATION OVERRIDE]   Error collecting placed items: " + ePlacedItems);
-                }
-
-                // Collect path items (anchors) (handle invalid items after undo)
-                try {
-                    for (var pathi = 0; pathi < layer.pathItems.length; pathi++) {
-                        try {
-                            var pathItem = layer.pathItems[pathi];
-                            // Validate object is still valid by accessing a property
-                            if (pathItem && pathItem.typename) {
-                                itemsToDelete.push(pathItem);
-                            }
-                        } catch (e) {
-                            // Invalid item (e.g., after undo), skip it
-                        }
-                    }
-                } catch (ePathItems) {
-                    addDebug("[ROTATION OVERRIDE]   Error collecting path items: " + ePathItems);
-                }
-
-                // Now delete all collected items
-                addDebug("[ROTATION OVERRIDE]   Deleting " + itemsToDelete.length + " items from " + layerName);
-                for (var delIdx = 0; delIdx < itemsToDelete.length; delIdx++) {
-                    try {
-                        var item = itemsToDelete[delIdx];
-                        if (!item) continue;
-
-                        // Check typename INSIDE try-catch (can fail after undo)
-                        var itemType = null;
-                        try {
-                            itemType = item.typename;
-                        } catch (eType) {
-                            // Object is invalid (e.g., after undo), skip it
-                            continue;
-                        }
-
-                        item.remove();
-
-                        if (itemType === "PlacedItem") {
-                            layerDeletedItems++;
-                            totalDeletedPlacedItems++;
-                        } else {
-                            layerDeletedAnchors++;
-                            totalDeletedAnchors++;
-                        }
-                    } catch (eDelete) {
-                        // Silently skip - item might already be deleted or invalid after undo
-                    }
-                }
-
-                // Restore lock state
-                try {
-                    if (wasLocked) layer.locked = true;
-                } catch (e) {}
-
-                addDebug("[ROTATION OVERRIDE]   Deleted from " + layerName + ": " + layerDeletedItems + " items, " + layerDeletedAnchors + " anchors");
-            } catch (eLayer) {
-                addDebug("[ROTATION OVERRIDE]   Error processing layer " + layerName + ": " + eLayer);
-            }
-        }
-
-        addDebug("========================================");
-        addDebug("[ROTATION OVERRIDE] Total deleted: " + totalDeletedPlacedItems + " placed items, " + totalDeletedAnchors + " anchor markers");
-        addDebug("[ROTATION OVERRIDE] Everything will be recreated fresh with " + GLOBAL_ROTATION_OVERRIDE + "° rotation");
-        addDebug("========================================");
-        addDebug("");
-
-        // Clear the created anchor paths array since we just deleted all anchors
-        CREATED_ANCHOR_PATHS = [];
-        addDebug("[ROTATION OVERRIDE] Cleared CREATED_ANCHOR_PATHS array to remove deleted anchor references");
     }
 
     // Consolidate any pre-existing Unit anchors before new placement
@@ -11355,20 +11356,22 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var ignoredAnchors = [];
                 var IGNORED_DIST_LOCAL = 4;
                 var possibleLayerNames = ["Ignore", "Ignored", "ignore", "ignored"];
-                var ignoredLayer = null;
+                var ignoredLayers = [];
+
+                // Collect ALL layers that match any of the possible names
                 for (var layerIdx = 0; layerIdx < docParam.layers.length; layerIdx++) {
                     var checkLayer = docParam.layers[layerIdx];
                     for (var nameIdx = 0; nameIdx < possibleLayerNames.length; nameIdx++) {
                         if (checkLayer.name === possibleLayerNames[nameIdx]) {
-                            ignoredLayer = checkLayer;
+                            ignoredLayers.push(checkLayer);
                             break;
                         }
                     }
-                    if (ignoredLayer) break;
                 }
-                if (ignoredLayer) {
+                if (ignoredLayers.length > 0) {
                     function collectIgnoredAnchors_removal(container) {
                         try {
+                            // Collect anchor points from PathItems
                             for (var i = 0; i < container.pathItems.length; i++) {
                                 try {
                                     var path = container.pathItems[i];
@@ -11380,12 +11383,31 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                                     }
                                 } catch (e) {}
                             }
+                            // Collect center points from PlacedItems (registers/units placed on Ignore layer)
+                            for (var p = 0; p < container.placedItems.length; p++) {
+                                try {
+                                    var placed = container.placedItems[p];
+                                    var gb = placed.geometricBounds;
+                                    var centerX = (gb[0] + gb[2]) / 2;
+                                    var centerY = (gb[1] + gb[3]) / 2;
+                                    ignoredAnchors.push([centerX, centerY]);
+                                } catch (e) {}
+                            }
                             for (var k = 0; k < container.groupItems.length; k++) {
                                 try { collectIgnoredAnchors_removal(container.groupItems[k]); } catch (e) {}
                             }
+                            // Also walk sublayers
+                            if (container.layers) {
+                                for (var s = 0; s < container.layers.length; s++) {
+                                    try { collectIgnoredAnchors_removal(container.layers[s]); } catch (e) {}
+                                }
+                            }
                         } catch (e) {}
                     }
-                    collectIgnoredAnchors_removal(ignoredLayer);
+                    // Walk through ALL matching ignored layers
+                    for (var igIdx = 0; igIdx < ignoredLayers.length; igIdx++) {
+                        collectIgnoredAnchors_removal(ignoredLayers[igIdx]);
+                    }
                 }
 
                 var keySet = {};
@@ -11772,51 +11794,93 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var ignoredAnchors = [];
                 var IGNORED_DIST_LOCAL = 4; // Same threshold as main script
                 var possibleLayerNames = ["Ignore", "Ignored", "ignore", "ignored"];
-                var ignoredLayer = null;
+                var ignoredLayers = [];
 
+                // Collect ALL layers that match any of the possible names
                 for (var layerIdx = 0; layerIdx < docParam.layers.length; layerIdx++) {
                     var checkLayer = docParam.layers[layerIdx];
                     for (var nameIdx = 0; nameIdx < possibleLayerNames.length; nameIdx++) {
                         if (checkLayer.name === possibleLayerNames[nameIdx]) {
-                            ignoredLayer = checkLayer;
+                            ignoredLayers.push(checkLayer);
                             break;
                         }
                     }
-                    if (ignoredLayer) break;
                 }
 
-                if (ignoredLayer) {
+                if (ignoredLayers.length > 0) {
                     function collectIgnoredAnchors(container) {
                         try {
+                            var containerName = container.name || "(unnamed)";
+                            var containerType = container.typename || "unknown";
+                            addDebug("[IGNORE WALK] Container: " + containerType + " '" + containerName + "' - pathItems:" + container.pathItems.length + " placedItems:" + container.placedItems.length + " groupItems:" + container.groupItems.length);
+
+                            // Collect anchor points from PathItems
                             for (var i = 0; i < container.pathItems.length; i++) {
                                 try {
                                     var path = container.pathItems[i];
+                                    var pathInfo = "locked:" + path.locked + " hidden:" + path.hidden + " guides:" + path.guides + " clipping:" + path.clipping + " points:" + path.pathPoints.length;
+                                    addDebug("[IGNORE PATHITEM #" + i + "] " + pathInfo);
                                     for (var j = 0; j < path.pathPoints.length; j++) {
                                         try {
                                             var anchor = path.pathPoints[j].anchor;
                                             ignoredAnchors.push([anchor[0], anchor[1]]);
+                                            addDebug("[IGNORE ANCHOR] PathItem anchor: " + anchor[0].toFixed(2) + "," + anchor[1].toFixed(2));
                                         } catch (e) {}
                                     }
+                                } catch (e) {
+                                    addDebug("[IGNORE PATHITEM #" + i + "] ERROR: " + e.message);
+                                }
+                            }
+                            // Collect center points from PlacedItems (registers/units placed on Ignore layer)
+                            for (var p = 0; p < container.placedItems.length; p++) {
+                                try {
+                                    var placed = container.placedItems[p];
+                                    var gb = placed.geometricBounds;
+                                    var centerX = (gb[0] + gb[2]) / 2;
+                                    var centerY = (gb[1] + gb[3]) / 2;
+                                    ignoredAnchors.push([centerX, centerY]);
+                                    addDebug("[IGNORE ANCHOR] PlacedItem center: " + centerX.toFixed(2) + "," + centerY.toFixed(2));
                                 } catch (e) {}
                             }
                             for (var k = 0; k < container.groupItems.length; k++) {
                                 try { collectIgnoredAnchors(container.groupItems[k]); } catch (e) {}
                             }
-                        } catch (e) {}
+                            // Also walk sublayers
+                            if (container.layers) {
+                                for (var s = 0; s < container.layers.length; s++) {
+                                    try { collectIgnoredAnchors(container.layers[s]); } catch (e) {}
+                                }
+                            }
+                        } catch (e) {
+                            addDebug("[IGNORE WALK] ERROR: " + e.message);
+                        }
                     }
-                    collectIgnoredAnchors(ignoredLayer);
-                    addDebug("[ANCHOR COLLECTION] Found " + ignoredAnchors.length + " ignored anchors");
+                    // Walk through ALL matching ignored layers
+                    for (var igIdx = 0; igIdx < ignoredLayers.length; igIdx++) {
+                        collectIgnoredAnchors(ignoredLayers[igIdx]);
+                    }
+                    addDebug("[ANCHOR COLLECTION] Found " + ignoredAnchors.length + " ignored anchors (from paths and placed items) across " + ignoredLayers.length + " ignored layers");
                 }
 
                 // Helper to check if point is ignored (within IGNORED_DIST of any ignored anchor)
                 function isPointIgnored_local(pos) {
+                    var closestDist = Infinity;
+                    var closestIgnored = null;
                     for (var i = 0; i < ignoredAnchors.length; i++) {
                         var dx = pos[0] - ignoredAnchors[i][0];
                         var dy = pos[1] - ignoredAnchors[i][1];
-                        var distSq = dx * dx + dy * dy;
-                        if (distSq <= IGNORED_DIST_LOCAL * IGNORED_DIST_LOCAL) {
+                        var dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < closestDist) {
+                            closestDist = dist;
+                            closestIgnored = ignoredAnchors[i];
+                        }
+                        if (dist <= IGNORED_DIST_LOCAL) {
+                            addDebug("[IGNORE CHECK] Point " + pos[0].toFixed(2) + "," + pos[1].toFixed(2) + " is " + dist.toFixed(2) + "px from ignored " + ignoredAnchors[i][0].toFixed(2) + "," + ignoredAnchors[i][1].toFixed(2) + " - FILTERED");
                             return true;
                         }
+                    }
+                    if (closestIgnored && closestDist < 20) {
+                        addDebug("[IGNORE CHECK] Point " + pos[0].toFixed(2) + "," + pos[1].toFixed(2) + " closest ignored is " + closestDist.toFixed(2) + "px away at " + closestIgnored[0].toFixed(2) + "," + closestIgnored[1].toFixed(2) + " - NOT filtered (threshold is " + IGNORED_DIST_LOCAL + "px)");
                     }
                     return false;
                 }
@@ -11952,6 +12016,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     }
                 }
 
+                // Walk component layer to find existing anchor marker paths
                 walkContainer(layer);
                 return pts;
             }

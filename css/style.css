@@ -4,7 +4,7 @@ body {
     font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif;
     background: #2b2b2b;
     color: #f1f1f1;
-    min-width: 160px;
+    min-width: 135px;
     font-size: 7px;
 }
 
@@ -223,10 +223,27 @@ button:disabled {
     max-width: none;
 }
 
+#process-btn,
+#process-emory-btn,
+#revert-ortho-btn,
+#clear-rotation-metadata-btn {
+    width: calc(50% - 2px);
+    max-width: calc(50% - 2px);
+}
+
+#process-emory-btn {
+    background: #0c233c;
+}
+
+#process-emory-btn:hover:not(:disabled) {
+    background: #08192d;
+}
+
 .button-row {
     display: flex;
     gap: 4px;
     flex-wrap: wrap;
+    justify-content: center;
 }
 
 .button-row + .button-row {
