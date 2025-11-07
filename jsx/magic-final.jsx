@@ -11189,7 +11189,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     drawFrame_local(doc, frameLayer, doc.artboards[0]);
                 }
 
-                placeLinkedComponents_local(doc);
+                // Pass SELECTED_PATHS to enable proximity filtering for register/unit/thermostat placement
+                // SELECTED_PATHS is defined in the outer scope and accessible via closure
+                var selectedPathsToUse = (typeof SELECTED_PATHS !== 'undefined' && SELECTED_PATHS && SELECTED_PATHS.length > 0) ? SELECTED_PATHS : null;
+                placeLinkedComponents_local(doc, selectedPathsToUse);
             }
 
             function cleanupLayers_local(docParam) {
@@ -11305,7 +11308,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 return bestAnyScale;
             }
 
-            function placeLinkedComponents_local(docParam) {
+            function placeLinkedComponents_local(docParam, selectedPaths) {
                 var globalScale = getCurrentScaleFactor_local(docParam);
                 if (!isFinite(globalScale) || globalScale <= 0) globalScale = 100;
 
@@ -11326,11 +11329,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 addDebug("");
 
                 for (var i = 0; i < COMPONENT_TYPES.length; i++) {
-                    placeComponentAtAnchorPoints_local(docParam, COMPONENT_TYPES[i], globalScale);
+                    placeComponentAtAnchorPoints_local(docParam, COMPONENT_TYPES[i], globalScale, selectedPaths);
                 }
             }
 
-            function placeComponentAtAnchorPoints_local(docParam, type, globalScale) {
+            function placeComponentAtAnchorPoints_local(docParam, type, globalScale, selectedPaths) {
                 var layer = getLayerByName_local(docParam, type.layer);
                 if (!layer || layer.locked) {
                     addDebug("[" + type.name + "] Layer '" + type.layer + "' not found or locked");
@@ -11345,7 +11348,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 addDebug("");
                 addDebug("========== " + type.name + " ==========");
                 addDebug("[" + type.name + "] Collecting anchors from layer: " + type.layer);
-                var anchorPts = collectAnchorPoints_local(docParam, layer);
+                var anchorPts = collectAnchorPoints_local(docParam, layer, selectedPaths);
                 addDebug("[" + type.name + "] Collected " + anchorPts.length + " anchor points");
                 var keySet = {};
                 for (var aIdx = 0; aIdx < anchorPts.length; aIdx++) {
@@ -11709,9 +11712,46 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 }
             }
 
-            function collectAnchorPoints_local(docParam, layer) {
+            function collectAnchorPoints_local(docParam, layer, selectedPaths) {
                 var pts = [], seen = {};
                 if (!layer || layer.locked) return pts;
+
+                // Build list of endpoints from selected paths for proximity filtering
+                var selectedEndpoints = [];
+                var useProximityFilter = selectedPaths && selectedPaths.length > 0;
+                if (useProximityFilter) {
+                    addDebug("[ANCHOR COLLECTION] Proximity filter active with " + selectedPaths.length + " selected paths");
+                    for (var sp = 0; sp < selectedPaths.length; sp++) {
+                        var path = selectedPaths[sp];
+                        if (path && path.pathPoints && path.pathPoints.length > 0) {
+                            // Add first endpoint
+                            var firstPt = path.pathPoints[0].anchor;
+                            selectedEndpoints.push([firstPt[0], firstPt[1]]);
+                            // Add last endpoint
+                            var lastPt = path.pathPoints[path.pathPoints.length - 1].anchor;
+                            selectedEndpoints.push([lastPt[0], lastPt[1]]);
+                        }
+                    }
+                    addDebug("[ANCHOR COLLECTION] Built " + selectedEndpoints.length + " endpoints from selected paths");
+                } else {
+                    addDebug("[ANCHOR COLLECTION] No proximity filter - collecting all anchors from layer");
+                }
+
+                // Helper to check if a point is near any selected path endpoint
+                function isNearSelectedPath(pos) {
+                    if (!useProximityFilter) return true; // No filter active
+                    var PROXIMITY_THRESHOLD = 10; // CLOSE_DIST constant
+                    for (var i = 0; i < selectedEndpoints.length; i++) {
+                        var ep = selectedEndpoints[i];
+                        var dx = pos[0] - ep[0];
+                        var dy = pos[1] - ep[1];
+                        var distSq = dx * dx + dy * dy;
+                        if (distSq <= PROXIMITY_THRESHOLD * PROXIMITY_THRESHOLD) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
 
                 function processPath(p) {
                     if (!p || p.guides || p.clipping) return;
@@ -11750,9 +11790,13 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         var a = p.pathPoints[j].anchor;
                         var key = a[0].toFixed(2) + "_" + a[1].toFixed(2);
                         if (!seen[key]) {
-                            seen[key] = true;
-                            pts.push({ pos: [a[0], a[1]], rotation: rotation });
-                            addDebug("[ANCHOR " + key + "] Rotation: " + (rotation !== null ? rotation + "° from " + rotationSource : "null"));
+                            var anchorPos = [a[0], a[1]];
+                            // Only include anchor if it's near selected paths (or no filter active)
+                            if (isNearSelectedPath(anchorPos)) {
+                                seen[key] = true;
+                                pts.push({ pos: anchorPos, rotation: rotation });
+                                addDebug("[ANCHOR " + key + "] Rotation: " + (rotation !== null ? rotation + "° from " + rotationSource : "null"));
+                            }
                         }
                     }
                 }
