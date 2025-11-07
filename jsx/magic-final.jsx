@@ -11350,6 +11350,44 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 addDebug("[" + type.name + "] Collecting anchors from layer: " + type.layer);
                 var anchorPts = collectAnchorPoints_local(docParam, layer, selectedPaths);
                 addDebug("[" + type.name + "] Collected " + anchorPts.length + " anchor points");
+
+                // Get ignored anchors for removal check
+                var ignoredAnchors = [];
+                var IGNORED_DIST_LOCAL = 4;
+                var possibleLayerNames = ["Ignore", "Ignored", "ignore", "ignored"];
+                var ignoredLayer = null;
+                for (var layerIdx = 0; layerIdx < docParam.layers.length; layerIdx++) {
+                    var checkLayer = docParam.layers[layerIdx];
+                    for (var nameIdx = 0; nameIdx < possibleLayerNames.length; nameIdx++) {
+                        if (checkLayer.name === possibleLayerNames[nameIdx]) {
+                            ignoredLayer = checkLayer;
+                            break;
+                        }
+                    }
+                    if (ignoredLayer) break;
+                }
+                if (ignoredLayer) {
+                    function collectIgnoredAnchors_removal(container) {
+                        try {
+                            for (var i = 0; i < container.pathItems.length; i++) {
+                                try {
+                                    var path = container.pathItems[i];
+                                    for (var j = 0; j < path.pathPoints.length; j++) {
+                                        try {
+                                            var anchor = path.pathPoints[j].anchor;
+                                            ignoredAnchors.push([anchor[0], anchor[1]]);
+                                        } catch (e) {}
+                                    }
+                                } catch (e) {}
+                            }
+                            for (var k = 0; k < container.groupItems.length; k++) {
+                                try { collectIgnoredAnchors_removal(container.groupItems[k]); } catch (e) {}
+                            }
+                        } catch (e) {}
+                    }
+                    collectIgnoredAnchors_removal(ignoredLayer);
+                }
+
                 var keySet = {};
                 for (var aIdx = 0; aIdx < anchorPts.length; aIdx++) {
                     var ap = anchorPts[aIdx].pos;
@@ -11357,12 +11395,36 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 }
 
                 if (!layer.locked) {
+                    var removedCount = 0;
                     for (var pi = docParam.placedItems.length - 1; pi >= 0; pi--) {
                         var itm = docParam.placedItems[pi];
                         try {
                             if (itm.layer === layer && !itm.locked) {
                                 var gb = itm.geometricBounds;
-                                var ck = ((gb[0] + gb[2]) / 2).toFixed(2) + "_" + ((gb[1] + gb[3]) / 2).toFixed(2);
+                                var centerX = (gb[0] + gb[2]) / 2;
+                                var centerY = (gb[1] + gb[3]) / 2;
+                                var centerPos = [centerX, centerY];
+
+                                // Remove if near ignored anchor
+                                var isIgnored = false;
+                                for (var ignIdx = 0; ignIdx < ignoredAnchors.length; ignIdx++) {
+                                    var dx = centerPos[0] - ignoredAnchors[ignIdx][0];
+                                    var dy = centerPos[1] - ignoredAnchors[ignIdx][1];
+                                    if (Math.sqrt(dx * dx + dy * dy) <= IGNORED_DIST_LOCAL) {
+                                        isIgnored = true;
+                                        break;
+                                    }
+                                }
+                                if (isIgnored) {
+                                    addDebug("[" + type.name + "] Removing PlacedItem at ignored location: " + centerX.toFixed(2) + "_" + centerY.toFixed(2));
+                                    try {
+                                        itm.remove();
+                                        removedCount++;
+                                    } catch (e) {}
+                                    continue;
+                                }
+
+                                var ck = centerX.toFixed(2) + "_" + centerY.toFixed(2);
                                 if (!keySet[ck]) continue;
                                 if (itm.name.indexOf(type.name) === -1) {
                                     try { itm.remove(); } catch (e) {}
@@ -11371,6 +11433,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         } catch (e) {
                             // Item may be invalid after copy/paste
                         }
+                    }
+                    if (removedCount > 0) {
+                        addDebug("[" + type.name + "] Removed " + removedCount + " PlacedItems at ignored locations");
                     }
                 }
 
@@ -11716,6 +11781,59 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var pts = [], seen = {};
                 if (!layer || layer.locked) return pts;
 
+                // Collect ignored anchors first (same logic as main script)
+                var ignoredAnchors = [];
+                var IGNORED_DIST_LOCAL = 4; // Same threshold as main script
+                var possibleLayerNames = ["Ignore", "Ignored", "ignore", "ignored"];
+                var ignoredLayer = null;
+
+                for (var layerIdx = 0; layerIdx < docParam.layers.length; layerIdx++) {
+                    var checkLayer = docParam.layers[layerIdx];
+                    for (var nameIdx = 0; nameIdx < possibleLayerNames.length; nameIdx++) {
+                        if (checkLayer.name === possibleLayerNames[nameIdx]) {
+                            ignoredLayer = checkLayer;
+                            break;
+                        }
+                    }
+                    if (ignoredLayer) break;
+                }
+
+                if (ignoredLayer) {
+                    function collectIgnoredAnchors(container) {
+                        try {
+                            for (var i = 0; i < container.pathItems.length; i++) {
+                                try {
+                                    var path = container.pathItems[i];
+                                    for (var j = 0; j < path.pathPoints.length; j++) {
+                                        try {
+                                            var anchor = path.pathPoints[j].anchor;
+                                            ignoredAnchors.push([anchor[0], anchor[1]]);
+                                        } catch (e) {}
+                                    }
+                                } catch (e) {}
+                            }
+                            for (var k = 0; k < container.groupItems.length; k++) {
+                                try { collectIgnoredAnchors(container.groupItems[k]); } catch (e) {}
+                            }
+                        } catch (e) {}
+                    }
+                    collectIgnoredAnchors(ignoredLayer);
+                    addDebug("[ANCHOR COLLECTION] Found " + ignoredAnchors.length + " ignored anchors");
+                }
+
+                // Helper to check if point is ignored (within IGNORED_DIST of any ignored anchor)
+                function isPointIgnored_local(pos) {
+                    for (var i = 0; i < ignoredAnchors.length; i++) {
+                        var dx = pos[0] - ignoredAnchors[i][0];
+                        var dy = pos[1] - ignoredAnchors[i][1];
+                        var distSq = dx * dx + dy * dy;
+                        if (distSq <= IGNORED_DIST_LOCAL * IGNORED_DIST_LOCAL) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
                 // Build list of endpoints from selected paths for proximity filtering
                 var selectedEndpoints = [];
                 var useProximityFilter = selectedPaths && selectedPaths.length > 0;
@@ -11791,6 +11909,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         var key = a[0].toFixed(2) + "_" + a[1].toFixed(2);
                         if (!seen[key]) {
                             var anchorPos = [a[0], a[1]];
+                            // Skip if anchor is ignored (within IGNORED_DIST of any ignored anchor)
+                            if (isPointIgnored_local(anchorPos)) {
+                                addDebug("[ANCHOR " + key + "] SKIPPED (on Ignored layer)");
+                                continue;
+                            }
                             // Only include anchor if it's near selected paths (or no filter active)
                             if (isNearSelectedPath(anchorPos)) {
                                 seen[key] = true;
