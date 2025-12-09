@@ -8000,6 +8000,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         dlg.show();
     }
 
+    // --- RESET GLOBAL OPTIONS ---
+    SKIP_ALL_BRANCH_ORTHO = false;
+    SKIP_FINAL_REGISTER_ORTHO = false;
+
     // --- COLLECT PATHS ---
     addDebug("=== MAGIC DUCTWORK STARTING ===");
     addDebug("Selection has " + sel.length + " items");
@@ -8099,6 +8103,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     if (startupChoice && typeof startupChoice.skipFinalRegisterSegment !== "undefined") {
         SKIP_FINAL_REGISTER_ORTHO = !!startupChoice.skipFinalRegisterSegment;
     }
+    addDebug("[Skip Ortho Settings] SKIP_ALL_BRANCH_ORTHO=" + SKIP_ALL_BRANCH_ORTHO + ", SKIP_FINAL_REGISTER_ORTHO=" + SKIP_FINAL_REGISTER_ORTHO);
     if (!startupChoice || startupChoice.action === "cancel") {
         return;
     }
@@ -8817,10 +8822,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 // Orthogonalize all other segments of the branch
                 var lastIndex = totalSegments - 1;
 
-                // For single-segment branches, skip the entire thing
+                // For single-segment branches, still orthogonalize them
                 if (totalSegments === 1) {
-                    addDebug("[Orthogonalize Seg " + segmentIndex + "] SKIPPING - single-segment branch");
-                    return false;
+                    addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - single-segment branch (still orthogonalizing)");
+                    return true;
                 }
 
                 // For multi-segment branches, only skip the last segment (register end)
@@ -12459,7 +12464,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         addDebug("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
         alert("Error: " + scriptError);
     } finally {
-        // ALWAYS show debug dialog, even on error
-        try { showDebugDialog(); } catch (e) {}
+        // Debug dialog - uncomment to show debug output at end of script
+        // try { showDebugDialog(); } catch (e) {}
     }
 })();
