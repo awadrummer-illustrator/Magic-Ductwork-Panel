@@ -711,7 +711,7 @@
         rotationInput.dataset.autoValue = '';
         rotationInput.dataset.multi = 'false';
         skipAllBranchesOption.checked = false;
-        skipFinalOption.checked = false;
+        skipFinalOption.checked = true;  // Default to checked
         createRegisterWiresOption.checked = false;
         // Scale controls are hidden - only set values if they exist
         if (scaleSlider) scaleSlider.value = 100;

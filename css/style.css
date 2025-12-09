@@ -242,6 +242,16 @@ button:disabled {
     display: none;
 }
 
+/* Make skip final segment option 25% larger */
+#skip-final-option {
+    width: 12.5px;
+    height: 12.5px;
+}
+
+#skip-final-option + span {
+    font-size: 10.5px;
+}
+
 #rotate-90-btn,
 #rotate-45-btn,
 #rotate-180-btn {
