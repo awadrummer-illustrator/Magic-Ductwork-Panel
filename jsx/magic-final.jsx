@@ -2612,7 +2612,8 @@ function setStaticTextColor(control, rgbArray) {
     var BRANCH_START_PREFIX = "MD:BRANCH_START="; // marker prefix for custom branch start width
     var BRANCH_CUSTOM_START_WIDTHS = {}; // per-centerline custom start widths (full width in pts)
     var LIMIT_BRANCH_PROCESS_MAP = null; // optional map of centerline ids to limit processing scope
-    var SKIP_FINAL_REGISTER_ORTHO = false; // controls whether final segments stay freeform
+    var SKIP_ALL_BRANCH_ORTHO = false; // controls whether all branch segments stay freeform
+    var SKIP_FINAL_REGISTER_ORTHO = false; // controls whether only final register segments stay freeform
 
     function resetBranchCustomStartWidths() {
         BRANCH_CUSTOM_START_WIDTHS = {};
@@ -8078,6 +8079,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             action: forcedOptions.action || "process",
             mode: "normal",
             rotationOverride: (typeof forcedOptions.rotationOverride === "number" && isFinite(forcedOptions.rotationOverride)) ? forcedOptions.rotationOverride : null,
+            skipAllBranchSegments: !!forcedOptions.skipAllBranchSegments,
             skipFinalRegisterSegment: !!forcedOptions.skipFinalRegisterSegment
         };
         if (typeof forcedOptions.skipOrtho === "boolean") {
@@ -8090,6 +8092,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         }
     } else {
         startupChoice = showUnifiedDuctworkDialog(selectionContext, selectionContext.storedSettings);
+    }
+    if (startupChoice && typeof startupChoice.skipAllBranchSegments !== "undefined") {
+        SKIP_ALL_BRANCH_ORTHO = !!startupChoice.skipAllBranchSegments;
     }
     if (startupChoice && typeof startupChoice.skipFinalRegisterSegment !== "undefined") {
         SKIP_FINAL_REGISTER_ORTHO = !!startupChoice.skipFinalRegisterSegment;
@@ -8538,6 +8543,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     function snapAnchors(paths, allSegments) {
         var threshold2 = SNAP_THRESHOLD * SNAP_THRESHOLD;
         var changedAny = false;
+        addDebug("[snapAnchors] Starting with " + paths.length + " paths and " + allSegments.length + " segments, threshold=" + SNAP_THRESHOLD + "px");
         for (var i = 0; i < paths.length; i++) {
             var path = paths[i];
 
@@ -8548,6 +8554,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             } catch (e) {
                 continue;
             }
+
+            var pathLayerName = "";
+            try { pathLayerName = path.layer ? path.layer.name : "unknown"; } catch (e) { pathLayerName = "unknown"; }
 
             var pts = path.pathPoints;
             if (pts.length === 0) continue;
@@ -8563,7 +8572,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             var anyMoved = false;
             for (var pi = 0; pi < buffer.length; pi++) {
                 var point = buffer[pi].anchor;
-                var bestMatch = { dist2: Infinity, snapPt: null };
+                var bestMatch = { dist2: Infinity, snapPt: null, targetSeg: null };
 
                 for (var j = 0; j < allSegments.length; j++) {
                     var seg = allSegments[j];
@@ -8579,13 +8588,18 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         candidate = { pt: best.pt, dist2: best.dist2 };
                     }
                     if (candidate && candidate.dist2 < bestMatch.dist2) {
-                        bestMatch = candidate;
+                        bestMatch.dist2 = candidate.dist2;
+                        bestMatch.pt = candidate.pt;
+                        bestMatch.targetSeg = seg;
                     }
                 }
 
                 if (bestMatch.snapPt === undefined && bestMatch.pt) {
                     if (bestMatch.dist2 <= threshold2 && bestMatch.dist2 > 1e-6) {
                         var old = buffer[pi].anchor;
+                        var targetLayerName = "";
+                        try { targetLayerName = bestMatch.targetSeg && bestMatch.targetSeg.path && bestMatch.targetSeg.path.layer ? bestMatch.targetSeg.path.layer.name : "unknown"; } catch (e) { targetLayerName = "unknown"; }
+                        addDebug("[snapAnchors] SNAPPING point " + pi + " on '" + pathLayerName + "' FROM [" + old[0].toFixed(2) + ", " + old[1].toFixed(2) + "] TO [" + bestMatch.pt[0].toFixed(2) + ", " + bestMatch.pt[1].toFixed(2) + "] (dist=" + Math.sqrt(bestMatch.dist2).toFixed(2) + "px) -> target layer: '" + targetLayerName + "'");
                         buffer[pi].anchor = bestMatch.pt;
                         var delta = [bestMatch.pt[0] - old[0], bestMatch.pt[1] - old[1]];
                         buffer[pi].left = [buffer[pi].left[0] + delta[0], buffer[pi].left[1] + delta[1]];
@@ -8612,23 +8626,51 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
 
     // --- ORTHOGONALIZE ---
-    function orthogonalizePath(pathItem) {
+    function orthogonalizePath(pathItem, connectionPairs) {
         // Validate pathItem exists and is accessible
-        if (!pathItem) return false;
+        if (!pathItem) {
+            addDebug("[Orthogonalize] SKIP: pathItem is null/undefined");
+            return false;
+        }
+
+        // Helper: check if a specific endpoint of this path connects to ANY other ductwork path
+        // (same-layer blue-to-blue connections or cross-layer blue-to-green connections)
+        function endpointHasDuctworkConnection(path, anchorIndex) {
+            if (!connectionPairs || !connectionPairs.length) return false;
+            for (var pi = 0; pi < connectionPairs.length; pi++) {
+                var pair = connectionPairs[pi];
+                if (!pair) continue;
+                // Check ALL connections - both same-layer (trunk) and cross-layer
+                // This ensures the main trunk is always orthogonalized
+                if (pair.a && pair.a.path === path && pair.a.index === anchorIndex) return true;
+                if (pair.b && pair.b.path === path && pair.b.index === anchorIndex) return true;
+            }
+            return false;
+        }
+        var earlyLayerName = "";
+        try { earlyLayerName = pathItem.layer ? pathItem.layer.name : "unknown"; } catch (e) { earlyLayerName = "unknown"; }
         try {
             // Test if pathItem is still valid by accessing a property
             var test = pathItem.typename;
         } catch (e) {
             // pathItem is invalid (e.g., after copy/paste)
+            addDebug("[Orthogonalize] SKIP: pathItem invalid (typename access failed) - layer: " + earlyLayerName);
             return false;
         }
 
         // Skip locked items or items on locked layers
         try {
-            if (pathItem.locked) return false;
-            if (pathItem.layer && pathItem.layer.locked) return false;
+            if (pathItem.locked) {
+                addDebug("[Orthogonalize] SKIP: pathItem is locked - layer: " + earlyLayerName);
+                return false;
+            }
+            if (pathItem.layer && pathItem.layer.locked) {
+                addDebug("[Orthogonalize] SKIP: layer is locked - layer: " + earlyLayerName);
+                return false;
+            }
         } catch (e) {
             // Can't determine lock status, skip to be safe
+            addDebug("[Orthogonalize] SKIP: can't determine lock status - layer: " + earlyLayerName);
             return false;
         }
 
@@ -8636,16 +8678,19 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         // (case-insensitive match). Return false to signal no change.
         try {
             if (pathItem && pathItem.layer && (/^thermostat lines$/i).test(pathItem.layer.name)) {
+                addDebug("[Orthogonalize] SKIP: on Thermostat Lines layer");
                 return false;
             }
         } catch (e) {
             // Layer may be invalid after copy/paste
         }
         if (hasIgnoreNote(pathItem)) {
+            addDebug("[Orthogonalize] SKIP: has ignore note - layer: " + earlyLayerName);
             return false;
         }
         // Skip orthogonalizing if path has MD:NO_ORTHO note
         if (hasNoOrthoNote(pathItem)) {
+            addDebug("[Orthogonalize] SKIP: has MD:NO_ORTHO note - layer: " + earlyLayerName);
             return false;
         }
 
@@ -8663,9 +8708,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         var rotationOverride = getRotationOverride(pathItem);
         var hasRotationOverride = rotationOverride !== null;
         if (hasRotationOverride) {
-            addDebug("[Orthogonalize] Path has rotation override: " + rotationOverride + "°");
+            addDebug("[Orthogonalize] Path on '" + layerName + "' has rotation override: " + rotationOverride + "°");
         } else {
-            addDebug("[Orthogonalize] Path has NO rotation override");
+            addDebug("[Orthogonalize] Path on '" + layerName + "' has NO rotation override");
         }
         if (!hasRotationOverride && branchData && branchData.mainPath) {
             try {
@@ -8685,7 +8730,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             } catch (eDerivedRotation) {}
         }
         if (!hasRotationOverride && hasOrthoLock(pathItem)) {
-            addDebug("[Orthogonalize] Path has ORTHO_LOCK, skipping");
+            addDebug("[Orthogonalize] Path on '" + layerName + "' has ORTHO_LOCK, skipping");
             return false;
         }
 
@@ -8725,6 +8770,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         var changed = false;
         var cosTheta = 1;
         var sinTheta = 0;
+        var skipAllBranchOrtho = SKIP_ALL_BRANCH_ORTHO;
         var skipFinalBranchOrtho = SKIP_FINAL_REGISTER_ORTHO;
         if (hasRotationOverride) {
             var rotationRad = rotationOverride * (Math.PI / 180);
@@ -8732,19 +8778,66 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             sinTheta = Math.sin(rotationRad);
         }
 
-        var shouldOrthogonalizeSegment = function(segmentIndex, totalSegments) {
-            var lastIndex = totalSegments - 1;
+        // Determine if this entire path is a "branch" (no endpoint-to-endpoint connections)
+        // vs "trunk" (has at least one endpoint-to-endpoint connection)
+        var pathIsBranch = false;
+        if ((skipAllBranchOrtho || skipFinalBranchOrtho) && !pathItem.closed && pts.length >= 2) {
+            var firstEndpointConnected = endpointHasDuctworkConnection(pathItem, 0);
+            var lastEndpointConnected = endpointHasDuctworkConnection(pathItem, pts.length - 1);
+            // If NEITHER endpoint has an endpoint-to-endpoint connection, it's a branch
+            // (it T-junctions onto trunk or goes to registers at both ends)
+            if (!firstEndpointConnected && !lastEndpointConnected) {
+                pathIsBranch = true;
+                addDebug("[Orthogonalize] Path is a BRANCH (no endpoint-to-endpoint connections)");
+            } else {
+                addDebug("[Orthogonalize] Path is TRUNK (has endpoint connections: first=" + firstEndpointConnected + ", last=" + lastEndpointConnected + ")");
+            }
+        }
 
+        var shouldOrthogonalizeSegment = function(segmentIndex, totalSegments) {
+            // Skip ALL branch segments option
+            if (skipAllBranchOrtho) {
+                if (pathIsBranch) {
+                    addDebug("[Orthogonalize Seg " + segmentIndex + "] SKIPPING - path is a branch (skip all branches mode)");
+                    return false;
+                }
+                addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - path is trunk");
+                return true;
+            }
+
+            // Skip only final branch segment option
             if (skipFinalBranchOrtho) {
-                if (!pathItem.closed && segmentIndex === lastIndex) return false;
-                if (registerSegmentIndex !== null && segmentIndex === registerSegmentIndex) return false;
+                // TRUNK paths: orthogonalize ALL segments (including register ends)
+                if (!pathIsBranch) {
+                    addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - path is trunk");
+                    return true;
+                }
+
+                // BRANCH paths: only skip the final segment (register end)
+                // Orthogonalize all other segments of the branch
+                var lastIndex = totalSegments - 1;
+
+                // For single-segment branches, skip the entire thing
+                if (totalSegments === 1) {
+                    addDebug("[Orthogonalize Seg " + segmentIndex + "] SKIPPING - single-segment branch");
+                    return false;
+                }
+
+                // For multi-segment branches, only skip the last segment (register end)
+                if (segmentIndex === lastIndex) {
+                    addDebug("[Orthogonalize Seg " + segmentIndex + "] SKIPPING - branch final segment (register end)");
+                    return false;
+                }
+
+                addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - branch segment (not final)");
+                return true;
             }
 
             return true;
         };
 
         var totalSegments = pathItem.closed ? pts.length : pts.length - 1;
-        addDebug("[Orthogonalize] Processing " + totalSegments + " segments (closed: " + pathItem.closed + ")");
+        addDebug("[Orthogonalize] Processing '" + layerName + "' - " + totalSegments + " segments (closed: " + pathItem.closed + ")");
 
         for (var i = 0; i < pts.length; i++) {
             try {
@@ -9158,6 +9251,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             }
         }
 
+        // Same-layer endpoint-to-endpoint connections
         for (var layer in endpointsByLayer) {
             if (!endpointsByLayer.hasOwnProperty(layer)) continue;
             var endpoints = endpointsByLayer[layer];
@@ -9183,6 +9277,46 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         }
                     } catch (e) {
                         // Ignore distance failures
+                    }
+                }
+            }
+        }
+
+        // CROSS-LAYER endpoint-to-endpoint connections (e.g., Blue to Green ductwork)
+        var allLayerNames = [];
+        for (var ln in endpointsByLayer) {
+            if (endpointsByLayer.hasOwnProperty(ln)) allLayerNames.push(ln);
+        }
+        for (var li = 0; li < allLayerNames.length; li++) {
+            for (var lj = li + 1; lj < allLayerNames.length; lj++) {
+                var layerA = allLayerNames[li];
+                var layerB = allLayerNames[lj];
+                var endpointsA = endpointsByLayer[layerA];
+                var endpointsB = endpointsByLayer[layerB];
+                if (!endpointsA || !endpointsB) continue;
+
+                for (var ai = 0; ai < endpointsA.length; ai++) {
+                    var epA = endpointsA[ai];
+                    if (!epA || !epA.path) continue;
+                    for (var bi = 0; bi < endpointsB.length; bi++) {
+                        var epB = endpointsB[bi];
+                        if (!epB || !epB.path) continue;
+                        try {
+                            if (dist2(epA.pos, epB.pos) <= tol2) {
+                                addDebug("[collectEndpointConnections] Found CROSS-LAYER connection: '" + layerA + "' endpoint [" + epA.pos[0].toFixed(2) + ", " + epA.pos[1].toFixed(2) + "] <-> '" + layerB + "' endpoint [" + epB.pos[0].toFixed(2) + ", " + epB.pos[1].toFixed(2) + "]");
+                                result.pairs.push({
+                                    a: { path: epA.path, index: epA.index },
+                                    b: { path: epB.path, index: epB.index },
+                                    center: [
+                                        (epA.pos[0] + epB.pos[0]) / 2,
+                                        (epA.pos[1] + epB.pos[1]) / 2
+                                    ],
+                                    crossLayer: true
+                                });
+                            }
+                        } catch (e) {
+                            // Ignore distance failures
+                        }
                     }
                 }
             }
@@ -10983,16 +11117,29 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
     addDebug("[Pre-Orthogonalize Check] " + pathsWithOverride + " of " + geometryPaths.length + " paths have rotation override");
 
+    // Debug: list all paths in geometryPaths
+    addDebug("[Orthogonalize] === PATH LIST (" + geometryPaths.length + " paths) ===");
+    for (var listIdx = 0; listIdx < geometryPaths.length; listIdx++) {
+        var listPath = geometryPaths[listIdx];
+        var listLayerName = "";
+        var listPtCount = 0;
+        try { listLayerName = listPath.layer ? listPath.layer.name : "unknown"; } catch (e) { listLayerName = "unknown"; }
+        try { listPtCount = listPath.pathPoints ? listPath.pathPoints.length : 0; } catch (e) { listPtCount = 0; }
+        addDebug("[Orthogonalize] Path " + listIdx + ": layer='" + listLayerName + "', points=" + listPtCount);
+    }
+    addDebug("[Orthogonalize] === END PATH LIST ===");
+
     var iteration = 0;
     var changed = true;
     while (changed && iteration < MAX_ITER) {
         iteration++;
         changed = false;
-        addDebug("[Orthogonalize Iteration " + iteration + "] Starting");
+        addDebug("[Orthogonalize Iteration " + iteration + "] Starting with " + geometryPaths.length + " paths");
         var allSegments = buildSegmentsForPaths(geometryPaths);
         if (snapAnchors(geometryPaths, allSegments)) changed = true;
         for (var i = 0; i < geometryPaths.length; i++) {
-            if (orthogonalizePath(geometryPaths[i])) changed = true;
+            addDebug("[Orthogonalize Iteration " + iteration + "] Processing path " + i + " of " + geometryPaths.length);
+            if (orthogonalizePath(geometryPaths[i], preOrthoConnections.pairs)) changed = true;
         }
         if (restoreEndpointConnections(preOrthoConnections)) changed = true;
     }

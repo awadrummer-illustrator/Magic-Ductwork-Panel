@@ -374,6 +374,7 @@ function MDUX_prepareProcessBridge(optionsJSON) {
             action: opts.action || "process",
             skipOrtho: (typeof opts.skipOrtho === "boolean") ? opts.skipOrtho : undefined,
             rotationOverride: (typeof opts.rotationOverride === "number" && isFinite(opts.rotationOverride)) ? opts.rotationOverride : null,
+            skipAllBranchSegments: !!opts.skipAllBranchSegments,
             skipFinalRegisterSegment: !!opts.skipFinalRegisterSegment
         };
         return "OK";

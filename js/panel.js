@@ -16,6 +16,7 @@
     const skipOrthoOption = document.getElementById('skip-ortho-option');
     const rotationInput = document.getElementById('rotation-input');
     const clearRotationBtn = document.getElementById('clear-rotation-btn');
+    const skipAllBranchesOption = document.getElementById('skip-all-branches-option');
     const skipFinalOption = document.getElementById('skip-final-option');
     const createRegisterWiresOption = document.getElementById('create-register-wires-option');
     const rotate90Btn = document.getElementById('rotate-90-btn');
@@ -113,6 +114,7 @@
         const escapedPath = escapeForExtendScript(bridgePath);
         const loadScript = '(function(){' +
             'delete $.global.MDUX_JSX_FOLDER;' +  // Force clear stale cached folder path
+            'delete $.global.MDUX;' +  // Force clear stale MDUX namespace to ensure fresh initialization
             '$.global.MDUX_LAST_BRIDGE_PATH = "' + escapedPath + '";' +
             'try { $.evalFile("' + escapedPath + '"); return "OK"; } ' +
             'catch (e) { $.global.MDUX_LAST_BRIDGE_ERROR = e.toString(); return "ERROR:" + e; }' +
@@ -262,6 +264,7 @@
 
         const options = {
             action: 'process',
+            skipAllBranchSegments: !!skipAllBranchesOption.checked,
             skipFinalRegisterSegment: !!skipFinalOption.checked
         };
 
@@ -641,6 +644,17 @@
         skipOrthoOption.addEventListener('change', () => {
             skipOrthoOption.indeterminate = false;
         });
+        // Mutual exclusivity: only one skip option can be checked at a time
+        skipAllBranchesOption.addEventListener('change', () => {
+            if (skipAllBranchesOption.checked) {
+                skipFinalOption.checked = false;
+            }
+        });
+        skipFinalOption.addEventListener('change', () => {
+            if (skipFinalOption.checked) {
+                skipAllBranchesOption.checked = false;
+            }
+        });
         rotate90Btn.addEventListener('click', () => rotateSelection(90));
         rotate45Btn.addEventListener('click', () => rotateSelection(45));
         rotate180Btn.addEventListener('click', () => rotateSelection(180));
@@ -696,6 +710,7 @@
         rotationInput.value = '';
         rotationInput.dataset.autoValue = '';
         rotationInput.dataset.multi = 'false';
+        skipAllBranchesOption.checked = false;
         skipFinalOption.checked = false;
         createRegisterWiresOption.checked = false;
         // Scale controls are hidden - only set values if they exist
