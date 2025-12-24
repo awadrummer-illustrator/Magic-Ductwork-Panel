@@ -8,127 +8,130 @@
     <script src="js/panel.js" defer></script>
 </head>
 <body>
-    <main class="card-grid">
-
-    <section class="card">
-        <h2>Run Ductwork Generator</h2>
-        <p class="muted">Configure ductwork options, process the selection, or restore stored geometry.</p>
-
-        <div class="option-group">
-            <label class="option-row">
-                <input type="checkbox" id="skip-ortho-option">
-                <span>Skip orthogonalization (<code>MD:NO_ORTHO</code>)</span>
-            </label>
-
-            <div class="option-row inline">
-                <label for="rotation-input">Rotation override (°):</label>
-                <input type="text" id="rotation-input" class="rotation-input" placeholder="auto" inputmode="decimal">
-                <button type="button" id="clear-rotation-btn" class="ghost sm">Clear</button>
+    <img src="panel-background.png" class="bg-image" alt="">
+    <div class="content-scroll">
+    <main class="main-frame">
+        
+        <!-- Top Toggles -->
+        <div class="toggle-grid" id="ortho-toggle-grid">
+            <div class="toggle-btn-wrapper">
+                <input type="checkbox" id="skip-ortho-option" class="ortho-toggle">
+                <label for="skip-ortho-option" class="toggle-btn">
+                    <img src="button_images/No Ortho.png" alt="No Ortho" class="toggle-img">
+                </label>
             </div>
-
-            <label class="option-row">
-                <input type="checkbox" id="skip-all-branches-option">
-                <span>Skip orthogonalizing all branch segments</span>
-            </label>
-
-            <label class="option-row">
-                <input type="checkbox" id="skip-final-option">
-                <span>Skip orthogonalizing final segment into registers</span>
-            </label>
-
-            <label class="option-row" id="create-register-wires-row">
-                <input type="checkbox" id="create-register-wires-option">
-                <span>Create Register Wires</span>
-            </label>
+            <div class="toggle-btn-wrapper">
+                <input type="checkbox" id="skip-all-branches-option" class="ortho-toggle">
+                <label for="skip-all-branches-option" class="toggle-btn">
+                    <img src="button_images/No Ortho Branches.png" alt="No Ortho Branches" class="toggle-img">
+                </label>
+            </div>
+            <div class="toggle-btn-wrapper">
+                <input type="checkbox" id="skip-final-option" class="ortho-toggle" checked>
+                <label for="skip-final-option" class="toggle-btn">
+                    <img src="button_images/No Ortho Final.png" alt="No Ortho Final" class="toggle-img">
+                </label>
+            </div>
         </div>
 
-        <div class="button-row">
-            <button id="process-btn" class="primary">Process Ductwork</button>
-            <button id="process-emory-btn" class="primary">Process Ductwork Emory</button>
+        <!-- Rotation Override -->
+        <div class="rotation-override">
+            <label for="rotation-input">Rotation override (°):</label>
+            <div class="rotation-input-group">
+                <input type="text" id="rotation-input" class="rotation-input" placeholder="Auto" inputmode="decimal">
+                <button type="button" id="clear-rotation-btn">Clear</button>
+            </div>
         </div>
-        <div class="button-row">
-            <button id="revert-ortho-btn" class="secondary">Revert Pre-Ortho</button>
-            <button id="clear-rotation-metadata-btn" class="secondary">Clear Rotation Metadata</button>
+
+        <!-- Process Button -->
+        <button id="process-btn" class="btn-primary-glow">Process Ductwork</button>
+        <!-- Hidden Emory Button -->
+        <button id="process-emory-btn" style="display:none;">Process Ductwork Emory</button>
+        <!-- Hidden Register Wires Option -->
+        <input type="checkbox" id="create-register-wires-option" style="display:none;">
+
+        <!-- Revert / Clear Metadata -->
+        <div class="btn-row">
+            <button id="revert-ortho-btn">Revert Pre-Ortho</button>
+            <button id="clear-rotation-metadata-btn">Clear Rotation Metadata</button>
         </div>
+
+        <!-- Status Messages -->
         <p id="process-status" class="status"></p>
         <p id="revert-status" class="status"></p>
         <p id="clear-rotation-metadata-status" class="status"></p>
-    </section>
 
-    <section class="card">
-        <h2>Transform Each</h2>
-        <p class="muted">Scale and rotate each selected object individually.</p>
-
-        <div class="control-group" style="margin-bottom: 10px;">
-            <div class="option-row inline" style="justify-content: space-between; margin-bottom: 5px;">
-                <label for="te-scale">Scale (%):</label>
-                <input type="number" id="te-scale" value="100" step="1" style="width: 60px;">
-            </div>
-            <input type="range" id="te-scale-slider" min="10" max="400" value="100" style="width: 100%;">
-        </div>
-
-        <div class="control-group" style="margin-bottom: 15px;">
-            <div class="option-row inline" style="justify-content: space-between; margin-bottom: 5px;">
-                <label for="te-rotate">Rotate (°):</label>
-                <input type="number" id="te-rotate" value="0" step="1" style="width: 60px;">
-            </div>
-            <input type="range" id="te-rotate-slider" min="-180" max="180" value="0" style="width: 100%;">
-        </div>
-        
-        <div class="option-row">
-            <input type="checkbox" id="te-live-option" checked>
-            <span>Live Preview</span>
-        </div>
-
-        <div class="button-row">
-            <button id="transform-each-btn" class="primary">Apply / Reset</button>
-            <button id="te-reset-original-btn" class="secondary">Reset to Original</button>
-        </div>
-        
-        <hr class="separator">
-        
-        <h3>Quick Rotate</h3>
-        <div class="button-row wrap">
-            <button id="rotate-90-btn" class="secondary">Rotate 90°</button>
-            <button id="rotate-45-btn" class="secondary">Rotate 45°</button>
-            <button id="rotate-180-btn" class="secondary">Rotate 180°</button>
-        </div>
-
-        <p id="selection-status" class="status"></p>
-    </section>
-
-    <section class="card">
-        <h2>Layer Management</h2>
-        <p class="muted">Quick isolation tools for ductwork layers.</p>
-        <div class="layer-button-container">
-            <div class="layer-buttons-left">
-                <button id="isolate-parts-btn" class="secondary">Isolate Ductwork Parts</button>
-                <button id="isolate-lines-btn" class="secondary">Isolate Ductwork Lines</button>
-                <button id="create-layers-btn" class="success">Create Standard Layers</button>
-                <button id="import-styles-btn" class="success">Import Graphic Styles</button>
-            </div>
-            <div class="layer-buttons-right">
-                <button id="unlock-ductwork-btn" class="ghost"><img src="button_images/Unlock All Ductwork Layers.png" alt="">Unlock All Ductwork Layers</button>
+        <!-- Selection Transform -->
+        <div class="section">
+            <div class="section-title">Selection Transform</div>
+            
+            <div class="control-group">
+                <div class="slider-row">
+                    <span class="slider-label">Scale (%):</span>
+                    <input type="range" id="te-scale-slider" min="10" max="400" value="100">
+                    <input type="number" id="te-scale" value="100" step="1" style="width: 40px;">
+                </div>
+                <div class="slider-row">
+                    <span class="slider-label">Rotate (°):</span>
+                    <input type="range" id="te-rotate-slider" min="-180" max="180" value="0">
+                    <input type="number" id="te-rotate" value="0" step="1" style="width: 40px;">
+                </div>
+                <div class="checkbox-row">
+                    <input type="checkbox" id="te-live-option" checked>
+                    <label for="te-live-option">Live Preview</label>
+                </div>
+                <div class="btn-row">
+                    <button id="transform-each-btn">Apply / Reset</button>
+                    <button id="te-reset-original-btn">Reset to Original</button>
+                </div>
             </div>
         </div>
-        <p id="layer-status" class="status"></p>
-        <p id="import-status" class="status"></p>
-    </section>
 
-    <section class="card">
-        <h2>Export Tools</h2>
-        <p class="muted">Export ductwork and floorplans to PNG.</p>
-        <div class="button-row">
-            <button id="export-ductwork-btn" class="primary">Export Ductwork</button>
-            <button id="reexport-floorplan-btn" class="secondary">Re-Export Floorplan</button>
+        <!-- Quick Rotate -->
+        <div class="section">
+            <div class="section-title">Quick Rotate</div>
+            <div class="quick-rotate-grid">
+                <button id="rotate-90-btn">Rotate 90°</button>
+                <button id="rotate-45-btn">Rotate 45°</button>
+                <button id="rotate-180-btn">Rotate 180°</button>
+            </div>
+            <p id="selection-status" class="status"></p>
         </div>
-        <p id="export-status" class="status"></p>
-    </section>
+
+        <!-- Layer Management -->
+        <div class="section">
+            <div class="section-title-row">
+                <div class="section-title">Layer Management</div>
+                <button id="unlock-ductwork-btn" class="unlock-btn-small">
+                    <img src="button_images/Unlock All Ductwork Layers.png" alt="Unlock">
+                </button>
+            </div>
+            <div class="layer-buttons-grid">
+                <button id="isolate-parts-btn">Isolate Ductwork Parts</button>
+                <button id="isolate-lines-btn">Isolate Ductwork Lines</button>
+                <button id="create-layers-btn" style="color: var(--success-color); border-color: var(--success-color);">Create Standard Layers</button>
+                <button id="import-styles-btn" style="color: var(--success-color); border-color: var(--success-color);">Import Graphic Styles</button>
+            </div>
+            <p id="layer-status" class="status"></p>
+            <p id="import-status" class="status"></p>
+        </div>
+
+        <!-- Export Tools -->
+        <div class="section">
+            <div class="section-title">Export Tools</div>
+            <div class="export-grid">
+                <button id="export-ductwork-btn">Export Ductwork</button>
+                <button id="reexport-floorplan-btn">Re-Export Floorplan</button>
+            </div>
+            <p id="export-status" class="status"></p>
+        </div>
 
     </main>
+
     <footer>
-        <button id="reload-btn" class="ghost">Reload Extension (F5)</button>
-        <span id="debug-status"></span>
+        <button id="reload-btn" style="background:none; border:none; color:#555; font-size:7px;">Reload Extension (F5)</button>
+        <span id="debug-status" style="display:none;"></span>
     </footer>
+    </div>
 </body>
 </html>

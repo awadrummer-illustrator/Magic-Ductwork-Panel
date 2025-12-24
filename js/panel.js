@@ -905,20 +905,36 @@
             rotationInput.dataset.autoValue = '';
             rotationInput.dataset.multi = 'false';
         });
-        skipOrthoOption.addEventListener('change', () => {
-            skipOrthoOption.indeterminate = false;
-        });
-        // Mutual exclusivity: only one skip option can be checked at a time
-        skipAllBranchesOption.addEventListener('change', () => {
-            if (skipAllBranchesOption.checked) {
-                skipFinalOption.checked = false;
+        // New Mutual Exclusivity Logic
+        const orthoToggles = [skipOrthoOption, skipAllBranchesOption, skipFinalOption];
+        const orthoGrid = document.getElementById('ortho-toggle-grid');
+
+        function updateOrthoState(changedInput) {
+            if (changedInput && changedInput.checked) {
+                orthoToggles.forEach(t => {
+                    if (t !== changedInput) t.checked = false;
+                });
+            }
+            
+            // Update visual state
+            if (orthoGrid) {
+                const anyChecked = orthoToggles.some(t => t.checked);
+                if (anyChecked) {
+                    orthoGrid.classList.add('has-selection');
+                } else {
+                    orthoGrid.classList.remove('has-selection');
+                }
+            }
+        }
+
+        orthoToggles.forEach(t => {
+            if (t) {
+                t.addEventListener('change', () => updateOrthoState(t));
             }
         });
-        skipFinalOption.addEventListener('change', () => {
-            if (skipFinalOption.checked) {
-                skipAllBranchesOption.checked = false;
-            }
-        });
+        
+        // Initial state check
+        updateOrthoState(null);
         rotate90Btn.addEventListener('click', () => rotateSelection(90));
         rotate45Btn.addEventListener('click', () => rotateSelection(45));
         rotate180Btn.addEventListener('click', () => rotateSelection(180));
