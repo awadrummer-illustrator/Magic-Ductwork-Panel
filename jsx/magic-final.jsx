@@ -8103,6 +8103,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     if (startupChoice && typeof startupChoice.skipFinalRegisterSegment !== "undefined") {
         SKIP_FINAL_REGISTER_ORTHO = !!startupChoice.skipFinalRegisterSegment;
     }
+    // Enforce mutual exclusivity: skipFinal takes precedence over skipAll
+    if (SKIP_FINAL_REGISTER_ORTHO && SKIP_ALL_BRANCH_ORTHO) {
+        addDebug("[Skip Ortho] WARNING: Both skip options were true! Setting SKIP_ALL_BRANCH_ORTHO=false");
+        SKIP_ALL_BRANCH_ORTHO = false;
+    }
     addDebug("[Skip Ortho Settings] SKIP_ALL_BRANCH_ORTHO=" + SKIP_ALL_BRANCH_ORTHO + ", SKIP_FINAL_REGISTER_ORTHO=" + SKIP_FINAL_REGISTER_ORTHO);
     if (!startupChoice || startupChoice.action === "cancel") {
         return;
@@ -8641,15 +8646,30 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         // Helper: check if a specific endpoint of this path connects to ANY other ductwork path
         // (same-layer blue-to-blue connections or cross-layer blue-to-green connections)
         function endpointHasDuctworkConnection(path, anchorIndex) {
-            if (!connectionPairs || !connectionPairs.length) return false;
+            var pathName = "";
+            try { pathName = path.layer ? path.layer.name : "(unknown layer)"; } catch (e) { pathName = "(error getting layer)"; }
+
+            if (!connectionPairs || !connectionPairs.length) {
+                addDebug("[EndpointCheck] path '" + pathName + "' idx=" + anchorIndex + " -> NO connectionPairs available");
+                return false;
+            }
+            addDebug("[EndpointCheck] path '" + pathName + "' idx=" + anchorIndex + " -> checking " + connectionPairs.length + " pairs");
+
             for (var pi = 0; pi < connectionPairs.length; pi++) {
                 var pair = connectionPairs[pi];
                 if (!pair) continue;
                 // Check ALL connections - both same-layer (trunk) and cross-layer
                 // This ensures the main trunk is always orthogonalized
-                if (pair.a && pair.a.path === path && pair.a.index === anchorIndex) return true;
-                if (pair.b && pair.b.path === path && pair.b.index === anchorIndex) return true;
+                if (pair.a && pair.a.path === path && pair.a.index === anchorIndex) {
+                    addDebug("[EndpointCheck] FOUND connection at pair " + pi + " via pair.a");
+                    return true;
+                }
+                if (pair.b && pair.b.path === path && pair.b.index === anchorIndex) {
+                    addDebug("[EndpointCheck] FOUND connection at pair " + pi + " via pair.b");
+                    return true;
+                }
             }
+            addDebug("[EndpointCheck] NO connection found for path '" + pathName + "' idx=" + anchorIndex);
             return false;
         }
         var earlyLayerName = "";
@@ -8734,7 +8754,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 }
             } catch (eDerivedRotation) {}
         }
-        if (!hasRotationOverride && hasOrthoLock(pathItem)) {
+        // Skip ORTHO_LOCK check when skip-final is enabled (paths may need re-processing
+        // after shared endpoints are moved by other paths)
+        if (!hasRotationOverride && !SKIP_FINAL_REGISTER_ORTHO && hasOrthoLock(pathItem)) {
             addDebug("[Orthogonalize] Path on '" + layerName + "' has ORTHO_LOCK, skipping");
             return false;
         }
@@ -8783,23 +8805,110 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             sinTheta = Math.sin(rotationRad);
         }
 
+        // Helper: check if an endpoint T-junctions onto another ductwork path (touches middle of path, not endpoint)
+        function endpointTJunctionsOntoPath(path, anchorIndex) {
+            var pathName = "";
+            try { pathName = path.layer ? path.layer.name : "(unknown layer)"; } catch (e) { pathName = "(error getting layer)"; }
+
+            var anchor = pts[anchorIndex].anchor;
+            var TOLERANCE = 5; // pixels
+
+            // Check all geometry paths for T-junction
+            for (var gi = 0; gi < geometryPaths.length; gi++) {
+                var otherPath = geometryPaths[gi];
+                if (!otherPath || otherPath === path) continue;
+
+                try {
+                    var otherPts = otherPath.pathPoints;
+                    if (!otherPts || otherPts.length < 2) continue;
+
+                    // Check if our endpoint is near any SEGMENT of the other path (not just endpoints)
+                    for (var si = 0; si < otherPts.length - 1; si++) {
+                        var segStart = otherPts[si].anchor;
+                        var segEnd = otherPts[si + 1].anchor;
+
+                        // Skip if this is an endpoint of the other path (that would be endpoint-to-endpoint, not T-junction)
+                        if (si === 0 || si === otherPts.length - 2) {
+                            // Check distance to segment endpoints
+                            var distToStart = Math.sqrt(Math.pow(anchor[0] - segStart[0], 2) + Math.pow(anchor[1] - segStart[1], 2));
+                            var distToEnd = Math.sqrt(Math.pow(anchor[0] - segEnd[0], 2) + Math.pow(anchor[1] - segEnd[1], 2));
+                            if ((si === 0 && distToStart < TOLERANCE) || (si === otherPts.length - 2 && distToEnd < TOLERANCE)) {
+                                continue; // This is endpoint-to-endpoint, not T-junction
+                            }
+                        }
+
+                        // Check if our anchor is near this segment (point-to-line distance)
+                        var segDx = segEnd[0] - segStart[0];
+                        var segDy = segEnd[1] - segStart[1];
+                        var segLen = Math.sqrt(segDx * segDx + segDy * segDy);
+                        if (segLen < 0.001) continue;
+
+                        // Project anchor onto segment line
+                        var t = ((anchor[0] - segStart[0]) * segDx + (anchor[1] - segStart[1]) * segDy) / (segLen * segLen);
+
+                        // Check if projection is within segment (not at endpoints)
+                        if (t > 0.05 && t < 0.95) {
+                            var projX = segStart[0] + t * segDx;
+                            var projY = segStart[1] + t * segDy;
+                            var dist = Math.sqrt(Math.pow(anchor[0] - projX, 2) + Math.pow(anchor[1] - projY, 2));
+
+                            if (dist < TOLERANCE) {
+                                var otherLayerName = "";
+                                try { otherLayerName = otherPath.layer ? otherPath.layer.name : "unknown"; } catch (e) {}
+                                addDebug("[T-Junction] path '" + pathName + "' idx=" + anchorIndex + " T-junctions onto '" + otherLayerName + "' at segment " + si);
+                                return true;
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Skip problematic paths
+                }
+            }
+
+            addDebug("[T-Junction] path '" + pathName + "' idx=" + anchorIndex + " - no T-junction found");
+            return false;
+        }
+
         // Determine if this entire path is a "branch" (no endpoint-to-endpoint connections)
         // vs "trunk" (has at least one endpoint-to-endpoint connection)
         var pathIsBranch = false;
+        var registerEndIsFirst = false; // true if index 0 is register end, false if last index is register end
+
         if ((skipAllBranchOrtho || skipFinalBranchOrtho) && !pathItem.closed && pts.length >= 2) {
             var firstEndpointConnected = endpointHasDuctworkConnection(pathItem, 0);
             var lastEndpointConnected = endpointHasDuctworkConnection(pathItem, pts.length - 1);
+
             // If NEITHER endpoint has an endpoint-to-endpoint connection, it's a branch
             // (it T-junctions onto trunk or goes to registers at both ends)
             if (!firstEndpointConnected && !lastEndpointConnected) {
                 pathIsBranch = true;
                 addDebug("[Orthogonalize] Path is a BRANCH (no endpoint-to-endpoint connections)");
+
+                // For skip-final, we need to know which end is the register end
+                // Check which endpoint T-junctions onto another path (that's the trunk connection)
+                var firstTJunctions = endpointTJunctionsOntoPath(pathItem, 0);
+                var lastTJunctions = endpointTJunctionsOntoPath(pathItem, pts.length - 1);
+
+                if (firstTJunctions && !lastTJunctions) {
+                    // First point T-junctions onto trunk, so last point is register end
+                    registerEndIsFirst = false;
+                    addDebug("[Orthogonalize] Branch orientation: FIRST endpoint T-junctions, LAST is register end");
+                } else if (!firstTJunctions && lastTJunctions) {
+                    // Last point T-junctions onto trunk, so first point is register end
+                    registerEndIsFirst = true;
+                    addDebug("[Orthogonalize] Branch orientation: LAST endpoint T-junctions, FIRST is register end");
+                } else {
+                    // Both or neither T-junction - default to assuming last index is register end
+                    registerEndIsFirst = false;
+                    addDebug("[Orthogonalize] Branch orientation: AMBIGUOUS (both=" + firstTJunctions + "), defaulting to last=register");
+                }
             } else {
                 addDebug("[Orthogonalize] Path is TRUNK (has endpoint connections: first=" + firstEndpointConnected + ", last=" + lastEndpointConnected + ")");
             }
         }
 
         var shouldOrthogonalizeSegment = function(segmentIndex, totalSegments) {
+            addDebug("[shouldOrtho] Seg " + segmentIndex + "/" + totalSegments + " | skipAll=" + skipAllBranchOrtho + " skipFinal=" + skipFinalBranchOrtho + " isBranch=" + pathIsBranch + " regEndFirst=" + registerEndIsFirst);
             // Skip ALL branch segments option
             if (skipAllBranchOrtho) {
                 if (pathIsBranch) {
@@ -8818,23 +8927,22 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     return true;
                 }
 
-                // BRANCH paths: only skip the final segment (register end)
-                // Orthogonalize all other segments of the branch
-                var lastIndex = totalSegments - 1;
-
+                // BRANCH paths: only skip the register-end segment
                 // For single-segment branches, still orthogonalize them
                 if (totalSegments === 1) {
                     addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - single-segment branch (still orthogonalizing)");
                     return true;
                 }
 
-                // For multi-segment branches, only skip the last segment (register end)
-                if (segmentIndex === lastIndex) {
-                    addDebug("[Orthogonalize Seg " + segmentIndex + "] SKIPPING - branch final segment (register end)");
+                // Determine which segment is the register-end segment based on branch orientation
+                var registerSegmentIndex = registerEndIsFirst ? 0 : (totalSegments - 1);
+
+                if (segmentIndex === registerSegmentIndex) {
+                    addDebug("[Orthogonalize Seg " + segmentIndex + "] SKIPPING - register-end segment");
                     return false;
                 }
 
-                addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - branch segment (not final)");
+                addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - branch segment (not register end)");
                 return true;
             }
 
@@ -8937,7 +9045,13 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         }
         addDebug("[Orthogonalize] Path changed: " + changed);
         if (changed) {
-            flagOrthoLock(pathItem);
+            // Don't apply ORTHO_LOCK when skip-final is enabled, because shared endpoints
+            // may be moved by other paths and we need to re-orthogonalize
+            if (!SKIP_FINAL_REGISTER_ORTHO) {
+                flagOrthoLock(pathItem);
+            } else {
+                addDebug("[Orthogonalize] Skip-final mode: NOT setting ORTHO_LOCK (allows re-processing)");
+            }
         }
         return changed;
     }
