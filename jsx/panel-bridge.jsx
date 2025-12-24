@@ -1,6 +1,27 @@
 #target illustrator
 
+// Define debug log early so we can use it
+if (typeof MDUX === "undefined") {
+    var MDUX = {};
+}
+
+function MDUX_debugLog_Early(message) {
+    try {
+        var f = new File($.fileName);
+        var folder = f.parent.parent; // Extension root
+        var logFile = new File(folder.fsName + "/debug.log");
+        logFile.open("a");
+        logFile.writeln("[EARLY] " + message);
+        logFile.close();
+    } catch(e) {}
+}
+
+MDUX_debugLog_Early("panel-bridge.jsx is loading...");
+
 #include "./register-ignore.jsx"
+#include "./export-utils.jsx"
+
+MDUX_debugLog_Early("Includes finished. MDUX_performExport type: " + typeof MDUX_performExport);
 
 // Store the jsx folder path when this file is first evaluated
 // ALWAYS use $.global.MDUX_LAST_BRIDGE_PATH (set by panel.js) if available

@@ -37,6 +37,9 @@
     const layerStatus = document.getElementById('layer-status');
     const importStylesBtn = document.getElementById('import-styles-btn');
     const importStatus = document.getElementById('import-status');
+    const exportDuctworkBtn = document.getElementById('export-ductwork-btn');
+    const reexportFloorplanBtn = document.getElementById('reexport-floorplan-btn');
+    const exportStatus = document.getElementById('export-status');
 
     let scaleDebounce = null;
     let bridgeReloaded = false;
@@ -92,6 +95,11 @@
     function setImportStatus(message, isError) {
         importStatus.textContent = message || '';
         importStatus.classList.toggle('error', !!isError);
+    }
+
+    function setExportStatus(message, isError) {
+        exportStatus.textContent = message || '';
+        exportStatus.classList.toggle('error', !!isError);
     }
 
     function normaliseResult(value) {
@@ -624,6 +632,77 @@
         scheduleSkipOrthoRefresh();
     }
 
+    async function handleExport(type) {
+        setExportStatus('Exporting...', false);
+        console.log("Starting export for type: " + type);
+        
+        try {
+            // Initial attempt (overwrite=false, version=null)
+            let resultStr = await evalScript(`MDUX_performExport("${type}", false, null)`);
+            console.log("Export result string: ", resultStr);
+            
+            if (!resultStr) {
+                throw new Error("No response from Illustrator. Check debug.log.");
+            }
+
+            let result;
+            try {
+                result = JSON.parse(resultStr);
+            } catch (e) {
+                throw new Error("Invalid JSON response: " + resultStr);
+            }
+            
+            if (!result.ok) {
+                if (result.log) {
+                    alert("Export Log:\n" + result.log);
+                }
+                setExportStatus(result.message, true);
+                return;
+            }
+            
+            if (result.status === "CONFIRM_OVERWRITE") {
+                // Ask user
+                const shouldOverwrite = confirm(result.message || "Files already exist. Overwrite them?");
+                
+                if (shouldOverwrite) {
+                    // Retry with overwrite=true
+                    resultStr = await evalScript(`MDUX_performExport("${type}", true, null)`);
+                    console.log("Overwrite result string: ", resultStr);
+                    result = JSON.parse(resultStr);
+                } else {
+                    // Ask for version
+                    const version = prompt("Enter version suffix (e.g. '1' for V1):");
+                    if (version) {
+                        // Retry with version
+                        resultStr = await evalScript(`MDUX_performExport("${type}", false, "${version}")`);
+                        console.log("Version result string: ", resultStr);
+                        result = JSON.parse(resultStr);
+                    } else {
+                        setExportStatus("Export cancelled.", false);
+                        return;
+                    }
+                }
+            }
+            
+            if (result.ok) {
+                if (result.log) {
+                    // Optional: alert success log if needed, or just console
+                    console.log("Export Success Log:\n" + result.log);
+                }
+                setExportStatus(result.message, false);
+            } else {
+                if (result.log) {
+                    alert("Export Log:\n" + result.log);
+                }
+                setExportStatus(result.message, true);
+            }
+            
+        } catch (e) {
+            console.error("Export error:", e);
+            setExportStatus("Error: " + e.message, true);
+        }
+    }
+
     function attachListeners() {
         processBtn.addEventListener('click', handleProcessClick);
         processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
@@ -699,6 +778,12 @@
         unlockDuctworkBtn.addEventListener('click', () => isolate('unlock'));
         createLayersBtn.addEventListener('click', () => isolate('create'));
         importStylesBtn.addEventListener('click', importGraphicStyles);
+        if (exportDuctworkBtn) {
+            exportDuctworkBtn.addEventListener('click', () => handleExport('DUCTWORK'));
+        }
+        if (reexportFloorplanBtn) {
+            reexportFloorplanBtn.addEventListener('click', () => handleExport('FLOORPLAN'));
+        }
         reloadBtn.addEventListener('click', () => window.location.reload());
     }
 
