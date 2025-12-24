@@ -48,7 +48,7 @@ if (typeof JSON.stringify !== "function") {
                              .replace(/\n/g, '\\n')
                              .replace(/\f/g, '\\f')
                              .replace(/\t/g, '\\t')
-                             .replace(/\b/g, '\\b') + '"';
+                             .replace(/[\b]/g, '\\b') + '"';
         }
         function stringify(val) {
             if (val === null) return "null";
@@ -102,6 +102,133 @@ function MDUX_joinPath(folderObj, filename) {
         return base + filename;
     }
     return base + "/" + filename;
+}
+
+// Ductwork line layers (line-only layers that should not be orthogonalized, etc.)
+var DUCTWORK_LINES = [
+    "Green Ductwork",
+    "Light Green Ductwork",
+    "Blue Ductwork",
+    "Orange Ductwork",
+    "Light Orange Ductwork",
+    "Thermostat Lines"
+];
+
+// Ductwork piece layers (used for placing pieces and anchor checks)
+var DUCTWORK_PARTS = [
+    "Thermostats",
+    "Units",
+    "Secondary Exhaust Registers",
+    "Exhaust Registers",
+    "Orange Register",
+    "Rectangular Registers",
+    "Square Registers",
+    "Circular Registers"
+];
+
+function MDUX_isDuctworkLine(item) {
+    try {
+        if (!item || !item.layer) return false;
+        var layerName = item.layer.name;
+        for (var i = 0; i < DUCTWORK_LINES.length; i++) {
+            if (layerName === DUCTWORK_LINES[i]) return true;
+        }
+    } catch (e) {}
+    return false;
+}
+
+function MDUX_isDuctworkPart(item) {
+    try {
+        if (!item || !item.layer) return false;
+        var layerName = item.layer.name;
+        for (var i = 0; i < DUCTWORK_PARTS.length; i++) {
+            if (layerName === DUCTWORK_PARTS[i]) return true;
+        }
+    } catch (e) {}
+    return false;
+}
+
+function MDUX_getTag(item, key) {
+    try {
+        for (var i = 0; i < item.tags.length; i++) {
+            if (item.tags[i].name === key) return item.tags[i].value;
+        }
+    } catch(e) {}
+    return null;
+}
+
+function MDUX_setTag(item, key, value) {
+    try {
+        var found = false;
+        for (var i = 0; i < item.tags.length; i++) {
+            if (item.tags[i].name === key) {
+                item.tags[i].value = String(value);
+                found = true;
+                break;
+            }
+        }
+        if (!found) {
+            var t = item.tags.add();
+            t.name = key;
+            t.value = String(value);
+        }
+    } catch(e) {}
+}
+
+function MDUX_removeTag(item, key) {
+    try {
+        for (var i = 0; i < item.tags.length; i++) {
+            if (item.tags[i].name === key) {
+                item.tags[i].remove();
+                break;
+            }
+        }
+    } catch(e) {}
+}
+
+function MDUX_resetTransforms() {
+    try {
+        if (app.documents.length === 0) return JSON.stringify({ ok: false, message: "No document open." });
+        var sel = app.selection;
+        if (!sel || sel.length === 0) return JSON.stringify({ ok: false, message: "Nothing selected." });
+
+        var count = 0;
+        for (var i = 0; i < sel.length; i++) {
+            var item = sel[i];
+            
+            // 1. Restore Rotation
+            var cumRot = MDUX_getTag(item, "MDUX_CumulativeRotation");
+            if (cumRot !== null) {
+                var r = parseFloat(cumRot);
+                if (!isNaN(r) && r !== 0) {
+                    item.rotate(-r, true, true, true, true, Transformation.CENTER);
+                }
+                MDUX_removeTag(item, "MDUX_CumulativeRotation");
+            }
+
+            // 2. Restore Dimensions (Width/Height)
+            var origW = MDUX_getTag(item, "MDUX_OriginalWidth");
+            var origH = MDUX_getTag(item, "MDUX_OriginalHeight");
+            if (origW !== null && origH !== null) {
+                item.width = parseFloat(origW);
+                item.height = parseFloat(origH);
+                MDUX_removeTag(item, "MDUX_OriginalWidth");
+                MDUX_removeTag(item, "MDUX_OriginalHeight");
+            }
+
+            // 3. Restore Stroke Width
+            var origStroke = MDUX_getTag(item, "MDUX_OriginalStrokeWidth");
+            if (origStroke !== null) {
+                item.strokeWidth = parseFloat(origStroke);
+                MDUX_removeTag(item, "MDUX_OriginalStrokeWidth");
+            }
+            
+            count++;
+        }
+        return JSON.stringify({ ok: true, message: "Reset " + count + " items." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Error: " + e.message });
+    }
 }
 
 if (typeof MDUX === "undefined") {
@@ -1528,5 +1655,190 @@ function MDUX_moveToLayerBridge(optionsJSON) {
         $.writeln("[MOVE] EXCEPTION: " + e.toString());
         $.writeln("[MOVE] Stack: " + e.line);
         return "ERROR:" + e.toString();
+    }
+}
+
+function MDUX_scaleStrokeRecursively(item, scalePercent, stats) {
+    try {
+        if (item.locked || item.hidden) {
+            stats.locked++;
+            return;
+        }
+
+        if (item.typename === "GroupItem") {
+            stats.groups++;
+            var children = item.pageItems;
+            for (var i = 0; i < children.length; i++) {
+                MDUX_scaleStrokeRecursively(children[i], scalePercent, stats);
+            }
+        } else if (item.typename === "CompoundPathItem") {
+            stats.compoundPaths++;
+            
+            // Try to scale the compound path itself first (if it has stroke properties)
+            var compoundStroked = false;
+            try {
+                // Some AI versions expose stroke on the CompoundPathItem
+                if (item.stroked) {
+                    item.strokeWidth = item.strokeWidth * (scalePercent / 100.0);
+                    stats.stroked++;
+                    compoundStroked = true;
+                }
+            } catch(e) {}
+
+            // Also recurse into children (pathItems)
+            // If the compound path itself was stroked, the children might inherit or duplicate.
+            // But usually, if the compound path is stroked, the children's stroke properties are ignored or synced.
+            // If we didn't successfully scale the compound path, we MUST scale the children.
+            // If we DID scale the compound path, scaling children might be redundant but harmless (unless they have independent strokes).
+            
+            var paths = item.pathItems;
+            for (var j = 0; j < paths.length; j++) {
+                MDUX_scaleStrokeRecursively(paths[j], scalePercent, stats);
+            }
+            
+        } else if (item.typename === "PathItem") {
+            stats.paths++;
+            var strokesScaled = 0;
+
+            // Scale all strokes from Appearance panel (multiple strokes)
+            try {
+                if (item.strokes && item.strokes.length > 0) {
+                    for (var s = 0; s < item.strokes.length; s++) {
+                        var stroke = item.strokes[s];
+                        if (stroke.visible) {
+                            stroke.weight = stroke.weight * (scalePercent / 100.0);
+                            strokesScaled++;
+                        }
+                    }
+                }
+            } catch (e) {
+                // Fallback: strokes collection not available, use basic strokeWidth
+            }
+
+            // Also scale basic strokeWidth if stroked (covers single-stroke case)
+            if (item.stroked && strokesScaled === 0) {
+                item.strokeWidth = item.strokeWidth * (scalePercent / 100.0);
+                strokesScaled++;
+            }
+
+            if (strokesScaled > 0) {
+                stats.stroked++;
+            } else if (item.filled) {
+                stats.filled++;
+            } else {
+                stats.unstroked++;
+            }
+        } else {
+            stats.others++;
+            stats.otherTypes.push(item.typename);
+        }
+    } catch (e) {
+        stats.errors++;
+    }
+}
+
+function MDUX_transformEach(scale, rotation, undoPrevious) {
+    try {
+        if (app.documents.length === 0) return JSON.stringify({ ok: false, message: "No document open." });
+        
+        // Handle Undo first if requested
+        if (undoPrevious === true || undoPrevious === "true") {
+            app.executeMenuCommand('undo');
+        }
+
+        var sel = app.selection;
+        if (!sel || sel.length === 0) return JSON.stringify({ ok: false, message: "Nothing selected." });
+        
+        var s = Number(scale);
+        var r = Number(rotation);
+        
+        // Optimization: If scale is 100 and rotation is 0, do nothing
+        // BUT if we just undid, we might need to do nothing to leave it at original state.
+        if (s === 100 && r === 0) return JSON.stringify({ ok: true, message: "Reset to original." });
+
+        // Use standard DOM loop - it's usually fast enough for <1000 items
+        // To optimize, we avoid unnecessary property access
+        var len = sel.length;
+        var transformedCount = 0;
+        var stats = {
+            groups: 0,
+            compoundPaths: 0,
+            paths: 0,
+            stroked: 0,
+            filled: 0,
+            unstroked: 0,
+            locked: 0,
+            errors: 0,
+            others: 0,
+            otherTypes: []
+        };
+        
+        var skippedInfo = [];
+        for (var i = 0; i < len; i++) {
+            var item = sel[i];
+            var itemLayerName = "unknown";
+            try { itemLayerName = item.layer ? item.layer.name : "no-layer"; } catch(e) {}
+
+            var isDuctLine = MDUX_isDuctworkLine(item);
+            var isDuctPart = MDUX_isDuctworkPart(item);
+
+            // Only process Ductwork Parts or Ductwork Lines
+            if (!isDuctLine && !isDuctPart) {
+                skippedInfo.push(item.typename + " on '" + itemLayerName + "'");
+                continue;
+            }
+
+            transformedCount++;
+
+            // --- SAVE ORIGINAL STATE IF NOT EXISTS ---
+            if (MDUX_getTag(item, "MDUX_OriginalWidth") === null) {
+                MDUX_setTag(item, "MDUX_OriginalWidth", item.width);
+                MDUX_setTag(item, "MDUX_OriginalHeight", item.height);
+                MDUX_setTag(item, "MDUX_OriginalStrokeWidth", item.strokeWidth);
+                MDUX_setTag(item, "MDUX_CumulativeRotation", "0");
+            }
+
+            // --- ROTATION ---
+            // Rotate around CENTER
+            // ONLY for Ductwork Parts (ignore Lines)
+            if (r !== 0 && isDuctPart) {
+                // rotate(angle, changePositions, changeFillPatterns, changeFillGradients, changeStrokePattern, transformation)
+                item.rotate(r, true, true, true, true, Transformation.CENTER);
+                
+                // Update cumulative rotation
+                var currentCum = parseFloat(MDUX_getTag(item, "MDUX_CumulativeRotation") || "0");
+                MDUX_setTag(item, "MDUX_CumulativeRotation", currentCum + r);
+            }
+            
+            // --- SCALING ---
+            // Scale around CENTER
+            if (s !== 100) {
+                // Sanity Check: If s is very small (e.g. 1.01), it might be a factor error.
+                // Since slider min is 10%, s should be >= 2.5.
+                // If s < 2, assume it's a factor (e.g. 1.01) and convert to percentage (101).
+                if (s > 0 && s < 2) {
+                    s = s * 100;
+                }
+
+                if (isDuctLine) {
+                    // For Ductwork Lines: Scale strokes only (including Appearance panel strokes)
+                    // Pass scale factor as changeLineWidths parameter - this scales all strokes without changing geometry
+                    item.resize(100, 100, true, true, true, true, s, Transformation.CENTER);
+                    stats.stroked++;
+
+                } else if (isDuctPart) {
+                    // For Ductwork Parts: Scale geometry and strokes together
+                    item.resize(s, s, true, true, true, true, s, Transformation.CENTER);
+                }
+            }
+        }
+        
+        var msg = "Transformed " + transformedCount + "/" + len;
+        if (skippedInfo.length > 0) msg += " [Skipped: " + skippedInfo.join(", ") + "]";
+
+        return JSON.stringify({ ok: true, message: msg });
+        
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Error: " + e.message });
     }
 }

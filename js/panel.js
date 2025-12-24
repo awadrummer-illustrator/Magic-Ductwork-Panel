@@ -40,6 +40,15 @@
     const exportDuctworkBtn = document.getElementById('export-ductwork-btn');
     const reexportFloorplanBtn = document.getElementById('reexport-floorplan-btn');
     const exportStatus = document.getElementById('export-status');
+    
+    // Transform Each Controls
+    let teScaleInput = document.getElementById('te-scale');
+    let teRotateInput = document.getElementById('te-rotate');
+    let teScaleSlider = document.getElementById('te-scale-slider');
+    let teRotateSlider = document.getElementById('te-rotate-slider');
+    let transformEachBtn = document.getElementById('transform-each-btn');
+    let teResetOriginalBtn = document.getElementById('te-reset-original-btn');
+    let teLiveOption = document.getElementById('te-live-option');
 
     let scaleDebounce = null;
     let bridgeReloaded = false;
@@ -83,8 +92,20 @@
     }
 
     function setSelectionStatus(message, isError) {
-        selectionStatus.textContent = message || '';
-        selectionStatus.classList.toggle('error', !!isError);
+        const el = document.getElementById('selection-status');
+        const debugEl = document.getElementById('debug-status');
+        
+        if (el) {
+            el.textContent = message || '';
+            el.classList.toggle('error', !!isError);
+            el.style.display = 'block'; // Force display
+        }
+        
+        if (debugEl) {
+            // Also show in footer for redundancy
+            debugEl.textContent = (isError ? '[ERR] ' : '') + (message || '');
+            debugEl.title = message || ''; // Tooltip for full text
+        }
     }
 
     function setLayerStatus(message, isError) {
@@ -703,6 +724,170 @@
         }
     }
 
+    // Transform Each State
+    let teIsBusy = false;
+    let teDragActive = false;
+    let teTransformAppliedInDrag = false;
+    let teNextPayload = null; // {scale, rotate, undoPrevious}
+    
+    // Track start values for the current drag session
+    let teDragStartScale = 100;
+    let teDragStartRotate = 0;
+    
+    // Track committed values (where the slider was left after last drag)
+    // We need this because the slider value is absolute (e.g. 110), but we need to calculate
+    // the factor relative to the START of the drag.
+    // Actually, we can just read the slider value on mousedown.
+
+    async function processTransformQueue() {
+        if (teIsBusy) return;
+        if (!teNextPayload) return;
+
+        teIsBusy = true;
+        
+        // Capture current payload
+        const payload = teNextPayload;
+        teNextPayload = null; // Clear it, so we can catch new updates
+
+        // Update status for feedback
+        // Debugging: Show start/current values to diagnose scaling issues
+        // setSelectionStatus(`Live: Scale ${payload.scale.toFixed(1)}%, Rot ${payload.rotate.toFixed(1)}°`, false);
+        // setSelectionStatus(`Live: ${payload.scale.toFixed(1)}% (Start:${teDragStartScale}->Cur:${teScaleSlider.value})`, false);
+
+        try {
+            // Add a timeout race to prevent hanging if Illustrator doesn't respond
+            const transformPromise = evalScript(`MDUX_transformEach(${payload.scale}, ${payload.rotate}, ${payload.undoPrevious})`);
+            const timeoutPromise = new Promise(resolve => setTimeout(() => resolve("TIMEOUT"), 1000));
+
+            const result = await Promise.race([transformPromise, timeoutPromise]);
+
+            if (result === "TIMEOUT") {
+                setSelectionStatus("Transform timed out", true);
+            } else {
+                // If successful, mark that we have applied a transform in this drag session
+                if (teDragActive) {
+                    teTransformAppliedInDrag = true;
+                }
+
+                // DEBUG: Show the result message from JSX
+                try {
+                    const resObj = JSON.parse(result);
+                    if (resObj && resObj.message) {
+                        setSelectionStatus(resObj.message, false);
+                    } else {
+                        setSelectionStatus("No msg: " + result, false);
+                    }
+                } catch(e) {
+                    setSelectionStatus("Parse err: " + result, true);
+                }
+            }
+        } catch (e) {
+            console.error("Transform error:", e);
+            setSelectionStatus("Error: " + e.message, true);
+        } finally {
+            teIsBusy = false;
+            // Check if more accumulated while we were busy
+            if (teNextPayload) {
+                // IMPORTANT: If we are processing a queued item, it MUST undo the previous one
+                // if a transform was applied.
+                if (teTransformAppliedInDrag) {
+                    teNextPayload.undoPrevious = true;
+                }
+                processTransformQueue();
+            }
+        }
+    }
+
+    function handleLiveTransform() {
+        // Check if Live is enabled
+        if (teLiveOption && !teLiveOption.checked) return;
+
+        // Ensure elements are found
+        if (!teScaleSlider || !teRotateSlider) return;
+
+        const currentScale = parseFloat(teScaleSlider.value);
+        const currentRotate = parseFloat(teRotateSlider.value);
+        
+        if (isNaN(currentScale) || isNaN(currentRotate)) return;
+
+        // Calculate factor/delta relative to DRAG START
+        // If dragStartScale is 0 (safety), use 100
+        const startS = teDragStartScale || 100;
+        
+        // Factor: If start was 100, current 110 -> factor 110/100*100 = 110.
+        // If start was 110, current 120 -> factor 120/110*100 = 109.09.
+        // This factor is what we send to JSX to apply to the object's state AT DRAG START.
+        // Wait, if we undo, we revert to state AT DRAG START (actually state before last transform).
+        // So yes, we want to apply the transform that takes us from START to CURRENT.
+        
+        const factor = (currentScale / startS) * 100;
+        const deltaRot = currentRotate - teDragStartRotate;
+
+        // Determine if we should undo the previous step
+        // We undo if we have already applied a transform in this specific drag session
+        const undoPrevious = teTransformAppliedInDrag;
+
+        teNextPayload = {
+            scale: factor,
+            rotate: deltaRot,
+            undoPrevious: undoPrevious
+        };
+
+        processTransformQueue();
+    }
+
+    function resetTransformControls(resetValues = true) {
+        if (resetValues) {
+            if (teScaleSlider) teScaleSlider.value = 100;
+            if (teScaleInput) teScaleInput.value = 100;
+            if (teRotateSlider) teRotateSlider.value = 0;
+            if (teRotateInput) teRotateInput.value = 0;
+        }
+        
+        teDragActive = false;
+        teTransformAppliedInDrag = false;
+        teNextPayload = null;
+        teDragStartScale = 100;
+        teDragStartRotate = 0;
+    }
+
+    async function handleTransformEach() {
+        // If Live is ON, the button just resets the controls (commits the change)
+        if (teLiveOption && teLiveOption.checked) {
+            resetTransformControls(true);
+            setSelectionStatus("Transformation committed.", false);
+        } else {
+            // If Live is OFF, apply the current values
+            const s = parseFloat(teScaleInput.value) || 100;
+            const r = parseFloat(teRotateInput.value) || 0;
+            
+            if (s === 100 && r === 0) {
+                setSelectionStatus("No changes to apply.", false);
+                return;
+            }
+            
+            setSelectionStatus("Transforming...", false);
+            try {
+                await evalScript(`MDUX_transformEach(${s}, ${r}, false)`);
+                setSelectionStatus("Transformation applied.", false);
+                resetTransformControls(true);
+            } catch (e) {
+                setSelectionStatus("Error: " + e.message, true);
+            }
+        }
+    }
+
+    async function handleResetOriginal() {
+        setSelectionStatus("Resetting to original...", false);
+        try {
+            await evalScript('MDUX_resetTransforms()');
+            setSelectionStatus("Reset complete.", false);
+            resetTransformControls(true);
+        } catch (e) {
+            setSelectionStatus("Error: " + e.message, true);
+        }
+    }
+
     function attachListeners() {
         processBtn.addEventListener('click', handleProcessClick);
         processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
@@ -784,10 +969,127 @@
         if (reexportFloorplanBtn) {
             reexportFloorplanBtn.addEventListener('click', () => handleExport('FLOORPLAN'));
         }
+        if (transformEachBtn) {
+            transformEachBtn.addEventListener('click', handleTransformEach);
+        }
+        if (teResetOriginalBtn) {
+            teResetOriginalBtn.addEventListener('click', handleResetOriginal);
+        }
+        
+        // Transform Each Sliders Sync & Live Update
+        
+        // Helper to handle drag start/end globally to catch mouseup outside element
+        const handleDragStart = () => {
+            teDragActive = true;
+            teTransformAppliedInDrag = false;
+            // Capture start values
+            teDragStartScale = parseFloat(teScaleSlider.value) || 100;
+            teDragStartRotate = parseFloat(teRotateSlider.value) || 0;
+            
+            window.addEventListener('mouseup', handleDragEnd, { once: true });
+        };
+
+        const handleDragEnd = () => {
+            // Do NOT reset controls on drag end. Keep the slider where it is.
+            teDragActive = false;
+            // We keep teTransformAppliedInDrag = true? No, session is over.
+            // But if we drag again, we start a NEW session.
+            // The object is now permanently transformed.
+            // So next drag starts from new baseline.
+            teTransformAppliedInDrag = false;
+        };
+
+        if (teScaleSlider && teScaleInput) {
+            teScaleSlider.addEventListener('mousedown', handleDragStart);
+            // Backup: change event fires on commit (release)
+            // teScaleSlider.addEventListener('change', () => resetTransformControls(true)); // REMOVED
+
+            teScaleSlider.addEventListener('input', () => {
+                teScaleInput.value = teScaleSlider.value;
+                handleLiveTransform();
+            });
+            
+            teScaleInput.addEventListener('change', () => {
+                let val = parseFloat(teScaleInput.value);
+                if (isNaN(val)) return;
+                
+                // For text input, we treat it as a mini-session
+                // We need a start value. Use current slider value as start?
+                // Or assume start was 100 relative to current state?
+                // If user types 150, they mean 150% of current state? Or 150% absolute?
+                // Usually absolute.
+                // But our logic is relative.
+                // Let's assume they mean "Apply 150% scale".
+                // So start=100, current=150. Factor=150.
+                
+                teDragStartScale = 100; 
+                teDragStartRotate = 0; // Assume rotation didn't change
+                
+                teScaleSlider.value = val;
+                
+                teDragActive = true;
+                teTransformAppliedInDrag = false;
+                handleLiveTransform();
+                
+                // End session immediately
+                teDragActive = false;
+                teTransformAppliedInDrag = false;
+            });
+        }
+        if (teRotateSlider && teRotateInput) {
+            teRotateSlider.addEventListener('mousedown', handleDragStart);
+            // teRotateSlider.addEventListener('change', () => resetTransformControls(true)); // REMOVED
+
+            teRotateSlider.addEventListener('input', () => {
+                teRotateInput.value = teRotateSlider.value;
+                handleLiveTransform();
+            });
+            teRotateInput.addEventListener('change', () => {
+                let val = parseFloat(teRotateInput.value);
+                if (isNaN(val)) return;
+                
+                teDragStartScale = 100;
+                teDragStartRotate = 0; // Assume start was 0 relative to current
+                // If slider was at 45, and user types 90.
+                // They mean "Rotate to 90".
+                // So start=0, current=90? No.
+                // If slider is at 45, object is rotated 45.
+                // If they type 90, they want 45 more? Or absolute 90?
+                // "Transform Each" usually implies relative transform.
+                // If I type 90, I want to rotate 90 degrees.
+                // So start=0, current=90. Delta=90.
+                
+                teRotateSlider.value = val;
+                
+                teDragActive = true;
+                teTransformAppliedInDrag = false;
+                handleLiveTransform();
+                
+                teDragActive = false;
+                teTransformAppliedInDrag = false;
+            });
+        }
+
         reloadBtn.addEventListener('click', () => window.location.reload());
+        
+        // Add keyboard shortcut for reloading (F5)
+        window.addEventListener('keydown', (e) => {
+            if (e.key === 'F5') {
+                window.location.reload();
+            }
+        });
     }
 
     async function init() {
+        // Re-fetch elements to ensure they exist (in case script ran before DOM)
+        teScaleInput = document.getElementById('te-scale');
+        teRotateInput = document.getElementById('te-rotate');
+        teScaleSlider = document.getElementById('te-scale-slider');
+        teRotateSlider = document.getElementById('te-rotate-slider');
+        transformEachBtn = document.getElementById('transform-each-btn');
+        teResetOriginalBtn = document.getElementById('te-reset-original-btn');
+        teLiveOption = document.getElementById('te-live-option');
+
         attachListeners();
         debugStatus.textContent = 'Remote debugging available at http://localhost:8088';
         skipOrthoOption.indeterminate = false;
@@ -802,6 +1104,10 @@
         if (scaleSlider) scaleSlider.value = 100;
         if (scaleLabel) scaleLabel.textContent = '100%';
         if (scaleInput) scaleInput.value = '';
+        
+        // Initialize Transform Each controls
+        resetTransformControls();
+
         setProcessStatus('');
         setRevertStatus('');
         setSelectionStatus('');
@@ -815,6 +1121,9 @@
         }
         csInterface.addEventListener('afterSelectionChanged', scheduleSkipOrthoRefresh);
         csInterface.addEventListener('documentAfterActivate', scheduleSkipOrthoRefresh);
+        // Reset Transform Each controls when switching documents or opening files
+        csInterface.addEventListener('documentAfterActivate', () => resetTransformControls(true));
+        
         csInterface.addEventListener('documentChanged', scheduleSkipOrthoRefresh);
         refreshSkipOrthoState().catch(function () {});
         refreshRotationOverrideState().catch(function () {});
