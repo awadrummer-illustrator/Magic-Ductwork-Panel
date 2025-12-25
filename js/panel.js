@@ -136,10 +136,11 @@
     }
 
     async function ensureBridgeLoaded() {
-        if (bridgeReloaded) {
-            debugStatus.textContent = 'Bridge ready (cached)';
-            return;
-        }
+        // FORCE RELOAD for debugging - remove this later if performance is an issue
+        // if (bridgeReloaded) {
+        //    debugStatus.textContent = 'Bridge ready (cached)';
+        //    return;
+        // }
         const escapedPath = escapeForExtendScript(bridgePath);
         const loadScript = '(function(){' +
             'delete $.global.MDUX_JSX_FOLDER;' +  // Force clear stale cached folder path
@@ -675,7 +676,7 @@
             
             if (!result.ok) {
                 if (result.log) {
-                    alert("Export Log:\n" + result.log);
+                    console.log("Export Error Log:\n" + result.log);
                 }
                 setExportStatus(result.message, true);
                 return;
@@ -707,13 +708,12 @@
             
             if (result.ok) {
                 if (result.log) {
-                    // Optional: alert success log if needed, or just console
                     console.log("Export Success Log:\n" + result.log);
                 }
                 setExportStatus(result.message, false);
             } else {
                 if (result.log) {
-                    alert("Export Log:\n" + result.log);
+                    console.log("Export Error Log:\n" + result.log);
                 }
                 setExportStatus(result.message, true);
             }

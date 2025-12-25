@@ -48,21 +48,57 @@ function MDUX_getLog() {
 }
 
 function MDUX_getFloorplanItem(doc) {
-    // Helper to find best item in a specific layer
+    // Helper to get filename from embedded RasterItem (if available)
+    function getEmbeddedImageName(rasterItem) {
+        try {
+            // Try various properties that might contain the original filename
+            if (rasterItem.file && rasterItem.file.name) {
+                return rasterItem.file.name;
+            }
+        } catch(e) {}
+
+        try {
+            // Try sourceArt property
+            if (rasterItem.sourceArt && rasterItem.sourceArt.file) {
+                return rasterItem.sourceArt.file.name;
+            }
+        } catch(e) {}
+
+        try {
+            // Check if there's embedded file info via the item's internal name
+            // Illustrator sometimes stores original filename in the item name
+            if (rasterItem.name && rasterItem.name.length > 0) {
+                return rasterItem.name;
+            }
+        } catch(e) {}
+
+        return null;
+    }
+
+    // Helper to find best item in a specific layer (supports both placed and embedded)
     function getBestFromLayer(layerName, requirePNG) {
         try {
             var layer = doc.layers.getByName(layerName);
             var best = null;
             var maxArea = 0;
+            MDUX_log("[getFloorplanItem] Checking layer '" + layerName + "' - found " + layer.placedItems.length + " placed items");
             for (var i = 0; i < layer.placedItems.length; i++) {
                 var item = layer.placedItems[i];
                 try {
-                    if (!item.file) continue; // Must have linked file
-                    
+                    if (!item.file) {
+                        MDUX_log("[getFloorplanItem]   Item " + i + ": no linked file (embedded?)");
+                        continue;
+                    }
+
+                    var fName = item.file.name;
+                    MDUX_log("[getFloorplanItem]   Item " + i + ": " + fName);
+
                     // Check for PNG if required
                     if (requirePNG) {
-                        var fName = item.file.name.toLowerCase();
-                        if (fName.slice(-4) !== ".png") continue;
+                        if (fName.toLowerCase().slice(-4) !== ".png") {
+                            MDUX_log("[getFloorplanItem]     Skipped (not PNG)");
+                            continue;
+                        }
                     }
 
                     var area = item.width * item.height;
@@ -70,40 +106,136 @@ function MDUX_getFloorplanItem(doc) {
                     if (area > maxArea) {
                         maxArea = area;
                         best = item;
+                        MDUX_log("[getFloorplanItem]     Selected as best (area=" + Math.round(area) + ")");
                     }
-                } catch(e) {}
+                } catch(e) {
+                    MDUX_log("[getFloorplanItem]   Item " + i + " error: " + e.message);
+                }
             }
             return best;
         } catch(e) {
+            MDUX_log("[getFloorplanItem] Layer '" + layerName + "' not found or error: " + e.message);
             return null;
         }
     }
 
     // Priority 1: Render Layer (Highest priority for naming) - MUST be PNG
+    MDUX_log("[getFloorplanItem] Priority 1: Checking Render layer for linked items...");
     var item = getBestFromLayer("Render", true);
-    if (item) return item;
+    if (item) {
+        MDUX_log("[getFloorplanItem] Using Render layer linked item: " + item.file.name);
+        return item;
+    }
+
+    // Priority 1b: Check Render layer for embedded rasterItems
+    MDUX_log("[getFloorplanItem] Priority 1b: Checking Render layer for embedded images...");
+    try {
+        var renderLayer = doc.layers.getByName("Render");
+        if (renderLayer.rasterItems.length > 0) {
+            var bestRaster = null;
+            var maxRasterArea = 0;
+            var bestRasterName = null;
+
+            for (var ri = 0; ri < renderLayer.rasterItems.length; ri++) {
+                var rItem = renderLayer.rasterItems[ri];
+                var rasterName = getEmbeddedImageName(rItem);
+                var area = rItem.width * rItem.height;
+
+                MDUX_log("[getFloorplanItem]   RasterItem " + ri + ": name=" + (rasterName || "(none)") + ", area=" + Math.round(area));
+
+                // Check if it's a PNG (if we can determine the name)
+                if (rasterName) {
+                    if (rasterName.toLowerCase().slice(-4) !== ".png") {
+                        MDUX_log("[getFloorplanItem]     Skipped (not PNG)");
+                        continue;
+                    }
+                }
+
+                if (area > maxRasterArea) {
+                    maxRasterArea = area;
+                    bestRaster = rItem;
+                    bestRasterName = rasterName;
+                    MDUX_log("[getFloorplanItem]     Selected as best");
+                }
+            }
+
+            if (bestRaster) {
+                // If we couldn't get the embedded name, try using the document name
+                // (when PNG is opened directly, doc takes that name, then saved as .ai)
+                if (!bestRasterName && doc.name) {
+                    var docBaseName = doc.name.replace(/\.[^\.]+$/, ""); // Remove extension
+                    bestRasterName = docBaseName + ".png";
+                    MDUX_log("[getFloorplanItem]   Using document name as fallback: " + bestRasterName);
+                }
+
+                if (bestRasterName) {
+                    MDUX_log("[getFloorplanItem] Using Render layer embedded image: " + bestRasterName);
+
+                    // Determine the correct parent folder for export
+                    // If doc.path ends with "2K, 4K and 8K", use its parent instead
+                    var docFolder = new Folder(doc.path);
+                    var exportParentFolder = docFolder;
+                    MDUX_log("[getFloorplanItem]   Doc folder: " + docFolder.fsName + ", folder name: " + docFolder.name);
+
+                    if (docFolder.name === "2K, 4K and 8K" && docFolder.parent) {
+                        exportParentFolder = docFolder.parent;
+                        MDUX_log("[getFloorplanItem]   Doc is in export subfolder, using parent: " + exportParentFolder.fsName);
+                    }
+
+                    // Return a wrapper object that mimics placedItem structure
+                    return {
+                        _isEmbedded: true,
+                        _embeddedName: bestRasterName,
+                        width: bestRaster.width,
+                        height: bestRaster.height,
+                        geometricBounds: bestRaster.geometricBounds,
+                        file: {
+                            name: bestRasterName,
+                            parent: exportParentFolder  // This is a Folder object
+                        }
+                    };
+                }
+            }
+        }
+    } catch(e) {
+        MDUX_log("[getFloorplanItem] Error checking rasterItems: " + e.message);
+    }
 
     // Priority 2: Floorplan Layer
+    MDUX_log("[getFloorplanItem] Priority 2: Checking Floorplan layer...");
     item = getBestFromLayer("Floorplan", false);
-    if (item) return item;
+    if (item) {
+        MDUX_log("[getFloorplanItem] Using Floorplan layer item: " + item.file.name);
+        return item;
+    }
 
     // Priority 3: Ductwork Reference Layer
+    MDUX_log("[getFloorplanItem] Priority 3: Checking Ductwork Reference layer...");
     item = getBestFromLayer("Ductwork Reference", false);
-    if (item) return item;
+    if (item) {
+        MDUX_log("[getFloorplanItem] Using Ductwork Reference layer item: " + item.file.name);
+        return item;
+    }
 
     // Fallback: Largest in document
+    MDUX_log("[getFloorplanItem] Fallback: Searching all placed items...");
     var bestItem = null;
     var maxArea = 0;
     for (var i = 0; i < doc.placedItems.length; i++) {
-        var item = doc.placedItems[i];
+        var docItem = doc.placedItems[i];
         try {
-            if (!item.file) continue;
-            var area = item.width * item.height;
+            if (!docItem.file) continue;
+            var area = docItem.width * docItem.height;
             if (area > maxArea) {
                 maxArea = area;
-                bestItem = item;
+                bestItem = docItem;
             }
         } catch(e) {}
+    }
+    if (bestItem) {
+        MDUX_log("[getFloorplanItem] Using fallback item: " + bestItem.file.name);
+    } else {
+        MDUX_log("[getFloorplanItem] No suitable item found!");
     }
     return bestItem;
 }
@@ -164,6 +296,110 @@ function MDUX_exportPNG(doc, file, scalePercent, artboardRect) {
     doc.exportFile(file, ExportType.PNG24, options);
 }
 
+function MDUX_launchCaesiumWithFiles(files) {
+    try {
+        // Define the path to Caesium executable
+        var caesiumPath = "C:\\Program Files\\Caesium Image Compressor\\caesiumclt.exe";
+        var caesiumApp = new File(caesiumPath);
+        
+        if (!caesiumApp.exists) {
+            MDUX_log("Caesium application not found at: " + caesiumPath);
+            // Try common locations
+            var commonPaths = [
+                "C:/Program Files (x86)/Caesium/caesiumclt.exe",
+                "C:/Program Files/Caesium Image Compressor/caesiumclt.exe",
+                "C:/Program Files (x86)/Caesium Image Compressor/caesiumclt.exe"
+            ];
+            for (var i = 0; i < commonPaths.length; i++) {
+                caesiumApp = new File(commonPaths[i]);
+                if (caesiumApp.exists) {
+                    caesiumPath = commonPaths[i];
+                    MDUX_log("Found Caesium at: " + caesiumPath);
+                    break;
+                }
+            }
+        }
+        
+        if (!caesiumApp.exists) {
+            // Fallback to system PATH
+            caesiumPath = "caesiumclt.exe";
+            MDUX_log("Using system PATH to locate Caesium");
+        }
+        
+        // Verify all input files exist
+        var validFiles = [];
+        for (var i = 0; i < files.length; i++) {
+            if (files[i].exists) {
+                validFiles.push(files[i]);
+            } else {
+                MDUX_log("Input file for compression does not exist: " + files[i].fsName);
+            }
+        }
+        
+        if (validFiles.length === 0) return false;
+
+        // Build command using a temporary batch file to avoid quoting/escaping issues
+        var tempFolder = Folder.temp;
+        var batchFile = new File(tempFolder.fsName + "/caesium_compress.bat");
+
+        // Build batch file content
+        var batchContent = '@echo off\r\n';
+        batchContent += '"' + caesiumPath + '" -q 95 --output "' + validFiles[0].parent.fsName + '"';
+        for (var i = 0; i < validFiles.length; i++) {
+            batchContent += ' "' + validFiles[i].fsName + '"';
+        }
+        batchContent += '\r\n';
+
+        // Write batch file
+        batchFile.open("w");
+        batchFile.write(batchContent);
+        batchFile.close();
+
+        MDUX_log("Batch file created at: " + batchFile.fsName);
+        MDUX_log("Batch content: " + batchContent);
+
+        // Delay to ensure files are fully released by Illustrator
+        $.sleep(1000);
+
+        // Execute the batch file using File.execute()
+        var result = batchFile.execute();
+
+        // Wait for execution to complete (10 seconds for larger files)
+        $.sleep(10000);
+
+        // Don't delete batch file - let Windows clean up temp folder
+
+        if (!result) {
+            MDUX_log("Caesium batch file failed to execute");
+            return false;
+        }
+
+        // Verify output files were created/compressed
+        var allCompressed = true;
+        for (var i = 0; i < validFiles.length; i++) {
+            var outputFile = new File(validFiles[i].fsName);
+            if (!outputFile.exists) {
+                MDUX_log("Compressed file not found: " + outputFile.fsName);
+                allCompressed = false;
+            } else {
+                MDUX_log("Compressed file verified: " + outputFile.fsName + " (" + Math.round(outputFile.length / 1024) + " KB)");
+            }
+        }
+
+        if (allCompressed) {
+            MDUX_log("Caesium compression completed successfully.");
+        } else {
+            MDUX_log("Some files were not compressed.");
+            return false;
+        }
+
+        return true;
+    } catch (e) {
+        MDUX_log("Error launching Caesium: " + e);
+        return false;
+    }
+}
+
 // ========================================
 // MAIN EXPORT FUNCTION
 // ========================================
@@ -200,10 +436,76 @@ function MDUX_performExport(exportType, overwrite, versionSuffix) {
             return JSON.stringify({ ok: false, message: "Floorplan item has no source file.", log: MDUX_getLog() });
         }
 
-        MDUX_log("Found floorplan file: " + refFile.fsName);
+        MDUX_log("Found floorplan file: " + (refFile.fsName || refFile.name));
 
         var refFileName = decodeURI(refFile.name);
+        
+        // Debug: log char codes to identify weird dashes
+        var charCodes = [];
+        for(var i=0; i<refFileName.length; i++) charCodes.push(refFileName.charCodeAt(i));
+        MDUX_log("Filename char codes: " + charCodes.join(","));
+
         var refNameBase = refFileName.substring(0, refFileName.lastIndexOf("."));
+        
+        // Ensure it's a string
+        refNameBase = String(refNameBase);
+
+        // Clean up the filename:
+        // 1. Replace dashes (hyphen, en-dash, em-dash, and other variants) with spaces.
+        
+        // Nuclear option: Rebuild string character by character to ensure no regex/split weirdness
+        var cleanName = "";
+        // Map of characters to replace with space
+        var replaceWithSpaceMap = {
+            45: true,    // Hyphen-Minus (-)
+            95: false,   // Underscore (_) - KEEP IT
+            8208: true,  // Hyphen (‐)
+            8209: true,  // Non-breaking Hyphen (‑)
+            8210: true,  // Figure Dash (‒)
+            8211: true,  // En Dash (–)
+            8212: true,  // Em Dash (—)
+            8213: true,  // Horizontal Bar (―)
+            8722: true,  // Minus Sign (−)
+            65112: true, // Small Em Dash (FE58)
+            65123: true, // Small Hyphen-Minus (FE63)
+            65293: true  // Fullwidth Hyphen-Minus (FF0D)
+        };
+
+        MDUX_log("Starting cleanup on: '" + refNameBase + "'");
+
+        for (var i = 0; i < refNameBase.length; i++) {
+            var cc = refNameBase.charCodeAt(i);
+            if (replaceWithSpaceMap[cc] === true) {
+                cleanName += " ";
+            } else {
+                cleanName += refNameBase.charAt(i);
+            }
+        }
+        refNameBase = cleanName;
+        
+        MDUX_log("After dash removal: '" + refNameBase + "'");
+
+        // Remove existing resolution suffixes at end (checking for both space and underscore)
+        // We use a simple regex that works reliably in ES3
+        refNameBase = refNameBase.replace(new RegExp("[ _]4K$", "i"), "");
+        refNameBase = refNameBase.replace(new RegExp("[ _]2K$", "i"), "");
+        refNameBase = refNameBase.replace(new RegExp("[ _]8K$", "i"), "");
+        refNameBase = refNameBase.replace(new RegExp("[ _]1080p$", "i"), "");
+        refNameBase = refNameBase.replace(new RegExp("[ _]720p$", "i"), "");
+        // Normalize multiple spaces to single space and trim
+        while (refNameBase.indexOf("  ") >= 0) {
+            refNameBase = refNameBase.replace("  ", " ");
+        }
+        // Trim leading/trailing spaces
+        while (refNameBase.charAt(0) === " ") {
+            refNameBase = refNameBase.substring(1);
+        }
+        while (refNameBase.charAt(refNameBase.length - 1) === " ") {
+            refNameBase = refNameBase.substring(0, refNameBase.length - 1);
+        }
+
+        MDUX_log("Cleaned filename base: " + refNameBase);
+
         var parentFolder = refFile.parent;
 
         // Calculate Dimensions and Scale
@@ -228,8 +530,9 @@ function MDUX_performExport(exportType, overwrite, versionSuffix) {
         }
 
         var scaleFactor2K = scaleFactor4K / 2;
-        
-        MDUX_log("Scale Factor 4K: " + scaleFactor4K + "%");
+        var scaleFactor8K = scaleFactor4K * 2; // 8K is double the 4K size
+
+        MDUX_log("Scale Factor 4K: " + scaleFactor4K + "%, 8K: " + scaleFactor8K + "%");
 
         // Define Suffixes and Layers
         var typeSuffix = "";
@@ -249,29 +552,39 @@ function MDUX_performExport(exportType, overwrite, versionSuffix) {
             versionStr = " V" + versionSuffix;
         }
 
-        // Construct Filenames
-        var name4K = refNameBase + typeSuffix + versionStr + "_4K.png";
-        var name2K = refNameBase + typeSuffix + versionStr + "_2K.png";
+        // Construct Filenames (Desired Final Names)
+        var finalName8K = refNameBase + typeSuffix + versionStr + "_8K.png";
+        var finalName4K = refNameBase + typeSuffix + versionStr + "_4K.png";
+        var finalName2K = refNameBase + typeSuffix + versionStr + "_2K.png";
 
-        // Folders
-        // User requested a single folder named "2K, 4K and 8K"
-        var exportFolderName = "2K, 4K and 8K";
-        var exportFolder = MDUX_ensureFolderExists(parentFolder.fsName + "/" + exportFolderName);
+        // Construct Safe Filenames for Export (replace spaces with underscores to avoid Illustrator auto-dashing)
+        // We will export to these safe names, then rename the files to the final names.
+        var safeName8K = finalName8K.split(" ").join("_");
+        var safeName4K = finalName4K.split(" ").join("_");
+        var safeName2K = finalName2K.split(" ").join("_");
 
-        var file4K = new File(exportFolder.fsName + "/" + name4K);
-        var file2K = new File(exportFolder.fsName + "/" + name2K);
-        
-        MDUX_log("Target 4K file: " + file4K.fsName);
+        // File objects for checking existence (Final Names)
+        var finalFile8K = new File(parentFolder.fsName + "/" + finalName8K);
+        var finalFile4K = new File(parentFolder.fsName + "/" + finalName4K);
+        var finalFile2K = new File(parentFolder.fsName + "/" + finalName2K);
 
-        // Check existence
+        // File objects for Exporting (Safe Names)
+        var exportFile8K = new File(parentFolder.fsName + "/" + safeName8K);
+        var exportFile4K = new File(parentFolder.fsName + "/" + safeName4K);
+        var exportFile2K = new File(parentFolder.fsName + "/" + safeName2K);
+
+        MDUX_log("Target 8K file (Final): " + finalFile8K.fsName);
+        MDUX_log("Target 4K file (Final): " + finalFile4K.fsName);
+
+        // Check existence (Check against FINAL names)
         if (!overwrite && !versionSuffix) {
-            if (file4K.exists || file2K.exists) {
+            if (finalFile8K.exists || finalFile4K.exists || finalFile2K.exists) {
                 MDUX_log("Files exist, asking for confirmation.");
-                return JSON.stringify({ 
-                    ok: true, 
-                    status: "CONFIRM_OVERWRITE", 
+                return JSON.stringify({
+                    ok: true,
+                    status: "CONFIRM_OVERWRITE",
                     message: "Files already exist. Overwrite?",
-                    existingFiles: [file4K.fsName, file2K.fsName],
+                    existingFiles: [finalFile8K.fsName, finalFile4K.fsName, finalFile2K.fsName],
                     log: MDUX_getLog()
                 });
             }
@@ -293,14 +606,67 @@ function MDUX_performExport(exportType, overwrite, versionSuffix) {
         var originalVis = MDUX_setLayerVisibility(doc, layersToExport);
 
         try {
-            // Export 4K
-            MDUX_log("Exporting 4K...");
-            MDUX_exportPNG(doc, file4K, scaleFactor4K);
+            // Export 8K (to Safe Name)
+            MDUX_log("Exporting 8K to " + exportFile8K.name + "...");
+            MDUX_exportPNG(doc, exportFile8K, scaleFactor8K);
+
+            // Rename 8K to Final Name
+            if (exportFile8K.exists) {
+                if (finalFile8K.exists) finalFile8K.remove(); // Ensure target is clear
+                var renameResult8K = exportFile8K.rename(finalName8K);
+                MDUX_log("Renamed 8K to " + finalName8K + ": " + renameResult8K);
+            } else {
+                MDUX_log("Error: Exported 8K file not found!");
+            }
+
+            // Export 4K (to Safe Name)
+            MDUX_log("Exporting 4K to " + exportFile4K.name + "...");
+            MDUX_exportPNG(doc, exportFile4K, scaleFactor4K);
+
+            // Rename 4K to Final Name
+            if (exportFile4K.exists) {
+                if (finalFile4K.exists) finalFile4K.remove(); // Ensure target is clear
+                var renameResult4K = exportFile4K.rename(finalName4K);
+                MDUX_log("Renamed 4K to " + finalName4K + ": " + renameResult4K);
+            } else {
+                MDUX_log("Error: Exported 4K file not found!");
+            }
+
+            // Export 2K (to Safe Name)
+            MDUX_log("Exporting 2K to " + exportFile2K.name + "...");
+            MDUX_exportPNG(doc, exportFile2K, scaleFactor2K);
+
+            // Rename 2K to Final Name
+            if (exportFile2K.exists) {
+                if (finalFile2K.exists) finalFile2K.remove(); // Ensure target is clear
+                var renameResult2K = exportFile2K.rename(finalName2K);
+                MDUX_log("Renamed 2K to " + finalName2K + ": " + renameResult2K);
+            } else {
+                MDUX_log("Error: Exported 2K file not found!");
+            }
+
+            // Compression - Create FRESH File objects to avoid ExtendScript caching issues
+            var filesToCompress = [];
+            var compressFile8K = new File(parentFolder.fsName + "/" + finalName8K);
+            var compressFile4K = new File(parentFolder.fsName + "/" + finalName4K);
+            var compressFile2K = new File(parentFolder.fsName + "/" + finalName2K);
+
+            MDUX_log("Checking for compression - 8K exists: " + compressFile8K.exists);
+            MDUX_log("Checking for compression - 4K exists: " + compressFile4K.exists);
+            MDUX_log("Checking for compression - 2K exists: " + compressFile2K.exists);
+
+            if (compressFile8K.exists) filesToCompress.push(compressFile8K);
+            if (compressFile4K.exists) filesToCompress.push(compressFile4K);
+            if (compressFile2K.exists) filesToCompress.push(compressFile2K);
             
-            // Export 2K
-            MDUX_log("Exporting 2K...");
-            MDUX_exportPNG(doc, file2K, scaleFactor2K);
-            
+            if (filesToCompress.length > 0) {
+                MDUX_log("Calling compression with " + filesToCompress.length + " files");
+                var compressionResult = MDUX_launchCaesiumWithFiles(filesToCompress);
+                MDUX_log("Compression result: " + compressionResult);
+            } else {
+                MDUX_log("No files found for compression!");
+            }
+
         } catch (e) {
             MDUX_log("Export failed: " + e.message);
             return JSON.stringify({ ok: false, message: "Export failed: " + e.message, log: MDUX_getLog() });
@@ -311,7 +677,7 @@ function MDUX_performExport(exportType, overwrite, versionSuffix) {
         }
 
         MDUX_log("Export successful.");
-        return JSON.stringify({ ok: true, status: "SUCCESS", message: "Exported successfully to " + parentFolder.fsName, log: MDUX_getLog() });
+        return JSON.stringify({ ok: true, status: "SUCCESS", message: "Exported successfully!\nSource: " + refFileName + "\nFolder: " + parentFolder.fsName, log: MDUX_getLog() });
 
     } catch (globalErr) {
         MDUX_log("CRITICAL ERROR: " + globalErr.message);
