@@ -3369,6 +3369,54 @@ var LAYER_TO_COLOR_NAME = {
         if (!color) return;
 
         try {
+            // STEP 0: Capture existing stroke width BEFORE clearing appearance
+            // Use multiple methods to detect the actual stroke width
+            var preservedStrokeWidth = 2; // Default base width
+            var foundStroke = false;
+            try {
+                // Method 1: For CompoundPathItems, check child pathItems strokeWidth
+                if (pathItem.typename === "CompoundPathItem" && pathItem.pathItems && pathItem.pathItems.length > 0) {
+                    for (var cpi = 0; cpi < pathItem.pathItems.length; cpi++) {
+                        var childPath = pathItem.pathItems[cpi];
+                        if (childPath.stroked && childPath.strokeWidth > 0) {
+                            preservedStrokeWidth = childPath.strokeWidth;
+                            foundStroke = true;
+                            addDebug("[STROKE-PRESERVE] Got strokeWidth from child path: " + preservedStrokeWidth);
+                            break;
+                        }
+                    }
+                }
+
+                // Method 2: Calculate from visibleBounds vs geometricBounds difference
+                if (!foundStroke) {
+                    try {
+                        var vb = pathItem.visibleBounds;   // includes stroke
+                        var gb = pathItem.geometricBounds; // excludes stroke
+                        var vWidth = vb[2] - vb[0];
+                        var gWidth = gb[2] - gb[0];
+                        var strokeDiff = (vWidth - gWidth) / 2; // stroke extends on both sides
+                        if (strokeDiff > 0.1) { // meaningful stroke detected
+                            preservedStrokeWidth = strokeDiff;
+                            foundStroke = true;
+                            addDebug("[STROKE-PRESERVE] Got strokeWidth from bounds diff: " + preservedStrokeWidth);
+                        }
+                    } catch (eBounds) {}
+                }
+
+                // Method 3: Direct strokeWidth property
+                if (!foundStroke && pathItem.stroked && pathItem.strokeWidth > 0) {
+                    preservedStrokeWidth = pathItem.strokeWidth;
+                    foundStroke = true;
+                    addDebug("[STROKE-PRESERVE] Got strokeWidth from property: " + preservedStrokeWidth);
+                }
+
+                if (!foundStroke) {
+                    addDebug("[STROKE-PRESERVE] No stroke detected, using default 2pt");
+                }
+            } catch (eGetWidth) {
+                addDebug("[STROKE-PRESERVE] Error: " + eGetWidth);
+            }
+
             // STEP 1: Unapply all graphic styles first
             try {
                 pathItem.unapplyAll();
@@ -3419,7 +3467,7 @@ var LAYER_TO_COLOR_NAME = {
 
             pathItem.stroked = true;
             pathItem.strokeColor = colorCopy;
-            pathItem.strokeWidth = 2;
+            pathItem.strokeWidth = preservedStrokeWidth;
             try {
                 pathItem.strokeDashes = [];
             } catch (e) {}
@@ -3444,7 +3492,7 @@ var LAYER_TO_COLOR_NAME = {
                         childColorCopy.blue = color.blue;
                         childPath.stroked = true;
                         childPath.strokeColor = childColorCopy;
-                        childPath.strokeWidth = 2;
+                        childPath.strokeWidth = preservedStrokeWidth;
                         try { childPath.strokeDashes = []; } catch (e) {}
                     } catch (eChild) {}
                 }
@@ -3481,6 +3529,38 @@ var LAYER_TO_COLOR_NAME = {
                             var compound = container.compoundPathItems[c];
                             if (!compound) continue;
                             try {
+                                // Capture existing stroke width using multiple methods
+                                var compoundStrokeWidth = 2;
+                                var foundCompStroke = false;
+                                try {
+                                    // Method 1: Check child pathItems strokeWidth
+                                    if (compound.pathItems && compound.pathItems.length > 0) {
+                                        for (var ccpi = 0; ccpi < compound.pathItems.length; ccpi++) {
+                                            var ccPath = compound.pathItems[ccpi];
+                                            if (ccPath.stroked && ccPath.strokeWidth > 0) {
+                                                compoundStrokeWidth = ccPath.strokeWidth;
+                                                foundCompStroke = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    // Method 2: Calculate from bounds difference
+                                    if (!foundCompStroke) {
+                                        var cvb = compound.visibleBounds;
+                                        var cgb = compound.geometricBounds;
+                                        var cvWidth = cvb[2] - cvb[0];
+                                        var cgWidth = cgb[2] - cgb[0];
+                                        var cStrokeDiff = (cvWidth - cgWidth) / 2;
+                                        if (cStrokeDiff > 0.1) {
+                                            compoundStrokeWidth = cStrokeDiff;
+                                            foundCompStroke = true;
+                                        }
+                                    }
+                                    // Method 3: Direct strokeWidth
+                                    if (!foundCompStroke && compound.stroked && compound.strokeWidth > 0) {
+                                        compoundStrokeWidth = compound.strokeWidth;
+                                    }
+                                } catch (eGetW) {}
                                 // Unapply graphic styles first to clear appearance attributes
                                 try { compound.unapplyAll(); } catch (e) {}
                                 // Duplicate color inline
@@ -3489,7 +3569,7 @@ var LAYER_TO_COLOR_NAME = {
                                 compoundColorCopy.green = color.green;
                                 compoundColorCopy.blue = color.blue;
                                 compound.stroked = true;
-                                compound.strokeWidth = 2;
+                                compound.strokeWidth = compoundStrokeWidth;
                                 compound.strokeColor = compoundColorCopy;
                             } catch (e) {}
                         }
@@ -3511,6 +3591,25 @@ var LAYER_TO_COLOR_NAME = {
             if (!path) continue;
             try { if (path.closed) continue; } catch (eClosedFlag) {}
             try {
+                // Capture existing stroke width using multiple methods
+                var pathStrokeWidth = 2;
+                var foundPathStroke = false;
+                try {
+                    // Method 1: Calculate from bounds difference
+                    var pvb = path.visibleBounds;
+                    var pgb = path.geometricBounds;
+                    var pvWidth = pvb[2] - pvb[0];
+                    var pgWidth = pgb[2] - pgb[0];
+                    var pStrokeDiff = (pvWidth - pgWidth) / 2;
+                    if (pStrokeDiff > 0.1) {
+                        pathStrokeWidth = pStrokeDiff;
+                        foundPathStroke = true;
+                    }
+                } catch (ePBounds) {}
+                // Method 2: Direct strokeWidth
+                if (!foundPathStroke && path.stroked && path.strokeWidth > 0) {
+                    pathStrokeWidth = path.strokeWidth;
+                }
                 // Unapply graphic styles first to clear appearance attributes
                 try { path.unapplyAll(); } catch (e) {}
                 // Duplicate color inline
@@ -3519,7 +3618,7 @@ var LAYER_TO_COLOR_NAME = {
                 pathColorCopy.green = color.green;
                 pathColorCopy.blue = color.blue;
                 path.stroked = true;
-                path.strokeWidth = 2; // Set to 2pt stroke width
+                path.strokeWidth = pathStrokeWidth;
                 path.strokeColor = pathColorCopy;
             } catch (eStroke) {}
         }
@@ -8065,8 +8164,22 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // --- GLOBAL DEBUG LOG ---
     var GLOBAL_DEBUG_LOG = [];
     function addDebug(msg) {
-        // Collect in memory
+        // Collect in local memory
         GLOBAL_DEBUG_LOG.push(msg);
+
+        // ALSO write to global buffer that panel can read
+        try {
+            var timestamp = new Date().toString();
+            var logEntry = "[" + timestamp + "] " + msg;
+            if (typeof $.global.MDUX_debugBuffer === "undefined") {
+                $.global.MDUX_debugBuffer = [];
+            }
+            $.global.MDUX_debugBuffer.push(logEntry);
+            // Keep only last 1000 entries
+            if ($.global.MDUX_debugBuffer.length > 1000) {
+                $.global.MDUX_debugBuffer.shift();
+            }
+        } catch (eGlobal) {}
 
         // Also write to file
         try {
@@ -8076,8 +8189,6 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             logFile.close();
         } catch (e) {
             // If file logging fails, at least we have in-memory log
-            // Uncomment for debugging logging issues:
-            // alert("Debug logging failed: " + e.toString());
         }
     }
 
@@ -10995,6 +11106,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
     // --- ENHANCED ROBUST GRAPHIC STYLE APPLICATION ---
     function applyAllDuctworkStylesRobust(selectedItems) {
+        // TEMP DEBUG - remove after testing
+        $.writeln("[ROBUST-STYLES] FUNCTION CALLED");
+        addDebug("[ROBUST-STYLES] === applyAllDuctworkStylesRobust CALLED ===");
+        addDebug("[ROBUST-STYLES] selectedItems count: " + (selectedItems ? selectedItems.length : "null"));
         // Always use base graphic styles for ductwork lines; Emory rectangles keep their styles separately
         var styleEmoryAppend = "";
         var styleMappings = [
@@ -11087,6 +11202,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         }
 
         // Main loop for applying styles
+        addDebug("[ROBUST-STYLES] Starting layer loop, " + styleMappings.length + " mappings");
         for (var i = 0; i < styleMappings.length; i++) {
             var mapping = styleMappings[i];
             var layerName = mapping.layerName;
@@ -11096,11 +11212,17 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
             try {
                 targetLayer = doc.layers.getByName(layerName);
+                addDebug("[ROBUST-STYLES] Found layer: " + layerName);
             } catch (e) {
+                addDebug("[ROBUST-STYLES] Layer not found: " + layerName);
                 continue;
             }
             graphicStyle = getGraphicStyleByNameFlexible(styleName);
-            if (!graphicStyle) continue;
+            if (!graphicStyle) {
+                addDebug("[ROBUST-STYLES] Style not found: " + styleName);
+                continue;
+            }
+            addDebug("[ROBUST-STYLES] Found style: " + styleName);
 
             try {
                 // Clear selection first
@@ -11117,14 +11239,147 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
                 // Process each item individually - BUT ONLY IF IT WAS IN ORIGINAL SELECTION
                 var processedCount = 0;
-                var itemsToScale = []; // Collect items that need scaling after style application
+                var itemsToScale = []; // Collect items with their scale factors
 
+                addDebug("[STYLE-APPLY] Processing " + allItems.length + " items on " + layerName);
                 for (var j = 0; j < allItems.length; j++) {
                     try {
                         var item = allItems[j];
 
                         // Skip if this item wasn't part of the selected/created paths
-                        if (!shouldProcessAppearanceItem(item)) continue;
+                        var shouldProcess = shouldProcessAppearanceItem(item);
+                        addDebug("[STYLE-APPLY] Item " + j + " (" + item.typename + "): shouldProcess=" + shouldProcess);
+                        if (!shouldProcess) continue;
+
+                        // BEFORE clearing appearance, get stroke width
+                        // Base stroke at 100% is 4pt, so scale = (currentStroke / 4) * 100
+                        var itemScaleFactor = 100; // Default
+                        var currentStrokeWidth = null;
+                        var strokeMethod = "none";
+
+                        try {
+                            // For CompoundPathItems with Appearance panel strokes, we MUST detect the actual
+                            // visual stroke - metadata can get out of sync with visual reality.
+                            // Method 3 (expand/ungroup/release) is the only reliable way to get the visual stroke.
+
+                            // METHOD 1: For simple PathItems only, try metadata for existing scale
+                            // Skip this for CompoundPathItems - they need Method 3
+                            if (item.typename !== "CompoundPathItem") {
+                                addDebug("[STROKE-DETECT] Method 1: Checking metadata for existing scale (non-compound)...");
+                                var existingMeta = MDUX_getMetadata(item);
+                                var metaScale = existingMeta ? existingMeta.MDUX_CurrentScale : null;
+                                // Convert string to number if needed
+                                if (typeof metaScale === "string") {
+                                    metaScale = parseFloat(metaScale);
+                                }
+                                if (typeof metaScale === "number" && isFinite(metaScale) && metaScale > 0) {
+                                    // Use the existing scale directly - no need to detect stroke
+                                    itemScaleFactor = metaScale;
+                                    currentStrokeWidth = 4 * (itemScaleFactor / 100); // Calculate stroke from scale
+                                    strokeMethod = "metadata-scale";
+                                    addDebug("[STROKE-DETECT] Method 1 SUCCESS: scale=" + itemScaleFactor + "%, stroke=" + currentStrokeWidth.toFixed(4) + "pt from MDUX_CurrentScale");
+                                } else {
+                                    addDebug("[STROKE-DETECT] Method 1 SKIPPED: no valid MDUX_CurrentScale in metadata");
+                                }
+                            } else {
+                                addDebug("[STROKE-DETECT] Method 1 SKIPPED: CompoundPathItem requires Method 3 for accurate stroke detection");
+                            }
+
+                            // METHOD 2: Try reading strokeWidth directly from the item (for simple PathItems)
+                            if (currentStrokeWidth === null && item.typename !== "CompoundPathItem") {
+                                addDebug("[STROKE-DETECT] Method 2: Direct item.strokeWidth...");
+                                if (item.stroked && item.strokeWidth > 0.1) {
+                                    currentStrokeWidth = item.strokeWidth;
+                                    strokeMethod = "direct";
+                                    addDebug("[STROKE-DETECT] Method 2 SUCCESS: " + currentStrokeWidth.toFixed(4) + "pt");
+                                } else {
+                                    addDebug("[STROKE-DETECT] Method 2 FAILED: stroked=" + item.stroked + ", strokeWidth=" + (item.strokeWidth || "undefined"));
+                                }
+                            }
+
+                            // METHOD 3: For CompoundPathItem, expand appearance, ungroup, release compound, read stroke
+                            // This is the ONLY reliable method for CompoundPathItems with Appearance panel strokes
+                            if (currentStrokeWidth === null && item.typename === "CompoundPathItem") {
+                                addDebug("[STROKE-DETECT] Method 3: Expand Appearance, ungroup, release compound, read stroke...");
+                                try {
+                                    var dupItem = item.duplicate();
+                                    doc.selection = null;
+                                    dupItem.selected = true;
+
+                                    // Step 1: Expand Appearance
+                                    app.executeMenuCommand("expandStyle");
+                                    addDebug("[STROKE-DETECT] Step 1: Expanded appearance");
+
+                                    // Step 2: Ungroup the resulting group
+                                    if (doc.selection && doc.selection.length > 0) {
+                                        addDebug("[STROKE-DETECT] After expand: " + doc.selection[0].typename);
+                                        if (doc.selection[0].typename === "GroupItem") {
+                                            app.executeMenuCommand("ungroup");
+                                            addDebug("[STROKE-DETECT] Step 2: Ungrouped");
+                                        }
+                                    }
+
+                                    // Step 3: Release any compound paths in the selection
+                                    if (doc.selection && doc.selection.length > 0) {
+                                        var hasCompound = false;
+                                        for (var sc = 0; sc < doc.selection.length; sc++) {
+                                            if (doc.selection[sc].typename === "CompoundPathItem") {
+                                                hasCompound = true;
+                                                break;
+                                            }
+                                        }
+                                        if (hasCompound) {
+                                            app.executeMenuCommand("noCompoundPath");
+                                            addDebug("[STROKE-DETECT] Step 3: Released compound path");
+                                        }
+                                    }
+
+                                    // Step 4: Now read strokes from the resulting paths
+                                    if (doc.selection && doc.selection.length > 0) {
+                                        addDebug("[STROKE-DETECT] Final selection: " + doc.selection.length + " items");
+                                        for (var si2 = 0; si2 < doc.selection.length; si2++) {
+                                            var selItem = doc.selection[si2];
+                                            if (selItem.typename === "PathItem" && selItem.stroked && selItem.strokeWidth > 0.1) {
+                                                // Take the larger stroke (outer stroke from appearance panel)
+                                                if (currentStrokeWidth === null || selItem.strokeWidth > currentStrokeWidth) {
+                                                    currentStrokeWidth = selItem.strokeWidth;
+                                                    strokeMethod = "expand-ungroup-release";
+                                                }
+                                            }
+                                        }
+
+                                        if (currentStrokeWidth !== null) {
+                                            addDebug("[STROKE-DETECT] Method 3 SUCCESS: " + currentStrokeWidth.toFixed(4) + "pt");
+                                        } else {
+                                            addDebug("[STROKE-DETECT] Method 3 FAILED: no stroked paths found");
+                                        }
+
+                                        // Delete the expanded items
+                                        for (var rp = doc.selection.length - 1; rp >= 0; rp--) {
+                                            try { doc.selection[rp].remove(); } catch (eRem) {}
+                                        }
+                                    } else {
+                                        addDebug("[STROKE-DETECT] Method 3 FAILED: no selection after processing");
+                                        try { dupItem.remove(); } catch (eRem) {}
+                                    }
+                                    doc.selection = null;
+                                } catch (eExpand) {
+                                    addDebug("[STROKE-DETECT] Method 3 ERROR: " + eExpand);
+                                }
+                            }
+
+                            // Only calculate scale from stroke if we didn't get it directly from metadata
+                            if (strokeMethod !== "metadata-scale" && currentStrokeWidth > 0.1 && currentStrokeWidth < 20) {
+                                itemScaleFactor = (currentStrokeWidth / 4) * 100;
+                                addDebug("[STROKE-DETECT] FINAL: stroke=" + currentStrokeWidth.toFixed(4) + "pt, scale=" + itemScaleFactor.toFixed(1) + "% (base=4pt), method=" + strokeMethod);
+                            } else if (strokeMethod === "metadata-scale") {
+                                addDebug("[STROKE-DETECT] FINAL: Using scale directly from metadata: " + itemScaleFactor.toFixed(1) + "%");
+                            } else {
+                                addDebug("[STROKE-DETECT] FINAL: stroke out of range (" + (currentStrokeWidth ? currentStrokeWidth.toFixed(4) : "null") + "), using default scale=100%");
+                            }
+                        } catch (eStroke) {
+                            addDebug("[STROKE-DETECT] ERROR: " + eStroke);
+                        }
 
                         // Clear existing appearance
                         try {
@@ -11134,8 +11389,8 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         // Apply the graphic style directly
                         graphicStyle.applyTo(item);
 
-                        // Add to items that need scaling
-                        itemsToScale.push(item);
+                        // Add to items that need scaling with their calculated scale factor
+                        itemsToScale.push({ item: item, scale: itemScaleFactor });
                         processedCount++;
 
                     } catch (e) {
@@ -11144,44 +11399,63 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     }
                 }
 
-                // After applying styles, apply the scale factor to strokes
-                // Read current scale from ScaleFactorBox
-                var currentScale = 100;
-                try {
-                    var scaleContainer = doc.layers.getByName('Scale Factor Container Layer');
-                    for (var k = 0; k < scaleContainer.pathItems.length; k++) {
-                        if (scaleContainer.pathItems[k].name === 'ScaleFactorBox') {
-                            currentScale = parseFloat(scaleContainer.pathItems[k].note) || 100;
-                            break;
-                        }
-                    }
-                } catch (e) {
-                    // If no scale factor exists, use 100%
-                }
-
-                // Apply scale to strokes using the same method as Change Scale script
-                if (currentScale !== 100) {
-                    var scaleFactor = currentScale;
-                    for (var m = 0; m < itemsToScale.length; m++) {
-                        var it = itemsToScale[m];
-                        if (it.locked || it.hidden) continue;
-                        try {
-                            var isDuctworkLayer = (layerName === "Green Ductwork" || layerName === "Blue Ductwork" ||
-                                                   layerName === "Orange Ductwork" || layerName === "Light Orange Ductwork" ||
-                                                   layerName === "Green Ductwork Emory" || layerName === "Light Green Ductwork Emory" ||
-                                                   layerName === "Blue Ductwork Emory" || layerName === "Orange Ductwork Emory" ||
-                                                   layerName === "Light Orange Ductwork Emory" || layerName === "Light Green Ductwork");
-                            if (isDuctworkLayer) {
-                                // Scale strokes/patterns only, not geometry
-                                it.resize(100, 100, false, false, false, false, scaleFactor, Transformation.CENTER);
-                            } else if (layerName === "Thermostat Lines") {
-                                // For Thermostat Lines, scale the stroke width directly
-                                if (it.stroked && it.strokeWidth) {
-                                    it.strokeWidth = it.strokeWidth * (scaleFactor / 100);
-                                }
+                // After applying styles, apply the preserved scale factor to strokes
+                // Each item has its own scale factor calculated from bounds difference before style was applied
+                for (var m = 0; m < itemsToScale.length; m++) {
+                    var itemData = itemsToScale[m];
+                    var it = itemData.item;
+                    var itemScale = itemData.scale;
+                    if (it.locked || it.hidden) continue;
+                    try {
+                        var isDuctworkLayer = (layerName === "Green Ductwork" || layerName === "Blue Ductwork" ||
+                                               layerName === "Orange Ductwork" || layerName === "Light Orange Ductwork" ||
+                                               layerName === "Green Ductwork Emory" || layerName === "Light Green Ductwork Emory" ||
+                                               layerName === "Blue Ductwork Emory" || layerName === "Orange Ductwork Emory" ||
+                                               layerName === "Light Orange Ductwork Emory" || layerName === "Light Green Ductwork");
+                        if (isDuctworkLayer) {
+                            // Apply scale if not default
+                            if (itemScale !== 100 && itemScale > 0) {
+                                it.resize(100, 100, false, false, false, false, itemScale, Transformation.CENTER);
+                                addDebug("[STYLE-SCALE] Applied preserved scale " + itemScale + "% to strokes");
                             }
-                        } catch (e) {}
-                    }
+                            // Store scale in metadata for exact preservation on reprocess
+                            // Round only when very close to a whole number (floating point precision fix)
+                            // Note: Don't store strokeWidth separately - calculate from scale to avoid sync issues
+                            var storedScale = itemScale;
+                            if (Math.abs(itemScale - Math.round(itemScale)) < 0.0001) {
+                                storedScale = Math.round(itemScale);
+                            }
+                            try {
+                                var meta = MDUX_getMetadata(it) || {};
+                                meta.MDUX_CurrentScale = storedScale;
+                                // Remove any stale strokeWidth to prevent confusion
+                                if (meta.strokeWidth !== undefined) {
+                                    delete meta.strokeWidth;
+                                }
+                                // Ensure MDUX_Original* fields exist so panel-bridge slider doesn't reset scale
+                                // These are needed for panel-bridge to know the item has been initialized
+                                if (meta.MDUX_OriginalWidth === undefined) {
+                                    meta.MDUX_OriginalWidth = it.width;
+                                }
+                                if (meta.MDUX_OriginalHeight === undefined) {
+                                    meta.MDUX_OriginalHeight = it.height;
+                                }
+                                if (meta.MDUX_OriginalStrokeWidth === undefined) {
+                                    meta.MDUX_OriginalStrokeWidth = 1; // Default base stroke
+                                }
+                                if (meta.MDUX_CumulativeRotation === undefined) {
+                                    meta.MDUX_CumulativeRotation = "0";
+                                }
+                                MDUX_setMetadata(it, meta);
+                                addDebug("[STYLE-SCALE] Stored MDUX_CurrentScale=" + storedScale + "% in metadata (with Original* fields)");
+                            } catch (eMeta) {}
+                        } else if (layerName === "Thermostat Lines" && itemScale !== 100 && itemScale > 0) {
+                            // For Thermostat Lines, scale the stroke width directly
+                            if (it.stroked && it.strokeWidth) {
+                                it.strokeWidth = it.strokeWidth * (itemScale / 100);
+                            }
+                        }
+                    } catch (e) {}
                 }
 
                 // Restore layer state
@@ -12682,7 +12956,13 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
     // STEP 8: Apply graphic styles AFTER everything else is completely done
     // *** USING ENHANCED ROBUST VERSION ***
-    applyAllDuctworkStylesRobust(originalSelectionItems);
+    addDebug("[STEP8] About to call applyAllDuctworkStylesRobust");
+    try {
+        applyAllDuctworkStylesRobust(originalSelectionItems);
+        addDebug("[STEP8] applyAllDuctworkStylesRobust completed");
+    } catch (eStep8) {
+        addDebug("[STEP8] ERROR: " + eStep8);
+    }
 
     // Ensure Thermostat Lines explicitly gets its graphic style applied to every path (defensive)
     try {
