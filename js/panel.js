@@ -15,6 +15,7 @@
     const debugStatus = document.getElementById('debug-status');
     const skipOrthoOption = document.getElementById('skip-ortho-option');
     const rotationInput = document.getElementById('rotation-input');
+    const getAngleBtn = document.getElementById('get-angle-btn');
     const clearRotationBtn = document.getElementById('clear-rotation-btn');
     const skipAllBranchesOption = document.getElementById('skip-all-branches-option');
     const skipFinalOption = document.getElementById('skip-final-option');
@@ -40,7 +41,13 @@
     const exportDuctworkBtn = document.getElementById('export-ductwork-btn');
     const reexportFloorplanBtn = document.getElementById('reexport-floorplan-btn');
     const exportStatus = document.getElementById('export-status');
-    
+
+    // Document Scale Controls
+    const docScaleInput = document.getElementById('doc-scale-input');
+    const getDocScaleBtn = document.getElementById('get-doc-scale-btn');
+    const setDocScale100Btn = document.getElementById('set-doc-scale-100-btn');
+    const applyDocScaleBtn = document.getElementById('apply-doc-scale-btn');
+
     // Transform Each Controls
     let teScaleInput = document.getElementById('te-scale');
     let teRotateInput = document.getElementById('te-rotate');
@@ -71,22 +78,23 @@
     }
 
     function setProcessStatus(message, isError) {
+        if (!processStatus) return;
         processStatus.textContent = message || '';
         processStatus.classList.toggle('error', !!isError);
     }
 
     function setIgnoreStatus(message, isError) {
         // ignoreStatus element removed - function disabled
-        // ignoreStatus.textContent = message || '';
-        // ignoreStatus.classList.toggle('error', !!isError);
     }
 
     function setRevertStatus(message, isError) {
+        if (!revertStatus) return;
         revertStatus.textContent = message || '';
         revertStatus.classList.toggle('error', !!isError);
     }
 
     function setClearRotationMetadataStatus(message, isError) {
+        if (!clearRotationMetadataStatus) return;
         clearRotationMetadataStatus.textContent = message || '';
         clearRotationMetadataStatus.classList.toggle('error', !!isError);
     }
@@ -94,13 +102,13 @@
     function setSelectionStatus(message, isError) {
         const el = document.getElementById('selection-status');
         const debugEl = document.getElementById('debug-status');
-        
+
         if (el) {
             el.textContent = message || '';
             el.classList.toggle('error', !!isError);
             el.style.display = 'block'; // Force display
         }
-        
+
         if (debugEl) {
             // Also show in footer for redundancy
             debugEl.textContent = (isError ? '[ERR] ' : '') + (message || '');
@@ -109,16 +117,19 @@
     }
 
     function setLayerStatus(message, isError) {
+        if (!layerStatus) return;
         layerStatus.textContent = message || '';
         layerStatus.classList.toggle('error', !!isError);
     }
 
     function setImportStatus(message, isError) {
+        if (!importStatus) return;
         importStatus.textContent = message || '';
         importStatus.classList.toggle('error', !!isError);
     }
 
     function setExportStatus(message, isError) {
+        if (!exportStatus) return;
         exportStatus.textContent = message || '';
         exportStatus.classList.toggle('error', !!isError);
     }
@@ -136,11 +147,10 @@
     }
 
     async function ensureBridgeLoaded() {
-        // FORCE RELOAD for debugging - remove this later if performance is an issue
-        // if (bridgeReloaded) {
-        //    debugStatus.textContent = 'Bridge ready (cached)';
-        //    return;
-        // }
+        // Check if bridge is already loaded to avoid unnecessary reloads
+        if (bridgeReloaded) {
+            return;
+        }
         const escapedPath = escapeForExtendScript(bridgePath);
         const loadScript = '(function(){' +
             'delete $.global.MDUX_JSX_FOLDER;' +  // Force clear stale cached folder path
@@ -148,7 +158,7 @@
             '$.global.MDUX_LAST_BRIDGE_PATH = "' + escapedPath + '";' +
             'try { $.evalFile("' + escapedPath + '"); return "OK"; } ' +
             'catch (e) { $.global.MDUX_LAST_BRIDGE_ERROR = e.toString(); return "ERROR:" + e; }' +
-        '})()';
+            '})()';
         const loadResult = await evalScript(loadScript);
         if (typeof loadResult === 'string' && loadResult.indexOf('ERROR:') === 0) {
             const msg = loadResult.substring(6);
@@ -160,15 +170,25 @@
     }
 
     function scheduleSkipOrthoRefresh() {
+        console.log('[JS] scheduleSkipOrthoRefresh called');
+        evalScript('MDUX_debugLog("[JS] scheduleSkipOrthoRefresh called")');
         if (skipOrthoRefreshTimer) clearTimeout(skipOrthoRefreshTimer);
-        skipOrthoRefreshTimer = setTimeout(function () {
-            refreshSkipOrthoState().catch(function () {});
-            refreshRotationOverrideState().catch(function () {});
-        }, 200);
+        skipOrthoRefreshTimer = setTimeout(() => {
+            console.log('[JS] scheduleSkipOrthoRefresh timeout fired, calling refresh functions');
+            evalScript('MDUX_debugLog("[JS] scheduleSkipOrthoRefresh timeout fired")');
+            refreshSkipOrthoState().catch(() => { });
+            refreshRotationOverrideState().catch(() => { });
+            refreshSelectionTransformState().catch(() => { });
+        }, 150);
     }
 
     async function refreshRotationOverrideState() {
         if (!rotationInput) return;
+
+        // NEVER update if user is typing in the input
+        var isFocused = document.activeElement === rotationInput;
+        if (isFocused) return;
+
         try {
             await ensureBridgeLoaded();
         } catch (e) {
@@ -208,14 +228,8 @@
         }
 
         var formatted = summary.formatted || '';
-        var prevAuto = rotationInput.dataset.autoValue || '';
-        var isFocused = document.activeElement === rotationInput;
-        if (!isFocused || formatted !== prevAuto) {
-            rotationInput.value = formatted;
-            rotationInput.dataset.autoValue = formatted;
-        } else {
-            rotationInput.dataset.autoValue = formatted;
-        }
+        rotationInput.value = formatted;
+        rotationInput.dataset.autoValue = formatted;
 
         if (summary.count > 1) {
             rotationInput.dataset.multi = 'true';
@@ -281,8 +295,9 @@
         let rotationValue = null;
         const rotationText = rotationInput.value.trim();
         const autoValue = (rotationInput.dataset.autoValue || '').trim();
-        const isAutoMulti = rotationInput.dataset.multi === 'true' && rotationText === autoValue && rotationText.length > 0;
-        if (rotationText && !isAutoMulti) {
+        // Skip rotation override if user hasn't changed the auto-populated value
+        const isAutoPopulated = rotationText === autoValue && rotationText.length > 0;
+        if (rotationText && !isAutoPopulated) {
             rotationValue = parseFloat(rotationText);
             if (!isFinite(rotationValue)) {
                 setProcessStatus('Rotation override must be a valid number.', true);
@@ -654,15 +669,101 @@
         scheduleSkipOrthoRefresh();
     }
 
+    async function handleGetAngle() {
+        setProcessStatus('Getting angle from selected line…');
+        try {
+            await ensureBridgeLoaded();
+        } catch (e) {
+            setProcessStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
+            return;
+        }
+        const resultStr = await evalScript('MDUX_getSelectedLineAngleBridge()');
+        const result = normaliseResult(resultStr);
+
+        if (!result.ok) {
+            setProcessStatus(result.value, true);
+            debugStatus.textContent = 'Get angle failed: ' + result.value;
+            return;
+        }
+
+        try {
+            const data = JSON.parse(result.value);
+            if (data.ok && typeof data.angle === 'number') {
+                rotationInput.value = data.angle.toString();
+                rotationInput.dataset.autoValue = '';
+                rotationInput.dataset.multi = 'false';
+                setProcessStatus(data.message || ('Angle set to ' + data.angle + '°'));
+                debugStatus.textContent = 'Angle retrieved: ' + data.angle + '°';
+            } else {
+                setProcessStatus(data.message || 'Failed to get angle', true);
+                debugStatus.textContent = 'Get angle failed: ' + (data.message || 'Unknown error');
+            }
+        } catch (e) {
+            setProcessStatus('Error parsing angle result', true);
+            debugStatus.textContent = 'Get angle parse error: ' + e;
+        }
+    }
+
+    async function refreshDocScale() {
+        try {
+            await ensureBridgeLoaded();
+            const scale = await evalScript('MDUX_getDocumentScale()');
+            if (scale && isFinite(parseFloat(scale))) {
+                docScaleInput.value = scale;
+            }
+        } catch (e) {
+            console.error("Failed to refresh doc scale:", e);
+        }
+    }
+
+    async function handleSetDocScale100() {
+        try {
+            await ensureBridgeLoaded();
+            const result = await evalScript('MDUX_setDocumentScale(100)');
+            if (result === 'OK') {
+                docScaleInput.value = '100';
+                setSelectionStatus('Baseline set to 100%.');
+            } else {
+                setSelectionStatus('Error: ' + result, true);
+            }
+        } catch (e) {
+            setSelectionStatus('Error: ' + e.message, true);
+        }
+    }
+
+    async function handleApplyDocScale() {
+        const targetPercent = parseFloat(docScaleInput.value);
+        if (isNaN(targetPercent) || targetPercent <= 0) {
+            setSelectionStatus('Enter a valid positive scale percentage.', true);
+            return;
+        }
+        setSelectionStatus('Scaling entire document to ' + targetPercent + '%...');
+        try {
+            await ensureBridgeLoaded();
+            const resultStr = await evalScript('MDUX_applyScaleToFullDocument(' + targetPercent + ')');
+            const result = JSON.parse(resultStr);
+            if (result.ok) {
+                setSelectionStatus(result.message);
+                if (result.stats) {
+                    debugStatus.textContent = 'Doc scale: ' + result.stats.parts + ' parts, ' + result.stats.lines + ' lines';
+                }
+            } else {
+                setSelectionStatus('Error: ' + result.message, true);
+            }
+        } catch (e) {
+            setSelectionStatus('Error: ' + e.message, true);
+        }
+    }
+
     async function handleExport(type) {
         setExportStatus('Exporting...', false);
         console.log("Starting export for type: " + type);
-        
+
         try {
             // Initial attempt (overwrite=false, version=null)
             let resultStr = await evalScript(`MDUX_performExport("${type}", false, null)`);
             console.log("Export result string: ", resultStr);
-            
+
             if (!resultStr) {
                 throw new Error("No response from Illustrator. Check debug.log.");
             }
@@ -673,7 +774,7 @@
             } catch (e) {
                 throw new Error("Invalid JSON response: " + resultStr);
             }
-            
+
             if (!result.ok) {
                 if (result.log) {
                     console.log("Export Error Log:\n" + result.log);
@@ -681,11 +782,11 @@
                 setExportStatus(result.message, true);
                 return;
             }
-            
+
             if (result.status === "CONFIRM_OVERWRITE") {
                 // Ask user
                 const shouldOverwrite = confirm(result.message || "Files already exist. Overwrite them?");
-                
+
                 if (shouldOverwrite) {
                     // Retry with overwrite=true
                     resultStr = await evalScript(`MDUX_performExport("${type}", true, null)`);
@@ -705,7 +806,7 @@
                     }
                 }
             }
-            
+
             if (result.ok) {
                 if (result.log) {
                     console.log("Export Success Log:\n" + result.log);
@@ -717,7 +818,7 @@
                 }
                 setExportStatus(result.message, true);
             }
-            
+
         } catch (e) {
             console.error("Export error:", e);
             setExportStatus("Error: " + e.message, true);
@@ -729,11 +830,11 @@
     let teDragActive = false;
     let teTransformAppliedInDrag = false;
     let teNextPayload = null; // {scale, rotate, undoPrevious}
-    
+
     // Track start values for the current drag session
     let teDragStartScale = 100;
     let teDragStartRotate = 0;
-    
+
     // Track committed values (where the slider was left after last drag)
     // We need this because the slider value is absolute (e.g. 110), but we need to calculate
     // the factor relative to the START of the drag.
@@ -744,7 +845,7 @@
         if (!teNextPayload) return;
 
         teIsBusy = true;
-        
+
         // Capture current payload
         const payload = teNextPayload;
         teNextPayload = null; // Clear it, so we can catch new updates
@@ -777,7 +878,7 @@
                     } else {
                         setSelectionStatus("No msg: " + result, false);
                     }
-                } catch(e) {
+                } catch (e) {
                     setSelectionStatus("Parse err: " + result, true);
                 }
             }
@@ -807,19 +908,19 @@
 
         const currentScale = parseFloat(teScaleSlider.value);
         const currentRotate = parseFloat(teRotateSlider.value);
-        
+
         if (isNaN(currentScale) || isNaN(currentRotate)) return;
 
         // Calculate factor/delta relative to DRAG START
         // If dragStartScale is 0 (safety), use 100
         const startS = teDragStartScale || 100;
-        
+
         // Factor: If start was 100, current 110 -> factor 110/100*100 = 110.
         // If start was 110, current 120 -> factor 120/110*100 = 109.09.
         // This factor is what we send to JSX to apply to the object's state AT DRAG START.
         // Wait, if we undo, we revert to state AT DRAG START (actually state before last transform).
         // So yes, we want to apply the transform that takes us from START to CURRENT.
-        
+
         const factor = (currentScale / startS) * 100;
         const deltaRot = currentRotate - teDragStartRotate;
 
@@ -843,7 +944,7 @@
             if (teRotateSlider) teRotateSlider.value = 0;
             if (teRotateInput) teRotateInput.value = 0;
         }
-        
+
         teDragActive = false;
         teTransformAppliedInDrag = false;
         teNextPayload = null;
@@ -860,17 +961,19 @@
             // If Live is OFF, apply the current values
             const s = parseFloat(teScaleInput.value) || 100;
             const r = parseFloat(teRotateInput.value) || 0;
-            
+
             if (s === 100 && r === 0) {
                 setSelectionStatus("No changes to apply.", false);
                 return;
             }
-            
+
             setSelectionStatus("Transforming...", false);
             try {
                 await evalScript(`MDUX_transformEach(${s}, ${r}, false)`);
                 setSelectionStatus("Transformation applied.", false);
                 resetTransformControls(true);
+                // Refresh selection state to load the metadata we just saved
+                await refreshSelectionTransformState();
             } catch (e) {
                 setSelectionStatus("Error: " + e.message, true);
             }
@@ -888,23 +991,170 @@
         }
     }
 
+    async function refreshSelectionTransformState() {
+        console.log('[JS] refreshSelectionTransformState called, teDragActive=', teDragActive, 'teIsBusy=', teIsBusy);
+        if (teDragActive || teIsBusy) {
+            await evalScript('MDUX_debugLog("[JS] refreshSelectionTransformState skipped: teDragActive=" + ' + teDragActive + ' + ", teIsBusy=" + ' + teIsBusy + ')');
+            return;
+        }
+
+        await evalScript('MDUX_debugLog("[JS] refreshSelectionTransformState proceeding...")');
+
+        try {
+            await ensureBridgeLoaded();
+        } catch (e) {
+            console.error('Bridge load failed in refreshSelectionTransformState:', e);
+            await evalScript('MDUX_debugLog("[JS] Bridge load failed in refreshSelectionTransformState: ' + (e ? e.message || e.toString() : 'unknown') + '")');
+            return;
+        }
+
+        try {
+            const raw = await evalScript('MDUX_getSelectionTransformState()');
+            console.log('[JS] refreshSelectionTransformState raw:', raw);
+            if (!raw) {
+                await evalScript('MDUX_debugLog("[JS] MDUX_getSelectionTransformState returned null/empty")');
+                return;
+            }
+            const res = JSON.parse(raw);
+            console.log('[JS] refreshSelectionTransformState parsed:', res);
+
+            const statusEl = document.getElementById('selection-status');
+            if (statusEl) statusEl.textContent = '';
+
+            if (res.ok && res.count > 0) {
+                let statusMsg = [];
+
+                // Only update scale if user is not actively typing in the scale input
+                const scaleInputHasFocus = document.activeElement === teScaleInput;
+                if (!scaleInputHasFocus) {
+                    if (res.mixedScale) {
+                        console.log('[JS] Mixed scale detected');
+                        teScaleInput.value = '';
+                        teScaleInput.placeholder = 'Mixed';
+                        teScaleSlider.value = 100;
+                        statusMsg.push('Multiple different scales in selection');
+                    } else {
+                        console.log('[JS] Setting scale to:', res.scale);
+                        teScaleInput.value = res.scale;
+                        teScaleInput.placeholder = '';
+                        teScaleSlider.value = res.scale;
+                        console.log('[JS] Scale slider value now:', teScaleSlider.value);
+                    }
+                } else {
+                    console.log('[JS] Skipping scale update - input has focus');
+                }
+
+                // Only update rotation if user is not actively typing in the rotation input
+                const rotateInputHasFocus = document.activeElement === teRotateInput;
+                if (!rotateInputHasFocus) {
+                    if (res.mixedRotation) {
+                        console.log('[JS] Mixed rotation detected');
+                        teRotateInput.value = '';
+                        teRotateInput.placeholder = 'Mixed';
+                        teRotateSlider.value = 0;
+                        statusMsg.push('Multiple different rotations in selection');
+                    } else {
+                        console.log('[JS] Setting rotation to:', res.rotation);
+                        teRotateInput.value = res.rotation;
+                        teRotateInput.placeholder = '';
+                        teRotateSlider.value = res.rotation;
+                        console.log('[JS] Rotation slider value now:', teRotateSlider.value);
+                    }
+                } else {
+                    console.log('[JS] Skipping rotation update - input has focus');
+                }
+
+                if (statusEl && statusMsg.length > 0) {
+                    statusEl.textContent = statusMsg.join(' • ');
+                }
+            } else {
+                console.log('[JS] No selection or not ok, resetting to defaults');
+                // No selection or no tagged items
+                teScaleInput.value = 100;
+                teScaleInput.placeholder = '';
+                teScaleSlider.value = 100;
+                teRotateInput.value = 0;
+                teRotateInput.placeholder = '';
+                teRotateSlider.value = 0;
+            }
+        } catch (e) {
+            console.error('Refresh transform state failed:', e);
+        }
+    }
+
+    // Helper to handle drag start/end globally
+    async function handleDragStart() {
+        // Load current state from metadata BEFORE setting teDragActive
+        // (refreshSelectionTransformState skips if teDragActive is true)
+        await refreshSelectionTransformState();
+
+        // Now set drag active
+        teDragActive = true;
+        teTransformAppliedInDrag = false;
+
+        // Capture start values from both sliders (now updated from metadata)
+        teDragStartScale = parseFloat(teScaleSlider.value) || 100;
+        teDragStartRotate = parseFloat(teRotateSlider.value) || 0;
+
+        // Listen for global mouseup to end the session
+        window.addEventListener('mouseup', handleDragEnd, { once: true });
+    }
+
+    function handleDragEnd() {
+        teDragActive = false;
+        // The transformation is already applied during 'input' events.
+        // We do NOT reset controls here so the user can see where they left it.
+        teTransformAppliedInDrag = false;
+    }
+
+    function initCollapsibleSections() {
+        const collapsibleHeaders = document.querySelectorAll('.collapsible-header');
+        collapsibleHeaders.forEach(header => {
+            header.addEventListener('click', function() {
+                const section = this.closest('.collapsible');
+                const content = section.querySelector('.collapsible-content');
+                const icon = this.querySelector('.collapse-icon');
+
+                if (content.style.display === 'none') {
+                    content.style.display = 'block';
+                    icon.textContent = '▲';
+                    section.classList.add('expanded');
+                } else {
+                    content.style.display = 'none';
+                    icon.textContent = '▼';
+                    section.classList.remove('expanded');
+                }
+            });
+        });
+    }
+
     function attachListeners() {
-        processBtn.addEventListener('click', handleProcessClick);
-        processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
-        revertBtn.addEventListener('click', handleRevertPreOrtho);
-        clearRotationMetadataBtn.addEventListener('click', handleClearRotationMetadata);
-        // applyIgnoreBtn.addEventListener('click', applyIgnore); // Removed - button no longer exists
-        clearRotationBtn.addEventListener('click', () => {
-            rotationInput.value = '';
-            rotationInput.dataset.autoValue = '';
-            rotationInput.dataset.multi = 'false';
-            rotationInput.placeholder = 'Leave blank to skip';
-            setProcessStatus('');
-        });
-        rotationInput.addEventListener('input', () => {
-            rotationInput.dataset.autoValue = '';
-            rotationInput.dataset.multi = 'false';
-        });
+        if (processBtn) processBtn.addEventListener('click', handleProcessClick);
+        if (processEmoryBtn) processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
+        if (revertBtn) revertBtn.addEventListener('click', handleRevertPreOrtho);
+        if (clearRotationMetadataBtn) clearRotationMetadataBtn.addEventListener('click', handleClearRotationMetadata);
+        if (getAngleBtn) getAngleBtn.addEventListener('click', handleGetAngle);
+        if (clearRotationBtn && rotationInput) {
+            clearRotationBtn.addEventListener('click', () => {
+                rotationInput.value = '';
+                rotationInput.dataset.autoValue = '';
+                rotationInput.dataset.multi = 'false';
+                rotationInput.placeholder = 'Leave blank to skip';
+                setProcessStatus('');
+            });
+        }
+        if (rotationInput) {
+            rotationInput.addEventListener('input', () => {
+                rotationInput.dataset.autoValue = '';
+                rotationInput.dataset.multi = 'false';
+            });
+        }
+
+        // Document Scale listeners
+        if (getDocScaleBtn) getDocScaleBtn.addEventListener('click', refreshDocScale);
+        if (setDocScale100Btn) setDocScale100Btn.addEventListener('click', handleSetDocScale100);
+        if (applyDocScaleBtn) applyDocScaleBtn.addEventListener('click', handleApplyDocScale);
+
         // New Mutual Exclusivity Logic
         const orthoToggles = [skipOrthoOption, skipAllBranchesOption, skipFinalOption];
         const orthoGrid = document.getElementById('ortho-toggle-grid');
@@ -915,7 +1165,7 @@
                     if (t !== changedInput) t.checked = false;
                 });
             }
-            
+
             // Update visual state
             if (orthoGrid) {
                 const anyChecked = orthoToggles.some(t => t.checked);
@@ -932,217 +1182,274 @@
                 t.addEventListener('change', () => updateOrthoState(t));
             }
         });
-        
+
         // Initial state check
         updateOrthoState(null);
-        rotate90Btn.addEventListener('click', () => rotateSelection(90));
-        rotate45Btn.addEventListener('click', () => rotateSelection(45));
-        rotate180Btn.addEventListener('click', () => rotateSelection(180));
-        // Custom rotation and scale controls are hidden - only attach listeners if they exist
-        if (rotateCustomBtn) {
-            rotateCustomBtn.addEventListener('click', () => {
-                const value = parseFloat(customRotationInput.value);
-                if (!isFinite(value)) {
-                    setSelectionStatus('Enter a numeric rotation value.', true);
-                    return;
-                }
-                rotateSelection(value);
-            });
-        }
-        if (scaleSlider) {
-            scaleSlider.addEventListener('input', onScaleInput);
-        }
-        if (applyScaleBtn) {
-            applyScaleBtn.addEventListener('click', () => {
-                const value = parseFloat(scaleInput.value);
-                if (!isFinite(value) || value <= 0) {
-                    setSelectionStatus('Enter a valid scale percentage (e.g., 50, 100, 150).', true);
-                    return;
-                }
-                if (value < 25 || value > 500) {
-                    setSelectionStatus('Scale must be between 25% and 500%.', true);
-                    return;
-                }
-                applyScale(value);
-            });
-        }
-        if (resetScaleBtn) {
-            resetScaleBtn.addEventListener('click', () => {
-                scaleSlider.value = 100;
-                scaleLabel.textContent = '100%';
-                scaleInput.value = '';
-                resetScale();
-            });
-        }
-        isolatePartsBtn.addEventListener('click', () => isolate('parts'));
-        isolateLinesBtn.addEventListener('click', () => isolate('lines'));
-        unlockDuctworkBtn.addEventListener('click', () => isolate('unlock'));
-        createLayersBtn.addEventListener('click', () => isolate('create'));
-        importStylesBtn.addEventListener('click', importGraphicStyles);
-        if (exportDuctworkBtn) {
-            exportDuctworkBtn.addEventListener('click', () => handleExport('DUCTWORK'));
-        }
-        if (reexportFloorplanBtn) {
-            reexportFloorplanBtn.addEventListener('click', () => handleExport('FLOORPLAN'));
-        }
-        if (transformEachBtn) {
-            transformEachBtn.addEventListener('click', handleTransformEach);
-        }
-        if (teResetOriginalBtn) {
-            teResetOriginalBtn.addEventListener('click', handleResetOriginal);
-        }
-        
-        // Transform Each Sliders Sync & Live Update
-        
-        // Helper to handle drag start/end globally to catch mouseup outside element
-        const handleDragStart = () => {
+        if (rotate90Btn) rotate90Btn.addEventListener('click', () => rotateSelection(90));
+        if (rotate45Btn) rotate45Btn.addEventListener('click', () => rotateSelection(45));
+        if (rotate180Btn) rotate180Btn.addEventListener('click', () => rotateSelection(180));
+    }
+
+    if (teScaleSlider && teScaleInput) {
+        teScaleSlider.addEventListener('mousedown', handleDragStart);
+        // Backup: change event fires on commit (release)
+        // teScaleSlider.addEventListener('change', () => resetTransformControls(true)); // REMOVED
+
+        teScaleSlider.addEventListener('input', () => {
+            teScaleInput.value = teScaleSlider.value;
+            handleLiveTransform();
+        });
+
+        teScaleInput.addEventListener('change', () => {
+            let val = parseFloat(teScaleInput.value);
+            if (isNaN(val)) return;
+
+            // For text input, we treat it as a mini-session
+            // We need a start value. Use current slider value as start?
+            // Or assume start was 100 relative to current state?
+            // If user types 150, they mean 150% of current state? Or 150% absolute?
+            // Usually absolute.
+            // But our logic is relative.
+            // Let's assume they mean "Apply 150% scale".
+            // So start=100, current=150. Factor=150.
+
+            teDragStartScale = 100;
+            teDragStartRotate = 0; // Assume rotation didn't change
+
+            teScaleSlider.value = val;
+
             teDragActive = true;
             teTransformAppliedInDrag = false;
-            // Capture start values
-            teDragStartScale = parseFloat(teScaleSlider.value) || 100;
-            teDragStartRotate = parseFloat(teRotateSlider.value) || 0;
-            
-            window.addEventListener('mouseup', handleDragEnd, { once: true });
-        };
+            handleLiveTransform();
 
-        const handleDragEnd = () => {
-            // Do NOT reset controls on drag end. Keep the slider where it is.
+            // End session immediately
             teDragActive = false;
-            // We keep teTransformAppliedInDrag = true? No, session is over.
-            // But if we drag again, we start a NEW session.
-            // The object is now permanently transformed.
-            // So next drag starts from new baseline.
             teTransformAppliedInDrag = false;
-        };
+        });
+    }
+    if (teRotateSlider && teRotateInput) {
+        teRotateSlider.addEventListener('mousedown', handleDragStart);
+        // teRotateSlider.addEventListener('change', () => resetTransformControls(true)); // REMOVED
 
-        if (teScaleSlider && teScaleInput) {
-            teScaleSlider.addEventListener('mousedown', handleDragStart);
-            // Backup: change event fires on commit (release)
-            // teScaleSlider.addEventListener('change', () => resetTransformControls(true)); // REMOVED
+        teRotateSlider.addEventListener('input', () => {
+            teRotateInput.value = teRotateSlider.value;
+            handleLiveTransform();
+        });
+        teRotateInput.addEventListener('change', () => {
+            let val = parseFloat(teRotateInput.value);
+            if (isNaN(val)) return;
 
-            teScaleSlider.addEventListener('input', () => {
-                teScaleInput.value = teScaleSlider.value;
-                handleLiveTransform();
-            });
-            
-            teScaleInput.addEventListener('change', () => {
-                let val = parseFloat(teScaleInput.value);
-                if (isNaN(val)) return;
-                
-                // For text input, we treat it as a mini-session
-                // We need a start value. Use current slider value as start?
-                // Or assume start was 100 relative to current state?
-                // If user types 150, they mean 150% of current state? Or 150% absolute?
-                // Usually absolute.
-                // But our logic is relative.
-                // Let's assume they mean "Apply 150% scale".
-                // So start=100, current=150. Factor=150.
-                
-                teDragStartScale = 100; 
-                teDragStartRotate = 0; // Assume rotation didn't change
-                
-                teScaleSlider.value = val;
-                
-                teDragActive = true;
-                teTransformAppliedInDrag = false;
-                handleLiveTransform();
-                
-                // End session immediately
-                teDragActive = false;
-                teTransformAppliedInDrag = false;
-            });
-        }
-        if (teRotateSlider && teRotateInput) {
-            teRotateSlider.addEventListener('mousedown', handleDragStart);
-            // teRotateSlider.addEventListener('change', () => resetTransformControls(true)); // REMOVED
+            teDragStartScale = 100;
+            teDragStartRotate = 0; // Assume start was 0 relative to current
+            // If slider was at 45, and user types 90.
+            // They mean "Rotate to 90".
+            // So start=0, current=90? No.
+            // If slider is at 45, object is rotated 45.
+            // If they type 90, they want 45 more? Or absolute 90?
+            // "Transform Each" usually implies relative transform.
+            // If I type 90, I want to rotate 90 degrees.
+            // So start=0, current=90. Delta=90.
 
-            teRotateSlider.addEventListener('input', () => {
-                teRotateInput.value = teRotateSlider.value;
-                handleLiveTransform();
-            });
-            teRotateInput.addEventListener('change', () => {
-                let val = parseFloat(teRotateInput.value);
-                if (isNaN(val)) return;
-                
-                teDragStartScale = 100;
-                teDragStartRotate = 0; // Assume start was 0 relative to current
-                // If slider was at 45, and user types 90.
-                // They mean "Rotate to 90".
-                // So start=0, current=90? No.
-                // If slider is at 45, object is rotated 45.
-                // If they type 90, they want 45 more? Or absolute 90?
-                // "Transform Each" usually implies relative transform.
-                // If I type 90, I want to rotate 90 degrees.
-                // So start=0, current=90. Delta=90.
-                
-                teRotateSlider.value = val;
-                
-                teDragActive = true;
-                teTransformAppliedInDrag = false;
-                handleLiveTransform();
-                
-                teDragActive = false;
-                teTransformAppliedInDrag = false;
-            });
-        }
+            teRotateSlider.value = val;
 
-        reloadBtn.addEventListener('click', () => window.location.reload());
-        
-        // Add keyboard shortcut for reloading (F5)
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'F5') {
-                window.location.reload();
-            }
+            teDragActive = true;
+            teTransformAppliedInDrag = false;
+            handleLiveTransform();
+
+            teDragActive = false;
+            teTransformAppliedInDrag = false;
         });
     }
 
-    async function init() {
-        // Re-fetch elements to ensure they exist (in case script ran before DOM)
-        teScaleInput = document.getElementById('te-scale');
-        teRotateInput = document.getElementById('te-rotate');
-        teScaleSlider = document.getElementById('te-scale-slider');
-        teRotateSlider = document.getElementById('te-rotate-slider');
-        transformEachBtn = document.getElementById('transform-each-btn');
-        teResetOriginalBtn = document.getElementById('te-reset-original-btn');
-        teLiveOption = document.getElementById('te-live-option');
+    reloadBtn.addEventListener('click', () => window.location.reload());
 
-        attachListeners();
-        debugStatus.textContent = 'Remote debugging available at http://localhost:8088';
-        skipOrthoOption.indeterminate = false;
-        skipOrthoOption.checked = false;
-        rotationInput.value = '';
-        rotationInput.dataset.autoValue = '';
-        rotationInput.dataset.multi = 'false';
-        skipAllBranchesOption.checked = false;
-        skipFinalOption.checked = true;  // Default to checked
-        createRegisterWiresOption.checked = false;
-        // Scale controls are hidden - only set values if they exist
-        if (scaleSlider) scaleSlider.value = 100;
-        if (scaleLabel) scaleLabel.textContent = '100%';
-        if (scaleInput) scaleInput.value = '';
-        
-        // Initialize Transform Each controls
-        resetTransformControls();
-
-        setProcessStatus('');
-        setRevertStatus('');
-        setSelectionStatus('');
-        setLayerStatus('');
-        setImportStatus('');
-        // setIgnoreStatus(''); // Removed - status element no longer exists
-        try {
-            await ensureBridgeLoaded();
-        } catch (e) {
-            debugStatus.textContent = 'Bridge load failed: ' + (e && e.message ? e.message : e);
+    // Add keyboard shortcut for reloading (F5)
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'F5') {
+            window.location.reload();
         }
-        csInterface.addEventListener('afterSelectionChanged', scheduleSkipOrthoRefresh);
-        csInterface.addEventListener('documentAfterActivate', scheduleSkipOrthoRefresh);
-        // Reset Transform Each controls when switching documents or opening files
-        csInterface.addEventListener('documentAfterActivate', () => resetTransformControls(true));
-        
-        csInterface.addEventListener('documentChanged', scheduleSkipOrthoRefresh);
-        refreshSkipOrthoState().catch(function () {});
-        refreshRotationOverrideState().catch(function () {});
+        // ESC to close debug log
+        if (e.key === 'Escape') {
+            const modal = document.getElementById('debug-log-modal');
+            if (modal && modal.style.display === 'block') {
+                modal.style.display = 'none';
+            }
+        }
+    });
+
+    async function init() {
+        // Log immediately using raw csInterface (not Promise wrapper)
+        csInterface.evalScript('MDUX_debugLog("[INIT] init() starting...")', function() {});
+
+        try {
+            // Re-fetch elements to ensure they exist (in case script ran before DOM)
+            teScaleInput = document.getElementById('te-scale');
+            teRotateInput = document.getElementById('te-rotate');
+            teScaleSlider = document.getElementById('te-scale-slider');
+            teRotateSlider = document.getElementById('te-rotate-slider');
+            transformEachBtn = document.getElementById('transform-each-btn');
+            teResetOriginalBtn = document.getElementById('te-reset-original-btn');
+            teLiveOption = document.getElementById('te-live-option');
+
+            csInterface.evalScript('MDUX_debugLog("[INIT] Elements fetched")', function() {});
+
+            initCollapsibleSections();
+            csInterface.evalScript('MDUX_debugLog("[INIT] Collapsible sections initialized")', function() {});
+
+            attachListeners();
+            csInterface.evalScript('MDUX_debugLog("[INIT] Listeners attached")', function() {});
+
+            // Attach isolation and export listeners
+            if (isolatePartsBtn) isolatePartsBtn.addEventListener('click', () => isolate('parts'));
+            if (isolateLinesBtn) isolateLinesBtn.addEventListener('click', () => isolate('lines'));
+            if (unlockDuctworkBtn) unlockDuctworkBtn.addEventListener('click', () => isolate('unlock'));
+            if (createLayersBtn) createLayersBtn.addEventListener('click', () => isolate('create'));
+            if (importStylesBtn) importStylesBtn.addEventListener('click', importGraphicStyles);
+            if (exportDuctworkBtn) exportDuctworkBtn.addEventListener('click', () => handleExport('ductwork'));
+            if (reexportFloorplanBtn) reexportFloorplanBtn.addEventListener('click', () => handleExport('floorplan'));
+
+            csInterface.evalScript('MDUX_debugLog("[INIT] Isolation listeners attached")', function() {});
+
+            // Fix Selection Transform listeners
+            if (transformEachBtn) transformEachBtn.addEventListener('click', handleTransformEach);
+            if (teResetOriginalBtn) teResetOriginalBtn.addEventListener('click', handleResetOriginal);
+
+            // Debug buttons
+            const testNoteBtn = document.getElementById('test-note-btn');
+            const viewLogBtn = document.getElementById('view-log-btn');
+            const clearLogBtn = document.getElementById('clear-log-btn');
+            const debugLogModal = document.getElementById('debug-log-modal');
+            const closeLogBtn = document.getElementById('close-log-btn');
+            const debugLogContent = document.getElementById('debug-log-content');
+
+            if (testNoteBtn) {
+                testNoteBtn.addEventListener('click', async () => {
+                    try {
+                        await ensureBridgeLoaded();
+                        const result = await evalScript('MDUX_testNoteProperty()');
+                        alert(result);
+                    } catch (e) {
+                        alert('Error: ' + e.message);
+                    }
+                });
+            }
+
+            if (viewLogBtn) {
+                viewLogBtn.addEventListener('click', async () => {
+                    try {
+                        await ensureBridgeLoaded();
+                        const log = await evalScript('MDUX_getDebugLog()');
+                        debugLogContent.value = log;
+                        debugLogModal.style.display = 'block';
+                    } catch (e) {
+                        alert('Error: ' + e.message);
+                    }
+                });
+            }
+
+            if (clearLogBtn) {
+                clearLogBtn.addEventListener('click', async () => {
+                    try {
+                        await ensureBridgeLoaded();
+                        await evalScript('MDUX_clearDebugLog()');
+                        debugStatus.textContent = 'Debug log cleared';
+                    } catch (e) {
+                        alert('Error: ' + e.message);
+                    }
+                });
+            }
+
+            if (closeLogBtn) {
+                closeLogBtn.addEventListener('click', () => {
+                    debugLogModal.style.display = 'none';
+                });
+            }
+
+            csInterface.evalScript('MDUX_debugLog("[INIT] Debug buttons attached")', function() {});
+
+            if (debugStatus) debugStatus.textContent = 'Remote debugging available at http://localhost:8088';
+            if (skipOrthoOption) {
+                skipOrthoOption.indeterminate = false;
+                skipOrthoOption.checked = false;
+            }
+            if (rotationInput) {
+                rotationInput.value = '';
+                rotationInput.dataset.autoValue = '';
+                rotationInput.dataset.multi = 'false';
+            }
+            if (skipAllBranchesOption) skipAllBranchesOption.checked = false;
+            if (skipFinalOption) skipFinalOption.checked = true;  // Default to checked
+            if (createRegisterWiresOption) createRegisterWiresOption.checked = false;
+            // Scale controls are hidden - only set values if they exist
+            if (scaleSlider) scaleSlider.value = 100;
+            if (scaleLabel) scaleLabel.textContent = '100%';
+            if (scaleInput) scaleInput.value = '';
+
+            csInterface.evalScript('MDUX_debugLog("[INIT] State initialized")', function() {});
+
+            // Initialize Transform Each controls
+            resetTransformControls();
+
+            setProcessStatus('');
+            setRevertStatus('');
+            setSelectionStatus('');
+            setLayerStatus('');
+            setImportStatus('');
+
+            csInterface.evalScript('MDUX_debugLog("[INIT] About to load bridge...")', function() {});
+
+            try {
+                await ensureBridgeLoaded();
+                csInterface.evalScript('MDUX_debugLog("[INIT] Bridge loaded successfully")', function() {});
+            } catch (e) {
+                var bridgeErrMsg = String(e && e.message ? e.message : e).replace(/'/g, "\\'").replace(/\n/g, " ");
+                if (debugStatus) debugStatus.textContent = 'Bridge load failed: ' + bridgeErrMsg;
+                csInterface.evalScript('MDUX_debugLog("[INIT] Bridge load failed: ' + bridgeErrMsg + '")', function() {});
+            }
+
+            // Test function to verify event is firing
+            function testSelectionEvent() {
+                evalScript('MDUX_debugLog("[JS] *** afterSelectionChanged EVENT FIRED ***")');
+                scheduleSkipOrthoRefresh();
+            }
+
+            csInterface.addEventListener('afterSelectionChanged', testSelectionEvent);
+            csInterface.addEventListener('documentAfterActivate', scheduleSkipOrthoRefresh);
+            csInterface.addEventListener('documentAfterActivate', () => resetTransformControls(true));
+            csInterface.addEventListener('documentChanged', scheduleSkipOrthoRefresh);
+
+            csInterface.evalScript('MDUX_debugLog("[INIT] Event listeners registered")', function() {});
+
+            refreshSkipOrthoState().catch(function () { });
+            refreshRotationOverrideState().catch(function () { });
+            refreshDocScale().catch(function () { });
+
+            csInterface.evalScript('MDUX_debugLog("[INIT] About to create polling interval...")', function() {});
+
+            // Poll every 2 seconds to update selection transform state and rotation override
+            const pollInterval = setInterval(function() {
+                csInterface.evalScript('MDUX_debugLog("[POLL] tick")', function() {
+                    refreshSelectionTransformState().catch(function() {});
+                    refreshRotationOverrideState().catch(function() {});
+                });
+            }, 2000);
+
+            csInterface.evalScript('MDUX_debugLog("[INIT] Polling interval created, ID=' + pollInterval + '")', function() {});
+
+            // Also refresh when panel gets focus
+            window.addEventListener('focus', function() {
+                csInterface.evalScript('MDUX_debugLog("[FOCUS] Panel got focus")', function() {
+                    refreshSelectionTransformState().catch(function() {});
+                });
+            });
+
+            csInterface.evalScript('MDUX_debugLog("[INIT] Init complete!")', function() {});
+        } catch (initError) {
+            // Escape single quotes in error message to avoid breaking the evalScript string
+            var errMsg = String(initError && initError.message ? initError.message : initError);
+            errMsg = errMsg.replace(/'/g, "\\'").replace(/\n/g, " ");
+            csInterface.evalScript('MDUX_debugLog("[INIT] ERROR: ' + errMsg + '")', function() {});
+        }
     }
 
     window.addEventListener('beforeunload', function () {

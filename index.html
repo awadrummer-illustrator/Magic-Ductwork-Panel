@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Magic Ductwork</title>
@@ -7,131 +8,185 @@
     <script src="js/libs/CSInterface.js"></script>
     <script src="js/panel.js" defer></script>
 </head>
+
 <body>
     <img src="panel-background.png" class="bg-image" alt="">
     <div class="content-scroll">
-    <main class="main-frame">
-        
-        <!-- Top Toggles -->
-        <div class="toggle-grid" id="ortho-toggle-grid">
-            <div class="toggle-btn-wrapper">
-                <input type="checkbox" id="skip-ortho-option" class="ortho-toggle">
-                <label for="skip-ortho-option" class="toggle-btn">
-                    <img src="button_images/No Ortho.png" alt="No Ortho" class="toggle-img">
-                </label>
-            </div>
-            <div class="toggle-btn-wrapper">
-                <input type="checkbox" id="skip-all-branches-option" class="ortho-toggle">
-                <label for="skip-all-branches-option" class="toggle-btn">
-                    <img src="button_images/No Ortho Branches.png" alt="No Ortho Branches" class="toggle-img">
-                </label>
-            </div>
-            <div class="toggle-btn-wrapper">
-                <input type="checkbox" id="skip-final-option" class="ortho-toggle" checked>
-                <label for="skip-final-option" class="toggle-btn">
-                    <img src="button_images/No Ortho Final.png" alt="No Ortho Final" class="toggle-img">
-                </label>
-            </div>
-        </div>
+        <main class="main-frame">
 
-        <!-- Rotation Override -->
-        <div class="rotation-override">
-            <label for="rotation-input">Rotation override (°):</label>
-            <div class="rotation-input-group">
-                <input type="text" id="rotation-input" class="rotation-input" placeholder="Auto" inputmode="decimal">
-                <button type="button" id="clear-rotation-btn">Clear</button>
-            </div>
-        </div>
-
-        <!-- Process Button -->
-        <button id="process-btn" class="btn-primary-glow">Process Ductwork</button>
-        <!-- Hidden Emory Button -->
-        <button id="process-emory-btn" style="display:none;">Process Ductwork Emory</button>
-        <!-- Hidden Register Wires Option -->
-        <input type="checkbox" id="create-register-wires-option" style="display:none;">
-
-        <!-- Revert / Clear Metadata -->
-        <div class="btn-row">
-            <button id="revert-ortho-btn">Revert Pre-Ortho</button>
-            <button id="clear-rotation-metadata-btn">Clear Rotation Metadata</button>
-        </div>
-
-        <!-- Status Messages -->
-        <p id="process-status" class="status"></p>
-        <p id="revert-status" class="status"></p>
-        <p id="clear-rotation-metadata-status" class="status"></p>
-
-        <!-- Selection Transform -->
-        <div class="section">
-            <div class="section-title">Selection Transform</div>
-            
-            <div class="control-group">
-                <div class="slider-row">
-                    <span class="slider-label">Scale (%):</span>
-                    <input type="range" id="te-scale-slider" min="10" max="400" value="100">
-                    <input type="number" id="te-scale" value="100" step="1" style="width: 40px;">
+            <!-- Top Toggles -->
+            <div class="toggle-grid" id="ortho-toggle-grid">
+                <div class="toggle-btn-wrapper">
+                    <input type="checkbox" id="skip-ortho-option" class="ortho-toggle">
+                    <label for="skip-ortho-option" class="toggle-btn">
+                        <img src="button_images/No Ortho.png" alt="No Ortho" class="toggle-img">
+                    </label>
                 </div>
-                <div class="slider-row">
-                    <span class="slider-label">Rotate (°):</span>
-                    <input type="range" id="te-rotate-slider" min="-180" max="180" value="0">
-                    <input type="number" id="te-rotate" value="0" step="1" style="width: 40px;">
+                <div class="toggle-btn-wrapper">
+                    <input type="checkbox" id="skip-all-branches-option" class="ortho-toggle">
+                    <label for="skip-all-branches-option" class="toggle-btn">
+                        <img src="button_images/No Ortho Branches.png" alt="No Ortho Branches" class="toggle-img">
+                    </label>
                 </div>
-                <div class="checkbox-row">
-                    <input type="checkbox" id="te-live-option" checked>
-                    <label for="te-live-option">Live Preview</label>
-                </div>
-                <div class="btn-row">
-                    <button id="transform-each-btn">Apply / Reset</button>
-                    <button id="te-reset-original-btn">Reset to Original</button>
+                <div class="toggle-btn-wrapper">
+                    <input type="checkbox" id="skip-final-option" class="ortho-toggle" checked>
+                    <label for="skip-final-option" class="toggle-btn">
+                        <img src="button_images/No Ortho Final.png" alt="No Ortho Final" class="toggle-img">
+                    </label>
                 </div>
             </div>
-        </div>
 
-        <!-- Quick Rotate -->
-        <div class="section">
-            <div class="section-title">Quick Rotate</div>
-            <div class="quick-rotate-grid">
-                <button id="rotate-90-btn">Rotate 90°</button>
-                <button id="rotate-45-btn">Rotate 45°</button>
-                <button id="rotate-180-btn">Rotate 180°</button>
+            <!-- Rotation Override -->
+            <div class="rotation-override">
+                <label for="rotation-input">Rotation override (°):</label>
+                <div class="rotation-input-group">
+                    <input type="text" id="rotation-input" class="rotation-input" placeholder="Auto"
+                        inputmode="decimal">
+                    <button type="button" id="get-angle-btn">Get Angle</button>
+                    <button type="button" id="clear-rotation-btn">Clear</button>
+                </div>
             </div>
-            <p id="selection-status" class="status"></p>
-        </div>
 
-        <!-- Layer Management -->
-        <div class="section">
-            <div class="section-title-row">
-                <div class="section-title">Layer Management</div>
-                <button id="unlock-ductwork-btn" class="unlock-btn-small">
-                    <img src="button_images/Unlock All Ductwork Layers.png" alt="Unlock">
-                </button>
+            <!-- Process Button -->
+            <button id="process-btn" class="btn-primary-glow">Process Ductwork</button>
+            <!-- Hidden Emory Button -->
+            <button id="process-emory-btn" style="display:none;">Process Ductwork Emory</button>
+            <!-- Hidden Register Wires Option -->
+            <input type="checkbox" id="create-register-wires-option" style="display:none;">
+
+            <!-- Revert / Clear Metadata -->
+            <div class="btn-row">
+                <button id="revert-ortho-btn">Revert Pre-Ortho</button>
+                <button id="clear-rotation-metadata-btn">Clear Rotation Metadata</button>
             </div>
-            <div class="layer-buttons-grid">
-                <button id="isolate-parts-btn">Isolate Ductwork Parts</button>
-                <button id="isolate-lines-btn">Isolate Ductwork Lines</button>
-                <button id="create-layers-btn" style="color: var(--success-color); border-color: var(--success-color);">Create Standard Layers</button>
-                <button id="import-styles-btn" style="color: var(--success-color); border-color: var(--success-color);">Import Graphic Styles</button>
+
+            <!-- Document Scale (Collapsible) -->
+            <div class="section collapsible" style="border-color: var(--primary-color);">
+                <div class="section-title collapsible-header">
+                    <span>Document Scale</span>
+                    <span class="collapse-icon">▼</span>
+                </div>
+                <div class="collapsible-content" style="display: none;">
+                    <div class="control-group">
+                        <div class="slider-row">
+                            <span class="slider-label" style="width: 70px;">Doc Scale (%):</span>
+                            <input type="number" id="doc-scale-input" value="100" step="0.1" style="width: 60px;">
+                            <button id="get-doc-scale-btn" style="padding: 2px 5px; font-size: 10px;">Get</button>
+                        </div>
+                        <div class="btn-row">
+                            <button id="set-doc-scale-100-btn">Make Current 100%</button>
+                            <button id="apply-doc-scale-btn" class="btn-primary-glow"
+                                style="margin-bottom: 0; font-size: 8px;">Scale Entire Document</button>
+                        </div>
+                    </div>
+                </div>
             </div>
-            <p id="layer-status" class="status"></p>
-            <p id="import-status" class="status"></p>
-        </div>
 
-        <!-- Export Tools -->
-        <div class="section">
-            <div class="section-title">Export Tools</div>
-            <div class="export-grid">
-                <button id="export-ductwork-btn">Export Ductwork</button>
-                <button id="reexport-floorplan-btn">Re-Export Floorplan</button>
+            <!-- Status Messages -->
+            <p id="process-status" class="status"></p>
+            <p id="revert-status" class="status"></p>
+            <p id="clear-rotation-metadata-status" class="status"></p>
+
+            <!-- Selection Transform -->
+            <div class="section">
+                <div class="section-title">Selection Transform</div>
+
+                <div class="control-group">
+                    <div class="slider-row">
+                        <span class="slider-label">Scale (%):</span>
+                        <input type="range" id="te-scale-slider" min="10" max="400" value="100">
+                        <input type="number" id="te-scale" value="100" step="1" style="width: 40px;">
+                    </div>
+                    <div class="slider-row">
+                        <span class="slider-label">Rotate (°):</span>
+                        <input type="range" id="te-rotate-slider" min="-180" max="180" value="0">
+                        <input type="number" id="te-rotate" value="0" step="1" style="width: 40px;">
+                    </div>
+                    <div class="checkbox-row">
+                        <input type="checkbox" id="te-live-option" checked>
+                        <label for="te-live-option">Live Preview</label>
+                    </div>
+                    <div class="btn-row">
+                        <button id="transform-each-btn">Apply / Reset</button>
+                        <button id="te-reset-original-btn">Reset to Original</button>
+                    </div>
+                </div>
+                <p id="selection-status" class="status"
+                    style="margin-top: 5px; color: var(--accent-color); font-weight: bold;"></p>
             </div>
-            <p id="export-status" class="status"></p>
+
+            <!-- Quick Rotate -->
+            <div class="section">
+                <div class="section-title">Quick Rotate</div>
+                <div class="quick-rotate-grid">
+                    <button id="rotate-90-btn">Rotate 90°</button>
+                    <button id="rotate-45-btn">Rotate 45°</button>
+                    <button id="rotate-180-btn">Rotate 180°</button>
+                </div>
+                <p id="selection-status" class="status"></p>
+            </div>
+
+            <!-- Layer Management -->
+            <div class="section">
+                <div class="section-title-row">
+                    <div class="section-title">Layer Management</div>
+                    <button id="unlock-ductwork-btn" class="unlock-btn-small">
+                        <img src="button_images/Unlock All Ductwork Layers.png" alt="Unlock">
+                    </button>
+                </div>
+                <div class="layer-buttons-grid">
+                    <button id="isolate-parts-btn">Isolate Ductwork Parts</button>
+                    <button id="isolate-lines-btn">Isolate Ductwork Lines</button>
+                    <button id="create-layers-btn"
+                        style="color: var(--success-color); border-color: var(--success-color);">Create Standard
+                        Layers</button>
+                    <button id="import-styles-btn"
+                        style="color: var(--success-color); border-color: var(--success-color);">Import Graphic
+                        Styles</button>
+                </div>
+                <p id="layer-status" class="status"></p>
+                <p id="import-status" class="status"></p>
+            </div>
+
+            <!-- Export Tools -->
+            <div class="section">
+                <div class="section-title">Export Tools</div>
+                <div class="export-grid">
+                    <button id="export-ductwork-btn">Export Ductwork</button>
+                    <button id="reexport-floorplan-btn">Re-Export Floorplan</button>
+                </div>
+                <p id="export-status" class="status"></p>
+            </div>
+
+            <!-- Debug Tools -->
+            <div class="section" style="border-color: #ff0; background: rgba(40, 40, 0, 0.3);">
+                <div class="section-title" style="color: #ff0;">Debug Tools</div>
+                <div class="export-grid">
+                    <button id="test-note-btn">Test Note Property</button>
+                    <button id="view-log-btn">View Debug Log</button>
+                    <button id="clear-log-btn">Clear Log</button>
+                </div>
+            </div>
+
+        </main>
+
+        <footer>
+            <button id="reload-btn" style="background:none; border:none; color:#555; font-size:7px;">Reload Extension
+                (F5)</button>
+            <span id="debug-status" style="display:none;"></span>
+        </footer>
+
+        <!-- Debug Log Modal -->
+        <div id="debug-log-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.9); z-index:9999; padding:10px; box-sizing:border-box;">
+            <div style="background:#0a1520; border:2px solid var(--primary-color); border-radius:8px; padding:10px; height:100%; display:flex; flex-direction:column;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <h3 style="margin:0; color:var(--primary-color); font-size:12px;">Debug Log</h3>
+                    <button id="close-log-btn" style="padding:4px 8px;">Close</button>
+                </div>
+                <textarea id="debug-log-content" readonly style="flex:1; background:#000; color:#0f0; font-family:monospace; font-size:9px; border:1px solid var(--secondary-color); padding:8px; resize:none;"></textarea>
+            </div>
         </div>
-
-    </main>
-
-    <footer>
-        <button id="reload-btn" style="background:none; border:none; color:#555; font-size:7px;">Reload Extension (F5)</button>
-        <span id="debug-status" style="display:none;"></span>
-    </footer>
     </div>
 </body>
+
 </html>

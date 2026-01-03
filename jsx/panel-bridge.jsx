@@ -13,7 +13,7 @@ function MDUX_debugLog_Early(message) {
         logFile.open("a");
         logFile.writeln("[EARLY] " + message);
         logFile.close();
-    } catch(e) {}
+    } catch (e) { }
 }
 
 MDUX_debugLog_Early("panel-bridge.jsx is loading...");
@@ -29,10 +29,10 @@ MDUX_debugLog_Early("Includes finished. MDUX_performExport type: " + typeof MDUX
 // Force update every time if MDUX_LAST_BRIDGE_PATH is set to override any stale cached values
 if ($.global.MDUX_LAST_BRIDGE_PATH) {
     $.global.MDUX_JSX_FOLDER = File($.global.MDUX_LAST_BRIDGE_PATH).parent;
-    try { $.writeln("[MDUX] Updated MDUX_JSX_FOLDER from MDUX_LAST_BRIDGE_PATH: " + $.global.MDUX_JSX_FOLDER); } catch(e) {}
+    try { $.writeln("[MDUX] Updated MDUX_JSX_FOLDER from MDUX_LAST_BRIDGE_PATH: " + $.global.MDUX_JSX_FOLDER); } catch (e) { }
 } else if (typeof $.global.MDUX_JSX_FOLDER === "undefined") {
     $.global.MDUX_JSX_FOLDER = File($.fileName).parent;
-    try { $.writeln("[MDUX] Initial setup from $.fileName: " + $.global.MDUX_JSX_FOLDER); } catch(e) {}
+    try { $.writeln("[MDUX] Initial setup from $.fileName: " + $.global.MDUX_JSX_FOLDER); } catch (e) { }
 }
 
 // Minimal JSON polyfill for ExtendScript environments lacking native support
@@ -43,12 +43,12 @@ if (typeof JSON.stringify !== "function") {
     JSON.stringify = function (value) {
         function quote(str) {
             return '"' + str.replace(/\\/g, '\\\\')
-                             .replace(/"/g, '\\"')
-                             .replace(/\r/g, '\\r')
-                             .replace(/\n/g, '\\n')
-                             .replace(/\f/g, '\\f')
-                             .replace(/\t/g, '\\t')
-                             .replace(/[\b]/g, '\\b') + '"';
+                .replace(/"/g, '\\"')
+                .replace(/\r/g, '\\r')
+                .replace(/\n/g, '\\n')
+                .replace(/\f/g, '\\f')
+                .replace(/\t/g, '\\t')
+                .replace(/[\b]/g, '\\b') + '"';
         }
         function stringify(val) {
             if (val === null) return "null";
@@ -133,7 +133,7 @@ function MDUX_isDuctworkLine(item) {
         for (var i = 0; i < DUCTWORK_LINES.length; i++) {
             if (layerName === DUCTWORK_LINES[i]) return true;
         }
-    } catch (e) {}
+    } catch (e) { }
     return false;
 }
 
@@ -144,49 +144,260 @@ function MDUX_isDuctworkPart(item) {
         for (var i = 0; i < DUCTWORK_PARTS.length; i++) {
             if (layerName === DUCTWORK_PARTS[i]) return true;
         }
-    } catch (e) {}
+    } catch (e) { }
     return false;
 }
 
-function MDUX_getTag(item, key) {
+// Metadata storage using item.note (more reliable than tags with undo/redo)
+function MDUX_getMetadata(item) {
     try {
-        for (var i = 0; i < item.tags.length; i++) {
-            if (item.tags[i].name === key) return item.tags[i].value;
+        var note = item.note || "";
+        if (!note || note.indexOf("MDUX_META:") !== 0) return null;
+        var jsonStr = note.substring(10); // Remove "MDUX_META:" prefix
+        MDUX_debugLog("[META GET] Raw note length=" + note.length + ", jsonStr length=" + jsonStr.length);
+        MDUX_debugLog("[META GET] jsonStr=" + jsonStr.substring(0, 500));
+
+        // Fix corrupted metadata: strip any trailing chars after the closing brace
+        var lastBrace = jsonStr.lastIndexOf("}");
+        if (lastBrace !== -1 && lastBrace < jsonStr.length - 1) {
+            var trailing = jsonStr.substring(lastBrace + 1);
+            MDUX_debugLog("[META GET] WARNING: Found trailing chars after JSON: '" + trailing + "' - stripping them");
+            jsonStr = jsonStr.substring(0, lastBrace + 1);
         }
-    } catch(e) {}
-    return null;
+
+        var parsed = JSON.parse(jsonStr);
+        // List keys manually (ExtendScript doesn't have Object.keys)
+        var keyList = [];
+        for (var k in parsed) {
+            if (parsed.hasOwnProperty(k)) keyList.push(k);
+        }
+        MDUX_debugLog("[META GET] Parsed keys: " + keyList.join(", "));
+        return parsed;
+    } catch (e) {
+        MDUX_debugLog("[META GET] ERROR parsing JSON: " + e + " | jsonStr was: " + (jsonStr || "(undefined)").substring(0, 200));
+        return null;
+    }
+}
+
+function MDUX_setMetadata(item, metadata) {
+    try {
+        var jsonStr = JSON.stringify(metadata);
+        var noteStr = "MDUX_META:" + jsonStr;
+        item.note = noteStr;
+
+        // Verify it was actually set
+        var verify = item.note;
+        MDUX_debugLog("[META] Set metadata on " + item.typename + ": " + noteStr.substring(0, 500));
+        MDUX_debugLog("[META] Verified note = " + (verify ? verify.substring(0, 500) : "NULL"));
+
+        if (!verify || verify !== noteStr) {
+            MDUX_debugLog("[META] ERROR: Note was not set correctly!");
+        }
+    } catch (e) {
+        MDUX_debugLog("[META] ERROR setting metadata: " + e);
+    }
+}
+
+function MDUX_getTag(item, key) {
+    var meta = MDUX_getMetadata(item);
+    return meta && meta[key] !== undefined ? String(meta[key]) : null;
 }
 
 function MDUX_setTag(item, key, value) {
-    try {
-        var found = false;
-        for (var i = 0; i < item.tags.length; i++) {
-            if (item.tags[i].name === key) {
-                item.tags[i].value = String(value);
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
-            var t = item.tags.add();
-            t.name = key;
-            t.value = String(value);
-        }
-    } catch(e) {}
+    var meta = MDUX_getMetadata(item) || {};
+    meta[key] = value;
+    MDUX_setMetadata(item, meta);
 }
 
 function MDUX_removeTag(item, key) {
-    try {
-        for (var i = 0; i < item.tags.length; i++) {
-            if (item.tags[i].name === key) {
-                item.tags[i].remove();
-                break;
-            }
-        }
-    } catch(e) {}
+    var meta = MDUX_getMetadata(item);
+    if (!meta) return;
+    delete meta[key];
+    MDUX_setMetadata(item, meta);
 }
 
-function MDUX_resetTransforms() {
+// ========================================
+// GLOBAL DOCUMENT SCALE MANAGEMENT
+// ========================================
+
+/**
+ * Gets or creates the Scale Factor Box used to store the document's scale factor.
+ * Logic ported from the user's original script.
+ */
+function MDUX_getOrCreateScaleFactorBox(doc) {
+    var layerName = "Scale Factor Container Layer";
+    var boxName = "ScaleFactorBox";
+    var container;
+
+    try {
+        container = doc.layers.getByName(layerName);
+    } catch (e) {
+        container = doc.layers.add();
+        container.name = layerName;
+        container.printable = false; // Usually don't want this to print
+    }
+
+    var box = null;
+    for (var i = 0; i < container.pathItems.length; i++) {
+        var pi = container.pathItems[i];
+        if (pi.name === boxName) {
+            box = pi;
+            break;
+        }
+    }
+
+    if (!box) {
+        // Create initial box
+        doc.rulerOrigin = [0, 0];
+        var ab = doc.artboards[doc.artboards.getActiveArtboardIndex()];
+        var left = ab.artboardRect[0];
+        var top = ab.artboardRect[1];
+        var w = 100, h = 100;
+
+        // Temporarily unlock container if needed
+        var wasLocked = container.locked;
+        container.locked = false;
+
+        box = container.pathItems.rectangle(top - h, left - 125, w, h);
+        box.position = [left - 125, top];
+        box.name = boxName;
+        box.filled = false;
+        box.stroked = true;
+        box.strokeWidth = 1;
+
+        var blue = new RGBColor();
+        blue.red = 0; blue.green = 0; blue.blue = 255;
+        box.strokeColor = blue;
+        box.note = "100"; // Default scale
+
+        container.locked = wasLocked;
+    }
+
+    return box;
+}
+
+function MDUX_getDocumentScale() {
+    try {
+        if (app.documents.length === 0) return "100";
+        var box = MDUX_getOrCreateScaleFactorBox(app.activeDocument);
+        return box.note || "100";
+    } catch (e) {
+        return "100";
+    }
+}
+
+function MDUX_setDocumentScale(percent) {
+    try {
+        if (app.documents.length === 0) return "ERROR:No document";
+        var doc = app.activeDocument;
+        var box = MDUX_getOrCreateScaleFactorBox(doc);
+
+        var container = box.layer;
+        var wasLocked = container.locked;
+        container.locked = false;
+
+        box.note = String(percent);
+
+        container.locked = wasLocked;
+        return "OK";
+    } catch (e) {
+        return "ERROR:" + e;
+    }
+}
+
+/**
+ * Ported logic from old script: Portions the document into Geometry (Resized) 
+ * and Strokes (StrokeWidth Scaled).
+ */
+function MDUX_applyScaleToFullDocument(targetPercent) {
+    try {
+        if (app.documents.length === 0) return JSON.stringify({ ok: false, message: "No document open" });
+        var doc = app.activeDocument;
+
+        var currentScaleStr = MDUX_getDocumentScale();
+        var currentPercent = parseFloat(currentScaleStr) || 100;
+
+        if (Math.abs(targetPercent - currentPercent) < 0.001) {
+            return JSON.stringify({ ok: true, message: "Document is already at " + targetPercent + "%" });
+        }
+
+        var ratio = targetPercent / currentPercent;
+        var stats = { parts: 0, lines: 0 };
+
+        // 1. Scale Parts (Geometry & Stroke)
+        for (var i = 0; i < DUCTWORK_PARTS.length; i++) {
+            try {
+                var layer = doc.layers.getByName(DUCTWORK_PARTS[i]);
+                if (layer.locked || !layer.visible) continue;
+
+                for (var j = 0; j < layer.pageItems.length; j++) {
+                    var item = layer.pageItems[j];
+                    if (item.locked || item.hidden) continue;
+                    try {
+                        // Resizing parts includes stroke scaling usually
+                        item.resize(ratio * 100, ratio * 100, true, true, true, true, ratio * 100, Transformation.CENTER);
+                        stats.parts++;
+                    } catch (e) { }
+                }
+            } catch (eLayer) { }
+        }
+
+        // 2. Scale Lines (Stroke Only)
+        // Note: For lines, we typically want to scale the stroke width but not the geometry lengths
+        // unless they are also being repositioned. The old script's applyFullLayerScaling
+        // distinguishes between scaleGeometryOnly and scaleStrokesOnly.
+
+        for (var k = 0; k < DUCTWORK_LINES.length; k++) {
+            try {
+                var lLayer = doc.layers.getByName(DUCTWORK_LINES[k]);
+                if (lLayer.locked || !lLayer.visible) continue;
+
+                for (var m = 0; m < lLayer.pageItems.length; m++) {
+                    var lItem = lLayer.pageItems[m];
+                    if (lItem.locked || lItem.hidden) continue;
+
+                    // Recursive stroke scaling logic
+                    MDUX_scaleStrokeRecursive(lItem, ratio);
+                    stats.lines++;
+                }
+            } catch (eLayerLine) { }
+        }
+
+        // Update the box
+        MDUX_setDocumentScale(targetPercent);
+
+        // SYNC TAGS: Important to keep Selection Transform UI in sync
+        for (var n = 0; n < doc.pageItems.length; n++) {
+            var pi = doc.pageItems[n];
+            // Only update if it already has ductwork metadata to avoid tagging every single thing in the doc
+            if (MDUX_getTag(pi, "MDUX_OriginalWidth") !== null) {
+                MDUX_setTag(pi, "MDUX_CurrentScale", targetPercent);
+            }
+        }
+
+        return JSON.stringify({ ok: true, message: "Scaled document from " + currentPercent + "% to " + targetPercent + "%", stats: stats });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Error: " + e });
+    }
+}
+
+function MDUX_scaleStrokeRecursive(item, ratio) {
+    var percent = ratio * 100;
+    try {
+        if (item.typename === "GroupItem") {
+            for (var i = 0; i < item.pageItems.length; i++) {
+                MDUX_scaleStrokeRecursive(item.pageItems[i], ratio);
+            }
+        } else if (item.typename === "CompoundPathItem" || item.typename === "PathItem") {
+            // Use resize(100, 100, false, false, false, false, percent) 
+            // to scale ONLY the stroke width/patterns.
+            // Ported from old script's scaleStrokeProperties logic.
+            item.resize(100, 100, false, false, false, false, percent, Transformation.CENTER);
+        }
+    } catch (e) { }
+}
+
+function MDUX_resetTransforms(targetPercent) {
     try {
         if (app.documents.length === 0) return JSON.stringify({ ok: false, message: "No document open." });
         var sel = app.selection;
@@ -195,7 +406,7 @@ function MDUX_resetTransforms() {
         var count = 0;
         for (var i = 0; i < sel.length; i++) {
             var item = sel[i];
-            
+
             // 1. Restore Rotation
             var cumRot = MDUX_getTag(item, "MDUX_CumulativeRotation");
             if (cumRot !== null) {
@@ -222,7 +433,10 @@ function MDUX_resetTransforms() {
                 item.strokeWidth = parseFloat(origStroke);
                 MDUX_removeTag(item, "MDUX_OriginalStrokeWidth");
             }
-            
+
+            // 4. Restore Selection Transform Tag
+            MDUX_removeTag(item, "MDUX_CurrentScale");
+
             count++;
         }
         return JSON.stringify({ ok: true, message: "Reset " + count + " items." });
@@ -236,16 +450,30 @@ if (typeof MDUX === "undefined") {
 }
 
 // Debug logging to file
+// In-memory debug log buffer
+if (typeof $.global.MDUX_debugBuffer === "undefined") {
+    $.global.MDUX_debugBuffer = [];
+}
+
 function MDUX_debugLog(message) {
     try {
-        var logFile = new File(MDUX_joinPath($.global.MDUX_JSX_FOLDER || File($.fileName).parent.parent, "debug.log"));
-        logFile.open("a");
-        logFile.writeln("[" + new Date().toISOString() + "] " + message);
-        logFile.close();
+        // ExtendScript doesn't have toISOString(), use toString() instead
+        var timestamp = new Date().toString();
+        var logEntry = "[" + timestamp + "] " + message;
+        $.global.MDUX_debugBuffer.push(logEntry);
+
+        // Keep only last 200 entries to prevent memory issues
+        if ($.global.MDUX_debugBuffer.length > 200) {
+            $.global.MDUX_debugBuffer.shift();
+        }
     } catch (e) {
-        // Silently fail if logging doesn't work
+        // Log the error to help debug
+        $.global.MDUX_debugBuffer.push("[ERROR in MDUX_debugLog] " + e.toString());
     }
 }
+
+// Log that bridge is loading
+MDUX_debugLog("=== BRIDGE LOADING - panel-bridge.jsx ===");
 
 function MDUX_extensionRoot() {
     // Use the stored jsx folder path, or fall back to calculating it
@@ -286,7 +514,7 @@ function MDUX_runMagicDuctwork() {
             rootPath = String(root);
         }
         MDUX_debugLog("root folder: " + rootPath);
-        try { $.writeln("[MDUX] root folder: " + rootPath); } catch (logRoot) {}
+        try { $.writeln("[MDUX] root folder: " + rootPath); } catch (logRoot) { }
 
         var scriptFile = File(MDUX_joinPath(root, "magic-final.jsx"));
         var scriptPath = "";
@@ -297,12 +525,12 @@ function MDUX_runMagicDuctwork() {
         }
         MDUX_debugLog("looking for: " + scriptPath);
         MDUX_debugLog("file exists: " + scriptFile.exists);
-        try { $.writeln("[MDUX] looking for: " + scriptPath); } catch (logPath) {}
-        try { $.writeln("[MDUX] file exists: " + scriptFile.exists); } catch (logExists) {}
+        try { $.writeln("[MDUX] looking for: " + scriptPath); } catch (logPath) { }
+        try { $.writeln("[MDUX] file exists: " + scriptFile.exists); } catch (logExists) { }
 
         if (!scriptFile.exists) {
             MDUX_debugLog("ERROR: magic-final missing at " + scriptPath);
-            try { $.writeln("[MDUX] magic-final missing at " + scriptPath); } catch (logMiss) {}
+            try { $.writeln("[MDUX] magic-final missing at " + scriptPath); } catch (logMiss) { }
             return "ERROR:magic-final.jsx not found at: " + scriptPath;
         }
         MDUX_debugLog("SUCCESS: About to evalFile");
@@ -322,7 +550,7 @@ function MDUX_requireMagicFinal() {
         }
         var root = MDUX_extensionRoot();
         if (!root) {
-            try { $.writeln("[MDUX] requireMagicFinal: could not determine root"); } catch (logErr) {}
+            try { $.writeln("[MDUX] requireMagicFinal: could not determine root"); } catch (logErr) { }
             return false;
         }
         var scriptFile = File(MDUX_joinPath(root, "magic-final.jsx"));
@@ -332,9 +560,9 @@ function MDUX_requireMagicFinal() {
         } catch (e) {
             scriptPath = String(scriptFile);
         }
-        try { $.writeln("[MDUX] requireMagicFinal: looking for " + scriptPath); } catch (logPath) {}
+        try { $.writeln("[MDUX] requireMagicFinal: looking for " + scriptPath); } catch (logPath) { }
         if (!scriptFile.exists) {
-            try { $.writeln("[MDUX] requireMagicFinal: file not found at " + scriptPath); } catch (logMiss) {}
+            try { $.writeln("[MDUX] requireMagicFinal: file not found at " + scriptPath); } catch (logMiss) { }
             return false;
         }
         var previousForced = null;
@@ -343,13 +571,13 @@ function MDUX_requireMagicFinal() {
         }
         $.global.MDUX = $.global.MDUX || {};
         $.global.MDUX.forcedOptions = { action: "library" };
-        try { $.writeln("[MDUX] requireMagicFinal: loading magic-final.jsx"); } catch (logErr) {}
+        try { $.writeln("[MDUX] requireMagicFinal: loading magic-final.jsx"); } catch (logErr) { }
         $.evalFile(scriptFile);
         try {
             if ($.global.MDUX) {
                 MDUX = $.global.MDUX;
             }
-        } catch (eAssign) {}
+        } catch (eAssign) { }
         if (previousForced) {
             $.global.MDUX.forcedOptions = previousForced;
         } else if ($.global.MDUX && $.global.MDUX.hasOwnProperty("forcedOptions")) {
@@ -358,7 +586,7 @@ function MDUX_requireMagicFinal() {
         var ns = (typeof MDUX !== "undefined" && MDUX.rotateSelection) ? MDUX : ($.global.MDUX || null);
         return !!(ns && (ns.rotateSelection || ns.createStandardLayerBlock || ns.importDuctworkGraphicStyles));
     } catch (e) {
-        try { $.writeln("[MDUX] requireMagicFinal error: " + e); } catch (logErr2) {}
+        try { $.writeln("[MDUX] requireMagicFinal error: " + e); } catch (logErr2) { }
         return false;
     }
 }
@@ -495,6 +723,24 @@ function MDUX_clearRotationMetadataBridge() {
             if (item.typename === "PathItem") {
                 MDUX.clearRotationOverride(item);
                 count++;
+            } else if (item.typename === "CompoundPathItem") {
+                // Clear rotation override from child paths (MD:ROT= tokens)
+                if (item.pathItems) {
+                    for (var cpi = 0; cpi < item.pathItems.length; cpi++) {
+                        MDUX.clearRotationOverride(item.pathItems[cpi]);
+                        count++;
+                    }
+                }
+                // Also clear rotation override from compound path's MDUX_META
+                try {
+                    var compoundMeta = MDUX_getMetadata(item);
+                    if (compoundMeta && compoundMeta.MDUX_RotationOverride !== undefined) {
+                        delete compoundMeta.MDUX_RotationOverride;
+                        MDUX_setMetadata(item, compoundMeta);
+                    }
+                } catch (eCompoundMeta) {
+                    // Ignore metadata errors
+                }
             } else if (item.typename === "GroupItem") {
                 var paths = MDUX.getAllPathItemsInGroup(item);
                 for (var j = 0; j < paths.length; j++) {
@@ -548,15 +794,24 @@ function MDUX_rotateSelectionBridge(angle) {
     }
 }
 
-function MDUX_scaleSelectionBridge(percent) {
+function MDUX_scaleSelectionBridge(requestedPercent) {
     try {
+        var percent = requestedPercent;
         if (typeof percent !== "number") percent = parseFloat(percent);
         if (!isFinite(percent)) return "ERROR:Invalid scale value";
         if (!MDUX_requireMagicFinal()) {
             return "ERROR:Scale function unavailable";
         }
         if (typeof MDUX !== "undefined" && MDUX.scaleSelectionAbsolute) {
-            var stats = MDUX.scaleSelectionAbsolute(percent);
+            // Anchor-based scaling: scale relative to document's anchor
+            var anchor = parseFloat(MDUX_getDocumentScale()) || 100;
+            var targetPercent = percent * (anchor / 100);
+
+            var stats = MDUX.scaleSelectionAbsolute(targetPercent);
+
+            // Note: We do NOT update the Document Scale anchor here, 
+            // as this is a selection-only transform.
+
             return JSON.stringify(stats);
         }
         return "ERROR:Scale function unavailable";
@@ -572,6 +827,12 @@ function MDUX_resetScaleBridge() {
         }
         if (typeof MDUX !== "undefined" && MDUX.resetSelectionScale) {
             var stats = MDUX.resetSelectionScale();
+
+            // Sync with Scale Factor Box if successful
+            if (stats && stats.reset > 0) {
+                MDUX_setDocumentScale(100);
+            }
+
             return JSON.stringify(stats);
         }
         return "ERROR:Reset scale function unavailable";
@@ -582,15 +843,22 @@ function MDUX_resetScaleBridge() {
 
 function MDUX_rotationStateBridge() {
     try {
+        MDUX_debugLog("[ROT-BRIDGE] MDUX_rotationStateBridge called");
         if (!MDUX_requireMagicFinal()) {
+            MDUX_debugLog("[ROT-BRIDGE] MDUX_requireMagicFinal returned false");
             return "ERROR:Rotation function unavailable";
         }
+        MDUX_debugLog("[ROT-BRIDGE] MDUX_requireMagicFinal returned true, checking MDUX.getRotationOverrideSummary...");
         if (typeof MDUX !== "undefined" && MDUX.getRotationOverrideSummary) {
+            MDUX_debugLog("[ROT-BRIDGE] Calling MDUX.getRotationOverrideSummary()...");
             var summary = MDUX.getRotationOverrideSummary();
+            MDUX_debugLog("[ROT-BRIDGE] Got summary: " + JSON.stringify(summary).substring(0, 200));
             return JSON.stringify(summary);
         }
+        MDUX_debugLog("[ROT-BRIDGE] MDUX.getRotationOverrideSummary not available");
         return "ERROR:Rotation function unavailable";
     } catch (e) {
+        MDUX_debugLog("[ROT-BRIDGE] ERROR: " + e);
         return "ERROR:" + e;
     }
 }
@@ -650,16 +918,16 @@ function MDUX_importGraphicStylesBridge() {
         }
 
         var sourceDoc = null;
-        try { $.writeln("[MDUX] Import styles: opening " + sourceFile.fsName); } catch (logOpen) {}
+        try { $.writeln("[MDUX] Import styles: opening " + sourceFile.fsName); } catch (logOpen) { }
         try {
             sourceDoc = app.open(sourceFile);
             app.activeDocument = sourceDoc;
             try {
                 for (var L = 0; L < sourceDoc.layers.length; L++) {
-                    try { sourceDoc.layers[L].locked = false; } catch (eLock) {}
-                    try { sourceDoc.layers[L].visible = true; } catch (eVis) {}
+                    try { sourceDoc.layers[L].locked = false; } catch (eLock) { }
+                    try { sourceDoc.layers[L].visible = true; } catch (eVis) { }
                 }
-            } catch (eIter) {}
+            } catch (eIter) { }
 
             var items = null;
             try { items = sourceDoc.pageItems; } catch (eItems) { items = null; }
@@ -670,16 +938,16 @@ function MDUX_importGraphicStylesBridge() {
             }
 
             for (var i = 0; i < items.length; i++) {
-                try { items[i].selected = true; } catch (eSel) {}
+                try { items[i].selected = true; } catch (eSel) { }
             }
             app.copy();
             sourceDoc.close(SaveOptions.DONOTSAVECHANGES);
         } catch (copyErr) {
             try {
                 if (sourceDoc) sourceDoc.close(SaveOptions.DONOTSAVECHANGES);
-            } catch (closeErr) {}
+            } catch (closeErr) { }
             app.activeDocument = destDoc;
-            try { $.writeln("[MDUX] Import styles error: " + copyErr); } catch (logCopy) {}
+            try { $.writeln("[MDUX] Import styles error: " + copyErr); } catch (logCopy) { }
             return "ERROR:" + copyErr;
         }
 
@@ -693,7 +961,7 @@ function MDUX_importGraphicStylesBridge() {
             tempLayer = destDoc.layers.add();
             tempLayer.name = tempLayerName;
         }
-        try { tempLayer.locked = false; } catch (lockErr) {}
+        try { tempLayer.locked = false; } catch (lockErr) { }
         destDoc.activeLayer = tempLayer;
         app.executeMenuCommand("pasteInPlace");
         var pasted = null;
@@ -701,7 +969,7 @@ function MDUX_importGraphicStylesBridge() {
         if (pasted) {
             if (pasted.length === undefined) pasted = [pasted];
             for (var p = pasted.length - 1; p >= 0; p--) {
-                try { pasted[p].remove(); } catch (remErr) {}
+                try { pasted[p].remove(); } catch (remErr) { }
             }
         }
         destDoc.selection = null;
@@ -709,12 +977,12 @@ function MDUX_importGraphicStylesBridge() {
             if (!tempLayer.pageItems.length && !tempLayer.groupItems.length) {
                 tempLayer.remove();
             }
-        } catch (cleanupErr) {}
-        try { app.redraw(); } catch (redErr) {}
-        try { $.writeln("[MDUX] Import styles completed successfully"); } catch (logDone) {}
+        } catch (cleanupErr) { }
+        try { app.redraw(); } catch (redErr) { }
+        try { $.writeln("[MDUX] Import styles completed successfully"); } catch (logDone) { }
         return "Graphic styles imported.";
     } catch (e) {
-        try { $.writeln("[MDUX] Import styles exception: " + e); } catch (logFinal) {}
+        try { $.writeln("[MDUX] Import styles exception: " + e); } catch (logFinal) { }
         return "ERROR:Import styles (exception): " + e;
     }
 }
@@ -744,43 +1012,68 @@ function MDUX_createLayersBridge() {
             "Green Ductwork"
         ];
 
-    for (var i = 0; i < desired.length; i++) {
-        var name = desired[i];
-        var layer = null;
-        try { layer = doc.layers.getByName(name); } catch (eFind) {
-            try {
-                layer = doc.layers.add();
-                layer.name = name;
-                try { $.writeln("[MDUX] Created missing layer: " + name); } catch (logCreate) {}
-            } catch (eCreate) {
-                layer = null;
+        for (var i = 0; i < desired.length; i++) {
+            var name = desired[i];
+            var layer = null;
+            try { layer = doc.layers.getByName(name); } catch (eFind) {
+                try {
+                    layer = doc.layers.add();
+                    layer.name = name;
+                    try { $.writeln("[MDUX] Created missing layer: " + name); } catch (logCreate) { }
+                } catch (eCreate) {
+                    layer = null;
+                }
             }
         }
-    }
 
-    for (var idx = desired.length - 1; idx >= 0; idx--) {
-        try {
-            var target = doc.layers.getByName(desired[idx]);
-            if (!target) continue;
-            var prevLocked = null;
-            try { prevLocked = target.locked; target.locked = false; } catch (eLock) {}
-            try { target.visible = true; } catch (eVisible) {}
+        for (var idx = desired.length - 1; idx >= 0; idx--) {
             try {
-                target.move(doc.layers[0], ElementPlacement.PLACEBEFORE);
-            } catch (eMove) {}
-            try {
-                if (prevLocked !== null) target.locked = prevLocked;
-            } catch (eRestore) {}
-        } catch (eTarget) {}
-    }
+                var target = doc.layers.getByName(desired[idx]);
+                if (!target) continue;
+                var prevLocked = null;
+                try { prevLocked = target.locked; target.locked = false; } catch (eLock) { }
+                try { target.visible = true; } catch (eVisible) { }
+                try {
+                    target.move(doc.layers[0], ElementPlacement.PLACEBEFORE);
+                } catch (eMove) { }
+                try {
+                    if (prevLocked !== null) target.locked = prevLocked;
+                } catch (eRestore) { }
+            } catch (eTarget) { }
+        }
 
-    try { app.redraw(); } catch (eRedraw) {}
-    try { $.writeln("[MDUX] Ensure standard layers completed"); } catch (logDone) {}
-    return "Standard ductwork layers ensured.";
-} catch (e) {
-    try { $.writeln("[MDUX] Create layers exception: " + e); } catch (logErr) {}
-    return "ERROR:Create layers (exception): " + e;
+        try { app.redraw(); } catch (eRedraw) { }
+        try { $.writeln("[MDUX] Ensure standard layers completed"); } catch (logDone) { }
+        return "Standard ductwork layers ensured.";
+    } catch (e) {
+        try { $.writeln("[MDUX] Create layers exception: " + e); } catch (logErr) { }
+        return "ERROR:Create layers (exception): " + e;
+    }
 }
+
+/**
+ * Helper function to set the proper name for a PlacedItem based on its file.
+ * Extracts the piece name from the file path and sets it as "PieceName (Linked)"
+ * This ensures the item can be found by existingItems filters in magic-final.jsx
+ */
+function MDUX_setPlacedItemName(item, file) {
+    try {
+        if (!item || !file) return;
+
+        // Get file name without extension
+        var fileName = file.name || "";
+        var baseName = fileName.replace(/\.[^.]*$/, ""); // Remove extension
+
+        // Remove " Emory" suffix if present (so "Unit Emory" becomes "Unit")
+        baseName = baseName.replace(/ Emory$/, "");
+
+        // Set name in format "PieceName (Linked)" to match magic-final.jsx convention
+        item.name = baseName + " (Linked)";
+
+        $.writeln("[NAME] Set PlacedItem name to: " + item.name);
+    } catch (e) {
+        $.writeln("[NAME] Error setting PlacedItem name: " + e);
+    }
 }
 
 function MDUX_runEmoryDuctwork(createRegisterWires) {
@@ -816,11 +1109,12 @@ function MDUX_runEmoryDuctwork(createRegisterWires) {
                             var emoryFile = new File(emoryPath);
                             if (emoryFile.exists) {
                                 item.file = emoryFile;
+                                MDUX_setPlacedItemName(item, emoryFile);
                                 swappedCount++;
                             }
                         }
                     }
-                } catch (e) {}
+                } catch (e) { }
             }
         }
 
@@ -843,7 +1137,7 @@ function MDUX_runEmoryDuctwork(createRegisterWires) {
                         break;
                     }
                 }
-            } catch (e) {}
+            } catch (e) { }
 
             if (!registerLayer || !registerLayer.pathItems) continue;
 
@@ -873,7 +1167,7 @@ function MDUX_runEmoryDuctwork(createRegisterWires) {
                             foundPlacedItem = checkItem;
                             break;
                         }
-                    } catch (e) {}
+                    } catch (e) { }
                 }
 
                 // Swap or place the correct Emory register image
@@ -895,6 +1189,7 @@ function MDUX_runEmoryDuctwork(createRegisterWires) {
                             var currentFileName = foundPlacedItem.file ? foundPlacedItem.file.name : "";
                             if (currentFileName !== targetImageName + ".ai") {
                                 foundPlacedItem.file = emoryRegisterFile;
+                                MDUX_setPlacedItemName(foundPlacedItem, emoryRegisterFile);
                                 swappedCount++;
                                 $.writeln("[EMORY] Swapped register at [" + anchorPos.x.toFixed(1) + "," + anchorPos.y.toFixed(1) + "] to " + targetImageName);
                             }
@@ -902,6 +1197,7 @@ function MDUX_runEmoryDuctwork(createRegisterWires) {
                             // Place new Emory register at anchor
                             var newPlaced = registerLayer.placedItems.add();
                             newPlaced.file = emoryRegisterFile;
+                            MDUX_setPlacedItemName(newPlaced, emoryRegisterFile);
                             newPlaced.position = [anchorPos.x, anchorPos.y];
                             swappedCount++;
                             $.writeln("[EMORY] Placed " + targetImageName + " at [" + anchorPos.x.toFixed(1) + "," + anchorPos.y.toFixed(1) + "]");
@@ -924,256 +1220,256 @@ function MDUX_runEmoryDuctwork(createRegisterWires) {
 
             $.writeln("[EMORY] Scanning for ductwork paths, registers, and ignore anchors");
 
-        // Find ductwork paths
-        for (var i = 0; i < allItems.length; i++) {
-            var item = allItems[i];
-            if (item.typename === "PathItem") {
-                var layerName = "";
-                try { layerName = item.layer.name; } catch (e) {}
-                if (layerName && (layerName.indexOf("Ductwork") !== -1 || layerName.indexOf("ductwork") !== -1)) {
-                    ductworkPaths.push(item);
+            // Find ductwork paths
+            for (var i = 0; i < allItems.length; i++) {
+                var item = allItems[i];
+                if (item.typename === "PathItem") {
+                    var layerName = "";
+                    try { layerName = item.layer.name; } catch (e) { }
+                    if (layerName && (layerName.indexOf("Ductwork") !== -1 || layerName.indexOf("ductwork") !== -1)) {
+                        ductworkPaths.push(item);
+                    }
                 }
             }
-        }
 
-        // Find register anchor points on register layers
-        var registerLayerNames = ["Square Registers", "Rectangular Registers", "Registers"];
-        for (var layerIdx = 0; layerIdx < registerLayerNames.length; layerIdx++) {
-            var layerName = registerLayerNames[layerIdx];
-            var registerLayer = null;
+            // Find register anchor points on register layers
+            var registerLayerNames = ["Square Registers", "Rectangular Registers", "Registers"];
+            for (var layerIdx = 0; layerIdx < registerLayerNames.length; layerIdx++) {
+                var layerName = registerLayerNames[layerIdx];
+                var registerLayer = null;
+                try {
+                    for (var li = 0; li < doc.layers.length; li++) {
+                        if (doc.layers[li].name === layerName) {
+                            registerLayer = doc.layers[li];
+                            break;
+                        }
+                    }
+                } catch (e) { }
+
+                if (registerLayer && registerLayer.pathItems) {
+                    for (var pi = 0; pi < registerLayer.pathItems.length; pi++) {
+                        var regPath = registerLayer.pathItems[pi];
+                        if (regPath && regPath.pathPoints && regPath.pathPoints.length > 0) {
+                            // Use first anchor point as register location
+                            var anchor = regPath.pathPoints[0].anchor;
+                            registerPoints.push({ x: anchor[0], y: anchor[1] });
+                        }
+                    }
+                }
+            }
+
+            // Find ignore anchors on the ignore layer
+            var ignoreLayer = null;
             try {
                 for (var li = 0; li < doc.layers.length; li++) {
-                    if (doc.layers[li].name === layerName) {
-                        registerLayer = doc.layers[li];
+                    if (doc.layers[li].name === "Ignore" || doc.layers[li].name === "ignore") {
+                        ignoreLayer = doc.layers[li];
                         break;
                     }
                 }
-            } catch (e) {}
+            } catch (e) { }
 
-            if (registerLayer && registerLayer.pathItems) {
-                for (var pi = 0; pi < registerLayer.pathItems.length; pi++) {
-                    var regPath = registerLayer.pathItems[pi];
-                    if (regPath && regPath.pathPoints && regPath.pathPoints.length > 0) {
-                        // Use first anchor point as register location
-                        var anchor = regPath.pathPoints[0].anchor;
-                        registerPoints.push({ x: anchor[0], y: anchor[1] });
-                    }
-                }
-            }
-        }
-
-        // Find ignore anchors on the ignore layer
-        var ignoreLayer = null;
-        try {
-            for (var li = 0; li < doc.layers.length; li++) {
-                if (doc.layers[li].name === "Ignore" || doc.layers[li].name === "ignore") {
-                    ignoreLayer = doc.layers[li];
-                    break;
-                }
-            }
-        } catch (e) {}
-
-        if (ignoreLayer && ignoreLayer.pathItems) {
-            for (var pi = 0; pi < ignoreLayer.pathItems.length; pi++) {
-                var ignorePath = ignoreLayer.pathItems[pi];
-                if (ignorePath && ignorePath.pathPoints) {
-                    for (var pp = 0; pp < ignorePath.pathPoints.length; pp++) {
-                        var anchor = ignorePath.pathPoints[pp].anchor;
-                        ignoreAnchors.push({ x: anchor[0], y: anchor[1] });
-                    }
-                }
-            }
-        }
-
-        $.writeln("[EMORY] Found " + ductworkPaths.length + " ductwork paths");
-        $.writeln("[EMORY] Found " + registerPoints.length + " register points");
-        $.writeln("[EMORY] Found " + ignoreAnchors.length + " ignore anchors");
-
-        for (var i = 0; i < ductworkPaths.length; i++) {
-            var path = ductworkPaths[i];
-            if (!path.pathPoints || path.pathPoints.length < 2) continue; // Need at least 2 points
-            var layer = path.layer;
-            if (!layer) continue;
-
-            // Check both ends of the ductwork path
-            var endpoints = [
-                { endIdx: 0, prevIdx: 1, name: "start" },
-                { endIdx: path.pathPoints.length - 1, prevIdx: path.pathPoints.length - 2, name: "end" }
-            ];
-
-            for (var j = 0; j < endpoints.length; j++) {
-                var epInfo = endpoints[j];
-                if (epInfo.prevIdx >= path.pathPoints.length || epInfo.prevIdx < 0) continue;
-
-                var endAnchor = path.pathPoints[epInfo.endIdx].anchor;
-                var prevAnchor = path.pathPoints[epInfo.prevIdx].anchor;
-                var endPoint = { x: endAnchor[0], y: endAnchor[1] };
-                var prevPoint = { x: prevAnchor[0], y: prevAnchor[1] };
-
-                // Check if endpoint is near an ignore anchor (if so, SKIP it)
-                var nearIgnore = false;
-                for (var k = 0; k < ignoreAnchors.length; k++) {
-                    var ignoreAnchor = ignoreAnchors[k];
-                    var dx = ignoreAnchor.x - endPoint.x;
-                    var dy = ignoreAnchor.y - endPoint.y;
-                    var dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < 5) { // Within 5px of ignore anchor
-                        nearIgnore = true;
-                        $.writeln("[EMORY] Skipping endpoint at [" + endPoint.x.toFixed(1) + "," + endPoint.y.toFixed(1) + "] - near ignore anchor (dist=" + dist.toFixed(1) + ")");
-                        break;
-                    }
-                }
-
-                if (nearIgnore) continue;
-
-                // Check if endpoint is near a register
-                var nearRegister = false;
-                for (var k = 0; k < registerPoints.length; k++) {
-                    var register = registerPoints[k];
-                    var dx = register.x - endPoint.x;
-                    var dy = register.y - endPoint.y;
-                    var dist = Math.sqrt(dx * dx + dy * dy);
-                    if (dist < WIRE_CONNECTION_TOLERANCE) {
-                        nearRegister = true;
-                        $.writeln("[EMORY] Endpoint at [" + endPoint.x.toFixed(1) + "," + endPoint.y.toFixed(1) + "] is near register at [" + register.x.toFixed(1) + "," + register.y.toFixed(1) + "] (dist=" + dist.toFixed(1) + ")");
-                        break;
-                    }
-                }
-
-                if (nearRegister) {
-                    try {
-                        $.writeln("[EMORY] ===== WIRE CREATION DEBUG =====");
-                        $.writeln("[EMORY] Path has " + path.pathPoints.length + " points");
-                        $.writeln("[EMORY] Endpoint info: name=" + epInfo.name + ", endIdx=" + epInfo.endIdx + ", prevIdx=" + epInfo.prevIdx);
-                        $.writeln("[EMORY] prevPoint: [" + prevPoint.x.toFixed(1) + "," + prevPoint.y.toFixed(1) + "]");
-                        $.writeln("[EMORY] endPoint: [" + endPoint.x.toFixed(1) + "," + endPoint.y.toFixed(1) + "]");
-
-                        // Create wire from previous point to endpoint (last segment of ductwork)
-                        var wireDX = endPoint.x - prevPoint.x;
-                        var wireDY = endPoint.y - prevPoint.y;
-                        var wireLen = Math.sqrt(wireDX * wireDX + wireDY * wireDY);
-
-                        $.writeln("[EMORY] Wire vector: dx=" + wireDX.toFixed(2) + ", dy=" + wireDY.toFixed(2) + ", length=" + wireLen.toFixed(2));
-
-                        if (wireLen < 5) {
-                            $.writeln("[EMORY] Skipping wire - too short (< 5px): " + wireLen.toFixed(2));
-                            continue;
+            if (ignoreLayer && ignoreLayer.pathItems) {
+                for (var pi = 0; pi < ignoreLayer.pathItems.length; pi++) {
+                    var ignorePath = ignoreLayer.pathItems[pi];
+                    if (ignorePath && ignorePath.pathPoints) {
+                        for (var pp = 0; pp < ignorePath.pathPoints.length; pp++) {
+                            var anchor = ignorePath.pathPoints[pp].anchor;
+                            ignoreAnchors.push({ x: anchor[0], y: anchor[1] });
                         }
+                    }
+                }
+            }
 
-                        // Create wire path from previous point to endpoint
-                        var wirePath = layer.pathItems.add();
-                        wirePath.setEntirePath([[prevPoint.x, prevPoint.y], [endPoint.x, endPoint.y]]);
+            $.writeln("[EMORY] Found " + ductworkPaths.length + " ductwork paths");
+            $.writeln("[EMORY] Found " + registerPoints.length + " register points");
+            $.writeln("[EMORY] Found " + ignoreAnchors.length + " ignore anchors");
 
-                        $.writeln("[EMORY] Wire path created, checking points...");
-                        if (wirePath.pathPoints && wirePath.pathPoints.length === 2) {
-                            var wp0 = wirePath.pathPoints[0].anchor;
-                            var wp1 = wirePath.pathPoints[1].anchor;
-                            $.writeln("[EMORY] Wire point 0: [" + wp0[0].toFixed(1) + "," + wp0[1].toFixed(1) + "]");
-                            $.writeln("[EMORY] Wire point 1: [" + wp1[0].toFixed(1) + "," + wp1[1].toFixed(1) + "]");
-                            var actualDX = wp1[0] - wp0[0];
-                            var actualDY = wp1[1] - wp0[1];
-                            var actualLen = Math.sqrt(actualDX * actualDX + actualDY * actualDY);
-                            $.writeln("[EMORY] Actual wire length: " + actualLen.toFixed(2) + "px");
-                        } else {
-                            $.writeln("[EMORY] ERROR: Wire has " + (wirePath.pathPoints ? wirePath.pathPoints.length : "NO") + " points!");
+            for (var i = 0; i < ductworkPaths.length; i++) {
+                var path = ductworkPaths[i];
+                if (!path.pathPoints || path.pathPoints.length < 2) continue; // Need at least 2 points
+                var layer = path.layer;
+                if (!layer) continue;
+
+                // Check both ends of the ductwork path
+                var endpoints = [
+                    { endIdx: 0, prevIdx: 1, name: "start" },
+                    { endIdx: path.pathPoints.length - 1, prevIdx: path.pathPoints.length - 2, name: "end" }
+                ];
+
+                for (var j = 0; j < endpoints.length; j++) {
+                    var epInfo = endpoints[j];
+                    if (epInfo.prevIdx >= path.pathPoints.length || epInfo.prevIdx < 0) continue;
+
+                    var endAnchor = path.pathPoints[epInfo.endIdx].anchor;
+                    var prevAnchor = path.pathPoints[epInfo.prevIdx].anchor;
+                    var endPoint = { x: endAnchor[0], y: endAnchor[1] };
+                    var prevPoint = { x: prevAnchor[0], y: prevAnchor[1] };
+
+                    // Check if endpoint is near an ignore anchor (if so, SKIP it)
+                    var nearIgnore = false;
+                    for (var k = 0; k < ignoreAnchors.length; k++) {
+                        var ignoreAnchor = ignoreAnchors[k];
+                        var dx = ignoreAnchor.x - endPoint.x;
+                        var dy = ignoreAnchor.y - endPoint.y;
+                        var dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < 5) { // Within 5px of ignore anchor
+                            nearIgnore = true;
+                            $.writeln("[EMORY] Skipping endpoint at [" + endPoint.x.toFixed(1) + "," + endPoint.y.toFixed(1) + "] - near ignore anchor (dist=" + dist.toFixed(1) + ")");
+                            break;
                         }
+                    }
 
-                        // Style the wire: stroke-only (explicitly clear fills) - from Emory script
-                        wirePath.closed = false;
+                    if (nearIgnore) continue;
 
-                        // Explicitly remove any graphic style that might be applied
+                    // Check if endpoint is near a register
+                    var nearRegister = false;
+                    for (var k = 0; k < registerPoints.length; k++) {
+                        var register = registerPoints[k];
+                        var dx = register.x - endPoint.x;
+                        var dy = register.y - endPoint.y;
+                        var dist = Math.sqrt(dx * dx + dy * dy);
+                        if (dist < WIRE_CONNECTION_TOLERANCE) {
+                            nearRegister = true;
+                            $.writeln("[EMORY] Endpoint at [" + endPoint.x.toFixed(1) + "," + endPoint.y.toFixed(1) + "] is near register at [" + register.x.toFixed(1) + "," + register.y.toFixed(1) + "] (dist=" + dist.toFixed(1) + ")");
+                            break;
+                        }
+                    }
+
+                    if (nearRegister) {
                         try {
-                            wirePath.unapplyAll();
-                        } catch(e) {}
+                            $.writeln("[EMORY] ===== WIRE CREATION DEBUG =====");
+                            $.writeln("[EMORY] Path has " + path.pathPoints.length + " points");
+                            $.writeln("[EMORY] Endpoint info: name=" + epInfo.name + ", endIdx=" + epInfo.endIdx + ", prevIdx=" + epInfo.prevIdx);
+                            $.writeln("[EMORY] prevPoint: [" + prevPoint.x.toFixed(1) + "," + prevPoint.y.toFixed(1) + "]");
+                            $.writeln("[EMORY] endPoint: [" + endPoint.x.toFixed(1) + "," + endPoint.y.toFixed(1) + "]");
 
-                        wirePath.stroked = true;
-                        wirePath.strokeWidth = 3;
-                        try {
-                            var wireColor = new RGBColor();
-                            wireColor.red = 0;
-                            wireColor.green = 0;
-                            wireColor.blue = 255;
-                            wirePath.strokeColor = wireColor;
-                        } catch (eWireColor) {}
-                        wirePath.strokeCap = StrokeCap.ROUNDENDCAP;
-                        wirePath.strokeJoin = StrokeJoin.ROUNDENDJOIN;
+                            // Create wire from previous point to endpoint (last segment of ductwork)
+                            var wireDX = endPoint.x - prevPoint.x;
+                            var wireDY = endPoint.y - prevPoint.y;
+                            var wireLen = Math.sqrt(wireDX * wireDX + wireDY * wireDY);
 
-                        wirePath.filled = false;
-                        try {
-                            var noColor = new NoColor();
-                            wirePath.fillColor = noColor;
-                        } catch (e) {}
+                            $.writeln("[EMORY] Wire vector: dx=" + wireDX.toFixed(2) + ", dy=" + wireDY.toFixed(2) + ", length=" + wireLen.toFixed(2));
 
-                        // Add curved handles - using Emory script logic
-                        var wirePoints = wirePath.pathPoints;
-                        if (wirePoints && wirePoints.length === 2) {
-                            // Get segment direction (from previous segment if possible)
-                            var segDirection = { x: wireDX / wireLen, y: wireDY / wireLen };
+                            if (wireLen < 5) {
+                                $.writeln("[EMORY] Skipping wire - too short (< 5px): " + wireLen.toFixed(2));
+                                continue;
+                            }
 
-                            // Try to get the previous segment's direction for smoother curve
-                            if (path.pathPoints.length > 2 && epInfo.prevIdx > 0 && epInfo.prevIdx < path.pathPoints.length - 1) {
-                                var prevPrevAnchor = path.pathPoints[epInfo.prevIdx - (epInfo.endIdx > epInfo.prevIdx ? -1 : 1)].anchor;
-                                var prevPrevPoint = { x: prevPrevAnchor[0], y: prevPrevAnchor[1] };
-                                var prevSegDX = prevPoint.x - prevPrevPoint.x;
-                                var prevSegDY = prevPoint.y - prevPrevPoint.y;
-                                var prevSegLen = Math.sqrt(prevSegDX * prevSegDX + prevSegDY * prevSegDY);
-                                if (prevSegLen > 0) {
-                                    segDirection = { x: prevSegDX / prevSegLen, y: prevSegDY / prevSegLen };
+                            // Create wire path from previous point to endpoint
+                            var wirePath = layer.pathItems.add();
+                            wirePath.setEntirePath([[prevPoint.x, prevPoint.y], [endPoint.x, endPoint.y]]);
+
+                            $.writeln("[EMORY] Wire path created, checking points...");
+                            if (wirePath.pathPoints && wirePath.pathPoints.length === 2) {
+                                var wp0 = wirePath.pathPoints[0].anchor;
+                                var wp1 = wirePath.pathPoints[1].anchor;
+                                $.writeln("[EMORY] Wire point 0: [" + wp0[0].toFixed(1) + "," + wp0[1].toFixed(1) + "]");
+                                $.writeln("[EMORY] Wire point 1: [" + wp1[0].toFixed(1) + "," + wp1[1].toFixed(1) + "]");
+                                var actualDX = wp1[0] - wp0[0];
+                                var actualDY = wp1[1] - wp0[1];
+                                var actualLen = Math.sqrt(actualDX * actualDX + actualDY * actualDY);
+                                $.writeln("[EMORY] Actual wire length: " + actualLen.toFixed(2) + "px");
+                            } else {
+                                $.writeln("[EMORY] ERROR: Wire has " + (wirePath.pathPoints ? wirePath.pathPoints.length : "NO") + " points!");
+                            }
+
+                            // Style the wire: stroke-only (explicitly clear fills) - from Emory script
+                            wirePath.closed = false;
+
+                            // Explicitly remove any graphic style that might be applied
+                            try {
+                                wirePath.unapplyAll();
+                            } catch (e) { }
+
+                            wirePath.stroked = true;
+                            wirePath.strokeWidth = 3;
+                            try {
+                                var wireColor = new RGBColor();
+                                wireColor.red = 0;
+                                wireColor.green = 0;
+                                wireColor.blue = 255;
+                                wirePath.strokeColor = wireColor;
+                            } catch (eWireColor) { }
+                            wirePath.strokeCap = StrokeCap.ROUNDENDCAP;
+                            wirePath.strokeJoin = StrokeJoin.ROUNDENDJOIN;
+
+                            wirePath.filled = false;
+                            try {
+                                var noColor = new NoColor();
+                                wirePath.fillColor = noColor;
+                            } catch (e) { }
+
+                            // Add curved handles - using Emory script logic
+                            var wirePoints = wirePath.pathPoints;
+                            if (wirePoints && wirePoints.length === 2) {
+                                // Get segment direction (from previous segment if possible)
+                                var segDirection = { x: wireDX / wireLen, y: wireDY / wireLen };
+
+                                // Try to get the previous segment's direction for smoother curve
+                                if (path.pathPoints.length > 2 && epInfo.prevIdx > 0 && epInfo.prevIdx < path.pathPoints.length - 1) {
+                                    var prevPrevAnchor = path.pathPoints[epInfo.prevIdx - (epInfo.endIdx > epInfo.prevIdx ? -1 : 1)].anchor;
+                                    var prevPrevPoint = { x: prevPrevAnchor[0], y: prevPrevAnchor[1] };
+                                    var prevSegDX = prevPoint.x - prevPrevPoint.x;
+                                    var prevSegDY = prevPoint.y - prevPrevPoint.y;
+                                    var prevSegLen = Math.sqrt(prevSegDX * prevSegDX + prevSegDY * prevSegDY);
+                                    if (prevSegLen > 0) {
+                                        segDirection = { x: prevSegDX / prevSegLen, y: prevSegDY / prevSegLen };
+                                    }
+                                }
+
+                                // Scale handles based on wire length - from Emory script
+                                var handleLen;
+                                if (wireLen < 10) {
+                                    handleLen = wireLen * 0.05;
+                                } else if (wireLen < 20) {
+                                    var t = (wireLen - 10) / 10;
+                                    handleLen = wireLen * (0.05 + t * 0.05);
+                                } else if (wireLen < 30) {
+                                    var t = (wireLen - 20) / 10;
+                                    handleLen = wireLen * (0.10 + t * 0.05);
+                                } else if (wireLen < 50) {
+                                    var t = (wireLen - 30) / 20;
+                                    handleLen = wireLen * (0.15 + t * 0.10);
+                                } else {
+                                    handleLen = Math.min(wireLen * 0.30, 30);
+                                }
+                                handleLen = Math.max(handleLen, 0.5);
+
+                                var startPointInfo = wirePoints[0];
+                                var endPointInfo = wirePoints[1];
+
+                                // Start handle: extend along the previous segment direction
+                                if (startPointInfo) {
+                                    startPointInfo.leftDirection = [prevPoint.x, prevPoint.y];
+                                    startPointInfo.rightDirection = [
+                                        prevPoint.x + segDirection.x * handleLen,
+                                        prevPoint.y + segDirection.y * handleLen
+                                    ];
+                                    try { startPointInfo.pointType = PointType.SMOOTH; } catch (eWireStartType) { }
+                                }
+
+                                // End handle: point downward (inverted)
+                                if (endPointInfo) {
+                                    endPointInfo.leftDirection = [
+                                        endPoint.x,
+                                        endPoint.y + handleLen * 0.6
+                                    ];
+                                    endPointInfo.rightDirection = [endPoint.x, endPoint.y];
+                                    try { endPointInfo.pointType = PointType.SMOOTH; } catch (eWireEndType) { }
                                 }
                             }
 
-                            // Scale handles based on wire length - from Emory script
-                            var handleLen;
-                            if (wireLen < 10) {
-                                handleLen = wireLen * 0.05;
-                            } else if (wireLen < 20) {
-                                var t = (wireLen - 10) / 10;
-                                handleLen = wireLen * (0.05 + t * 0.05);
-                            } else if (wireLen < 30) {
-                                var t = (wireLen - 20) / 10;
-                                handleLen = wireLen * (0.10 + t * 0.05);
-                            } else if (wireLen < 50) {
-                                var t = (wireLen - 30) / 20;
-                                handleLen = wireLen * (0.15 + t * 0.10);
-                            } else {
-                                handleLen = Math.min(wireLen * 0.30, 30);
-                            }
-                            handleLen = Math.max(handleLen, 0.5);
-
-                            var startPointInfo = wirePoints[0];
-                            var endPointInfo = wirePoints[1];
-
-                            // Start handle: extend along the previous segment direction
-                            if (startPointInfo) {
-                                startPointInfo.leftDirection = [prevPoint.x, prevPoint.y];
-                                startPointInfo.rightDirection = [
-                                    prevPoint.x + segDirection.x * handleLen,
-                                    prevPoint.y + segDirection.y * handleLen
-                                ];
-                                try { startPointInfo.pointType = PointType.SMOOTH; } catch (eWireStartType) {}
-                            }
-
-                            // End handle: point downward (inverted)
-                            if (endPointInfo) {
-                                endPointInfo.leftDirection = [
-                                    endPoint.x,
-                                    endPoint.y + handleLen * 0.6
-                                ];
-                                endPointInfo.rightDirection = [endPoint.x, endPoint.y];
-                                try { endPointInfo.pointType = PointType.SMOOTH; } catch (eWireEndType) {}
-                            }
+                            wirePath.name = "Register Wire";
+                            wirePath.note = REGISTER_WIRE_TAG;
+                            wireCount++;
+                            $.writeln("[EMORY] Wire created successfully");
+                        } catch (eWire) {
+                            $.writeln("[EMORY] Wire creation error: " + eWire);
                         }
-
-                        wirePath.name = "Register Wire";
-                        wirePath.note = REGISTER_WIRE_TAG;
-                        wireCount++;
-                        $.writeln("[EMORY] Wire created successfully");
-                    } catch (eWire) {
-                        $.writeln("[EMORY] Wire creation error: " + eWire);
                     }
                 }
             }
-        }
         } else {
             $.writeln("[EMORY] Register wire creation skipped (disabled)");
         }
@@ -1469,6 +1765,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             // Place fresh item from file
                             var newItem = targetLayer.placedItems.add();
                             newItem.file = filePath;
+                            MDUX_setPlacedItemName(newItem, filePath);
 
                             // Get new item bounds to calculate center offset
                             var newBounds = newItem.geometricBounds;
@@ -1489,6 +1786,49 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             // Position so center aligns with target anchor
                             newItem.position = [targetX - newWidth / 2, targetY + newHeight / 2];
                             $.writeln("[MOVE]   Item centered on anchor at " + targetX + ", " + targetY);
+
+                            // Write complete metadata for the placed item
+                            try {
+                                // Get actual dimensions after placement
+                                var actualWidth = newItem.width;
+                                var actualHeight = newItem.height;
+                                var actualStrokeWidth = 1;
+                                try { actualStrokeWidth = newItem.strokeWidth || 1; } catch (e) { }
+
+                                // Check if there's a rotation override from the nearest anchor
+                                var rotationOverride = null;
+                                if (nearestAnchor && nearestAnchor.anchor) {
+                                    try {
+                                        var anchorMeta = MDUX_getMetadata(nearestAnchor.anchor);
+                                        if (anchorMeta && anchorMeta.MDUX_PointRotation !== undefined && anchorMeta.MDUX_PointRotation !== null) {
+                                            rotationOverride = parseFloat(anchorMeta.MDUX_PointRotation);
+                                            if (!isFinite(rotationOverride)) rotationOverride = null;
+                                        }
+                                    } catch (eAnchorMeta) {
+                                        rotationOverride = null;
+                                    }
+                                }
+
+                                var metadata = {
+                                    MDUX_OriginalWidth: actualWidth,
+                                    MDUX_OriginalHeight: actualHeight,
+                                    MDUX_OriginalStrokeWidth: actualStrokeWidth,
+                                    MDUX_CumulativeRotation: "0",
+                                    MDUX_CurrentScale: String(smallestScale),
+                                    tagScale: smallestScale,
+                                    tagRotation: 0
+                                };
+
+                                // Store rotation override if available
+                                if (rotationOverride !== null) {
+                                    metadata.MDUX_RotationOverride = rotationOverride;
+                                }
+
+                                MDUX_setMetadata(newItem, metadata);
+                                $.writeln("[MOVE]   Wrote complete metadata: scale=" + smallestScale + ", rotation=0" + (rotationOverride !== null ? ", rotOverride=" + rotationOverride : "") + ", width=" + actualWidth);
+                            } catch (eMetadata) {
+                                $.writeln("[MOVE]   Warning: Failed to write metadata: " + eMetadata);
+                            }
 
                             itemsMoved++;
 
@@ -1531,7 +1871,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                                     item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
                                     itemsMoved++;
                                 }
-                            } catch (e) {}
+                            } catch (e) { }
                         }
                     } else {
                         // No file to replace with, just move the item
@@ -1673,7 +2013,7 @@ function MDUX_scaleStrokeRecursively(item, scalePercent, stats) {
             }
         } else if (item.typename === "CompoundPathItem") {
             stats.compoundPaths++;
-            
+
             // Try to scale the compound path itself first (if it has stroke properties)
             var compoundStroked = false;
             try {
@@ -1683,19 +2023,19 @@ function MDUX_scaleStrokeRecursively(item, scalePercent, stats) {
                     stats.stroked++;
                     compoundStroked = true;
                 }
-            } catch(e) {}
+            } catch (e) { }
 
             // Also recurse into children (pathItems)
             // If the compound path itself was stroked, the children might inherit or duplicate.
             // But usually, if the compound path is stroked, the children's stroke properties are ignored or synced.
             // If we didn't successfully scale the compound path, we MUST scale the children.
             // If we DID scale the compound path, scaling children might be redundant but harmless (unless they have independent strokes).
-            
+
             var paths = item.pathItems;
             for (var j = 0; j < paths.length; j++) {
                 MDUX_scaleStrokeRecursively(paths[j], scalePercent, stats);
             }
-            
+
         } else if (item.typename === "PathItem") {
             stats.paths++;
             var strokesScaled = 0;
@@ -1738,26 +2078,47 @@ function MDUX_scaleStrokeRecursively(item, scalePercent, stats) {
 }
 
 function MDUX_transformEach(scale, rotation, undoPrevious) {
+    MDUX_debugLog("========================================");
+    MDUX_debugLog("[TRANSFORM] MDUX_transformEach called: scale=" + scale + ", rotation=" + rotation + ", undoPrevious=" + undoPrevious);
+    MDUX_debugLog("========================================");
+
     try {
         if (app.documents.length === 0) return JSON.stringify({ ok: false, message: "No document open." });
-        
-        // Handle Undo first if requested
-        if (undoPrevious === true || undoPrevious === "true") {
-            app.executeMenuCommand('undo');
-        }
 
         var sel = app.selection;
         if (!sel || sel.length === 0) return JSON.stringify({ ok: false, message: "Nothing selected." });
-        
+
+        MDUX_debugLog("[TRANSFORM] Selection has " + sel.length + " items");
+
         var s = Number(scale);
         var r = Number(rotation);
-        
-        // Optimization: If scale is 100 and rotation is 0, do nothing
-        // BUT if we just undid, we might need to do nothing to leave it at original state.
-        if (s === 100 && r === 0) return JSON.stringify({ ok: true, message: "Reset to original." });
 
-        // Use standard DOM loop - it's usually fast enough for <1000 items
-        // To optimize, we avoid unnecessary property access
+        // Handle Undo AFTER getting selection but BEFORE reading metadata
+        // This ensures metadata is preserved across undo/redo cycles
+        if (undoPrevious === true || undoPrevious === "true") {
+            MDUX_debugLog("[TRANSFORM] Executing undo...");
+
+            // Before undo, check if metadata exists
+            var item0 = sel[0];
+            var beforeUndo = MDUX_getTag(item0, "MDUX_CurrentScale");
+            MDUX_debugLog("[TRANSFORM] Before undo, CurrentScale = " + beforeUndo);
+
+            app.executeMenuCommand('undo');
+
+            // After undo, re-fetch selection in case it changed
+            sel = app.selection;
+            if (!sel || sel.length === 0) return JSON.stringify({ ok: false, message: "Selection lost after undo." });
+
+            // Check if metadata survived
+            item0 = sel[0];
+            var afterUndo = MDUX_getTag(item0, "MDUX_CurrentScale");
+            MDUX_debugLog("[TRANSFORM] After undo, CurrentScale = " + afterUndo);
+
+            if (beforeUndo && !afterUndo) {
+                MDUX_debugLog("[TRANSFORM] WARNING: Metadata was lost during undo!");
+            }
+        }
+
         var len = sel.length;
         var transformedCount = 0;
         var stats = {
@@ -1772,73 +2133,325 @@ function MDUX_transformEach(scale, rotation, undoPrevious) {
             others: 0,
             otherTypes: []
         };
-        
+
         var skippedInfo = [];
         for (var i = 0; i < len; i++) {
             var item = sel[i];
-            var itemLayerName = "unknown";
-            try { itemLayerName = item.layer ? item.layer.name : "no-layer"; } catch(e) {}
+            try {
+                // Determine item type for scaling logic
+                var isDuctLine = MDUX_isDuctworkLine(item);
+                var isDuctPart = MDUX_isDuctworkPart(item);
 
-            var isDuctLine = MDUX_isDuctworkLine(item);
-            var isDuctPart = MDUX_isDuctworkPart(item);
+                // Initialize metadata ONLY ONCE when first touched
+                // After undo, metadata should still exist from before the transform
+                var needsInit = MDUX_getTag(item, "MDUX_OriginalWidth") === null;
+                if (needsInit) {
+                    try {
+                        MDUX_debugLog("[TRANSFORM] Item " + i + " typename=" + item.typename + " needs init.");
+                        MDUX_debugLog("[TRANSFORM] Note BEFORE any init: " + (item.note || "(empty)").substring(0, 500));
 
-            // Only process Ductwork Parts or Ductwork Lines
-            if (!isDuctLine && !isDuctPart) {
-                skippedInfo.push(item.typename + " on '" + itemLayerName + "'");
-                continue;
-            }
+                        // Safely handle strokeWidth (missing on GroupItems)
+                        var sWidth = 1;
+                        try { sWidth = item.strokeWidth || 1; } catch (e) { }
 
-            transformedCount++;
+                        // Store the ABSOLUTE original dimensions before any transform
+                        MDUX_setTag(item, "MDUX_OriginalWidth", item.width);
+                        MDUX_debugLog("[TRANSFORM] After OriginalWidth, note: " + (item.note || "(empty)").substring(0, 500));
 
-            // --- SAVE ORIGINAL STATE IF NOT EXISTS ---
-            if (MDUX_getTag(item, "MDUX_OriginalWidth") === null) {
-                MDUX_setTag(item, "MDUX_OriginalWidth", item.width);
-                MDUX_setTag(item, "MDUX_OriginalHeight", item.height);
-                MDUX_setTag(item, "MDUX_OriginalStrokeWidth", item.strokeWidth);
-                MDUX_setTag(item, "MDUX_CumulativeRotation", "0");
-            }
+                        MDUX_setTag(item, "MDUX_OriginalHeight", item.height);
+                        MDUX_setTag(item, "MDUX_OriginalStrokeWidth", sWidth);
+                        MDUX_setTag(item, "MDUX_CumulativeRotation", "0");
+                        MDUX_setTag(item, "MDUX_CurrentScale", "100");
 
-            // --- ROTATION ---
-            // Rotate around CENTER
-            // ONLY for Ductwork Parts (ignore Lines)
-            if (r !== 0 && isDuctPart) {
-                // rotate(angle, changePositions, changeFillPatterns, changeFillGradients, changeStrokePattern, transformation)
-                item.rotate(r, true, true, true, true, Transformation.CENTER);
-                
-                // Update cumulative rotation
-                var currentCum = parseFloat(MDUX_getTag(item, "MDUX_CumulativeRotation") || "0");
-                MDUX_setTag(item, "MDUX_CumulativeRotation", currentCum + r);
-            }
-            
-            // --- SCALING ---
-            // Scale around CENTER
-            if (s !== 100) {
-                // Sanity Check: If s is very small (e.g. 1.01), it might be a factor error.
-                // Since slider min is 10%, s should be >= 2.5.
-                // If s < 2, assume it's a factor (e.g. 1.01) and convert to percentage (101).
-                if (s > 0 && s < 2) {
-                    s = s * 100;
+                        MDUX_debugLog("[TRANSFORM] After ALL init tags, note: " + (item.note || "(empty)").substring(0, 500));
+
+                        // Verify tags were actually saved
+                        var verifyWidth = MDUX_getTag(item, "MDUX_OriginalWidth");
+                        var verifyScale = MDUX_getTag(item, "MDUX_CurrentScale");
+                        var verifyRot = MDUX_getTag(item, "MDUX_RotationOverride");
+                        MDUX_debugLog("[TRANSFORM] Init complete. Verified: width=" + verifyWidth + ", scale=" + verifyScale + ", rotOverride=" + verifyRot);
+                    } catch (eInit) {
+                        MDUX_debugLog("[TRANSFORM] ERROR initializing tags: " + eInit +
+                                     " for item type=" + item.typename);
+                    }
+                } else {
+                    // Item already has metadata - log it to verify rotation override is preserved
+                    MDUX_debugLog("[TRANSFORM] Item " + i + " already has metadata, note: " + (item.note || "(empty)").substring(0, 500));
+                    var existingRotOverride = MDUX_getTag(item, "MDUX_RotationOverride");
+                    MDUX_debugLog("[TRANSFORM] Existing MDUX_RotationOverride: " + (existingRotOverride || "null/undefined"));
                 }
 
-                if (isDuctLine) {
-                    // For Ductwork Lines: Scale strokes only (including Appearance panel strokes)
-                    // Pass scale factor as changeLineWidths parameter - this scales all strokes without changing geometry
-                    item.resize(100, 100, true, true, true, true, s, Transformation.CENTER);
-                    stats.stroked++;
+                // Get current state from metadata (or defaults if just initialized)
+                var currentScale = parseFloat(MDUX_getTag(item, "MDUX_CurrentScale") || "100");
+                var currentRotation = parseFloat(MDUX_getTag(item, "MDUX_CumulativeRotation") || "0");
+                var anchor = Number(MDUX_getDocumentScale()) || 100;
+                var targetPercent = s * (anchor / 100);
 
-                } else if (isDuctPart) {
-                    // For Ductwork Parts: Scale geometry and strokes together
-                    item.resize(s, s, true, true, true, true, s, Transformation.CENTER);
+                // --- ROTATION ---
+                // r is the DELTA rotation, not absolute
+                // We apply the delta and update cumulative
+                if (r !== 0 && isDuctPart) {
+                    item.rotate(r, true, true, true, true, Transformation.CENTER);
+                    MDUX_setTag(item, "MDUX_CumulativeRotation", currentRotation + r);
                 }
+
+                // --- SCALING ---
+                // s is the target scale on the UI slider (e.g., 110 for 110%)
+                // We need to transform from currentScale to targetPercent
+                MDUX_debugLog("[TRANSFORM] Item " + i + ": currentScale=" + currentScale +
+                         ", targetPercent=" + targetPercent + ", anchor=" + anchor);
+
+                if (Math.abs(currentScale - targetPercent) > 0.001) {
+                    var resizeFactor = (targetPercent / currentScale) * 100;
+                    MDUX_debugLog("[TRANSFORM] Applying resize factor: " + resizeFactor + "% (isDuctLine=" + isDuctLine + ")");
+
+                    if (isDuctLine) {
+                        // Lines: scale stroke only
+                        item.resize(100, 100, true, true, true, true, resizeFactor, Transformation.CENTER);
+                    } else {
+                        // Parts: scale geometry and stroke
+                        item.resize(resizeFactor, resizeFactor, true, true, true, true, resizeFactor, Transformation.CENTER);
+                    }
+
+                    MDUX_debugLog("[TRANSFORM] Resize complete, setting CurrentScale to " + targetPercent);
+                    MDUX_setTag(item, "MDUX_CurrentScale", targetPercent);
+
+                    // Verify it was set
+                    var verifySet = MDUX_getTag(item, "MDUX_CurrentScale");
+                    MDUX_debugLog("[TRANSFORM] CurrentScale after set: " + verifySet);
+                } else {
+                    MDUX_debugLog("[TRANSFORM] Scale unchanged (already at target)");
+                }
+                transformedCount++;
+            } catch (eItem) {
+                stats.errors++;
             }
         }
-        
+
         var msg = "Transformed " + transformedCount + "/" + len;
         if (skippedInfo.length > 0) msg += " [Skipped: " + skippedInfo.join(", ") + "]";
 
         return JSON.stringify({ ok: true, message: msg });
-        
+
     } catch (e) {
         return JSON.stringify({ ok: false, message: "Error: " + e.message });
+    }
+}
+
+function MDUX_getSelectedLineAngleBridge() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+
+        var sel = app.selection;
+        if (!sel || sel.length === 0) {
+            return JSON.stringify({ ok: false, message: "Please select a line." });
+        }
+
+        // Find the first PathItem in the selection
+        var pathItem = null;
+        for (var i = 0; i < sel.length; i++) {
+            if (sel[i].typename === "PathItem") {
+                pathItem = sel[i];
+                break;
+            }
+        }
+
+        if (!pathItem) {
+            return JSON.stringify({ ok: false, message: "Please select a path or line." });
+        }
+
+        if (!pathItem.pathPoints || pathItem.pathPoints.length < 2) {
+            return JSON.stringify({ ok: false, message: "Selected path must have at least 2 points." });
+        }
+
+        // Get the first two points of the path
+        var point1 = pathItem.pathPoints[0].anchor;
+        var point2 = pathItem.pathPoints[1].anchor;
+
+        // Calculate the angle in degrees
+        // atan2 returns angle in radians from -PI to PI
+        // Negate dy to account for Illustrator's inverted Y-axis (Y increases downward)
+        var dx = point2[0] - point1[0];
+        var dy = point2[1] - point1[1];
+        var angleRadians = Math.atan2(-dy, dx);
+        var angleDegrees = angleRadians * (180 / Math.PI);
+
+        // Round to 1 decimal place
+        angleDegrees = Math.round(angleDegrees * 10) / 10;
+
+        return JSON.stringify({
+            ok: true,
+            angle: angleDegrees,
+            message: "Angle: " + angleDegrees + "°"
+        });
+
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Error: " + e.message });
+    }
+}
+// Test function to verify note property works
+function MDUX_testNoteProperty() {
+    try {
+        if (app.documents.length === 0) return "ERROR: No document";
+        var sel = app.selection;
+        if (!sel || sel.length === 0) return "ERROR: Nothing selected";
+
+        var item = sel[0];
+        MDUX_debugLog("[TEST] Testing note property on " + item.typename);
+
+        // Test 1: Set a simple note
+        item.note = "TEST123";
+        var readBack = item.note;
+        MDUX_debugLog("[TEST] Set 'TEST123', read back: '" + readBack + "'");
+
+        if (readBack !== "TEST123") {
+            return "ERROR: Note property doesn't work on " + item.typename;
+        }
+
+        // Test 2: Set metadata
+        MDUX_setMetadata(item, { testKey: "testValue", number: 42 });
+
+        // Test 3: Read it back
+        var meta = MDUX_getMetadata(item);
+        if (!meta) {
+            return "ERROR: Metadata not readable";
+        }
+
+        MDUX_debugLog("[TEST] Metadata read back: " + JSON.stringify(meta));
+        return "SUCCESS: Note property works! Meta=" + JSON.stringify(meta);
+    } catch (e) {
+        return "ERROR: " + e;
+    }
+}
+
+// Function to get debug log contents from memory buffer
+function MDUX_getDebugLog() {
+    try {
+        // Add a test message to prove the buffer works
+        MDUX_debugLog("MDUX_getDebugLog() was called at " + new Date().toString());
+
+        var bufferInfo = "Buffer type: " + (typeof $.global.MDUX_debugBuffer) +
+                        ", Is array: " + ($.global.MDUX_debugBuffer instanceof Array) +
+                        ", Length: " + ($.global.MDUX_debugBuffer ? $.global.MDUX_debugBuffer.length : "N/A");
+
+        if (typeof $.global.MDUX_debugBuffer === "undefined") {
+            return "DEBUG BUFFER IS UNDEFINED!\n" + bufferInfo;
+        }
+
+        if ($.global.MDUX_debugBuffer.length === 0) {
+            return "DEBUG BUFFER IS EMPTY (but exists)\n" + bufferInfo + "\nThis means no debug messages have been logged yet.";
+        }
+
+        return "=== DEBUG LOG ===\n" + $.global.MDUX_debugBuffer.join("\n");
+    } catch (e) {
+        return "ERROR reading debug buffer: " + e;
+    }
+}
+
+// Function to clear debug log buffer
+function MDUX_clearDebugLog() {
+    try {
+        $.global.MDUX_debugBuffer = [];
+        return "Debug buffer cleared";
+    } catch (e) {
+        return "ERROR clearing debug buffer: " + e;
+    }
+}
+
+function MDUX_getSelectionTransformState() {
+    MDUX_debugLog("[SELECT-STATE] Function called");
+    try {
+        if (app.documents.length === 0) {
+            MDUX_debugLog("[SELECT-STATE] No documents open");
+            return JSON.stringify({ ok: false });
+        }
+
+        var sel = app.selection;
+        if (!sel || sel.length === 0) {
+            MDUX_debugLog("[SELECT-STATE] No selection");
+            return JSON.stringify({ ok: false });
+        }
+        MDUX_debugLog("[SELECT-STATE] Selection count: " + sel.length);
+
+        var anchor = parseFloat(MDUX_getDocumentScale()) || 100;
+        MDUX_debugLog("[SELECT-STATE] Anchor (doc scale): " + anchor);
+        var totalScale = 0;
+        var totalRot = 0;
+        var count = 0;
+
+        var firstScale = null;
+        var firstRot = null;
+        var mixedScale = false;
+        var mixedRot = false;
+
+        for (var i = 0; i < sel.length; i++) {
+            try {
+                var item = sel[i];
+
+                // Skip anchor points (single-point PathItems) - they shouldn't affect rotation calculations
+                if (item.typename === "PathItem") {
+                    try {
+                        if (item.pathPoints && item.pathPoints.length === 1) {
+                            MDUX_debugLog("[SELECT-STATE] Item " + i + ": Skipping anchor (single-point PathItem)");
+                            continue;
+                        }
+                    } catch (eAnchor) {}
+                }
+
+                var tagScale = MDUX_getTag(item, "MDUX_CurrentScale");
+                var tagRot = MDUX_getTag(item, "MDUX_CumulativeRotation");
+
+                // Fallback: check MDUX_META.MDUX_RotationOverride for placed items
+                if ((tagRot === null || tagRot === undefined) && item.typename === "PlacedItem") {
+                    try {
+                        var meta = MDUX_getMetadata(item);
+                        if (meta && meta.MDUX_RotationOverride !== undefined && meta.MDUX_RotationOverride !== null) {
+                            tagRot = meta.MDUX_RotationOverride;
+                            MDUX_debugLog("[SELECT-STATE] Item " + i + ": Found MDUX_RotationOverride in metadata: " + tagRot);
+                        }
+                    } catch (eMeta) {}
+                }
+
+                MDUX_debugLog("[SELECT-STATE] Item " + i + " (" + item.typename + "): tagScale=" + tagScale + ", tagRot=" + tagRot);
+
+                var absScale = tagScale !== null ? parseFloat(tagScale) : anchor;
+                var rot = parseFloat(tagRot || "0");
+                MDUX_debugLog("[SELECT-STATE] Item " + i + ": absScale=" + absScale + ", rot=" + rot);
+
+                // Normalize scale relative to anchor for UI
+                var uiScale = (absScale / (anchor / 100));
+                uiScale = Math.round(uiScale * 100) / 100;
+                rot = Math.round(rot * 100) / 100;
+                MDUX_debugLog("[SELECT-STATE] Item " + i + ": uiScale=" + uiScale + " (after normalization)");
+
+                if (firstScale === null) {
+                    firstScale = uiScale;
+                    firstRot = rot;
+                } else {
+                    if (Math.abs(uiScale - firstScale) > 0.1) mixedScale = true;
+                    if (Math.abs(rot - firstRot) > 0.1) mixedRot = true;
+                }
+                count++;
+            } catch (e) {
+                MDUX_debugLog("[SELECT-STATE] Error processing item " + i + ": " + e);
+            }
+        }
+
+        var result = {
+            ok: true,
+            scale: mixedScale ? null : firstScale,
+            rotation: mixedRot ? null : firstRot,
+            mixedScale: mixedScale,
+            mixedRotation: mixedRot,
+            count: count
+        };
+        MDUX_debugLog("[SELECT-STATE] Returning: " + JSON.stringify(result));
+
+        return JSON.stringify(result);
+    } catch (e) {
+        MDUX_debugLog("[SELECT-STATE] ERROR: " + e);
+        return JSON.stringify({ ok: false, message: e.message });
     }
 }

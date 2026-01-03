@@ -63,7 +63,7 @@ if (typeof JSON.parse !== "function") {
 // ========================================
 
 var CLOSE_DIST = 10; // px for loose connection grouping
-var UNIT_MERGE_DIST = 6; // px tolerance to merge clustered unit anchors
+var UNIT_MERGE_DIST = 10; // px tolerance to merge clustered unit anchors (MUST match CLOSE_DIST so units behave like registers)
 var THERMOSTAT_JUNCTION_DIST = 6; // px tolerance to snap thermostat line endpoints to duct junctions
 var CONNECTION_DIST = 2; // px stricter threshold for actual compounding
 var SNAP_THRESHOLD = 5; // px for snapping anchors
@@ -74,7 +74,7 @@ var RECONNECT_CAPTURE_DIST = Math.max(CONNECTION_DIST, SNAP_THRESHOLD); // px to
 // ANGLE & ITERATION CONSTANTS
 // ========================================
 
-var STEEP_MIN = 30; // deg for not orthogonalizing
+var STEEP_MIN = 17; // deg for not orthogonalizing
 var STEEP_MAX = 70; // deg for not orthogonalizing
 var MAX_ITER = 8; // maximum refinement iterations
 
@@ -2346,6 +2346,52 @@ function setPlacedScale(item, scalePercent) {
     writeNoteTokens(item, tokens);
 }
 
+function MDUX_getMetadata(item) {
+    try {
+        var note = item.note || "";
+        if (typeof MDUX_debugLog === 'function') {
+            MDUX_debugLog("[META GET] Item typename=" + item.typename + ", note=" + (note ? note.substring(0, 100) : "(empty)"));
+        }
+        if (!note || note.indexOf("MDUX_META:") !== 0) {
+            if (typeof MDUX_debugLog === 'function') {
+                MDUX_debugLog("[META GET] No MDUX_META prefix, returning null");
+            }
+            return null;
+        }
+        var jsonStr = note.substring(10); // Remove "MDUX_META:" prefix
+        if (typeof MDUX_debugLog === 'function') {
+            MDUX_debugLog("[META GET] JSON string: " + jsonStr.substring(0, 500));
+        }
+        var result = JSON.parse(jsonStr);
+        if (typeof MDUX_debugLog === 'function') {
+            MDUX_debugLog("[META GET] Parsed successfully");
+        }
+        return result;
+    } catch (e) {
+        if (typeof MDUX_debugLog === 'function') {
+            MDUX_debugLog("[META GET] ERROR: " + e);
+        }
+        return null;
+    }
+}
+
+function MDUX_setMetadata(item, metadata) {
+    try {
+        var jsonStr = JSON.stringify(metadata);
+        if (typeof MDUX_debugLog === 'function') {
+            MDUX_debugLog("[META SET] Item typename=" + item.typename + ", metadata=" + jsonStr.substring(0, 500));
+        }
+        item.note = "MDUX_META:" + jsonStr;
+        if (typeof MDUX_debugLog === 'function') {
+            MDUX_debugLog("[META SET] Written. Item note is now: " + (item.note || "(empty)").substring(0, 500));
+        }
+    } catch (e) {
+        if (typeof MDUX_debugLog === 'function') {
+            MDUX_debugLog("[META SET] ERROR: " + e);
+        }
+    }
+}
+
 function clearPlacedScale(item) {
     if (!item) return;
     var tokens = readNoteTokens(item);
@@ -2602,7 +2648,7 @@ function setStaticTextColor(control, rgbArray) {
     var ORIGINAL_LAYER_PREFIX = "MD:ORIG_LAYER="; // marker prefix for remembering original layer
     var CONNECTION_DIST = 2; // px stricter threshold for actual compounding
     var RECONNECT_CAPTURE_DIST = Math.max(CONNECTION_DIST, SNAP_THRESHOLD); // px tolerance to remember original junctions
-    var STEEP_MIN = 30; // deg for not orthogonalizing
+    var STEEP_MIN = 17; // deg for not orthogonalizing
     var STEEP_MAX = 70; // deg for not orthogonalizing
     var SNAP_THRESHOLD = 5; // px for snapping anchors
     var MAX_ITER = 8; // maximum refinement iterations
@@ -4497,55 +4543,123 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             var layerName = "";
             try { layerName = pathItem.layer ? pathItem.layer.name : ""; } catch (eLayer) { layerName = ""; }
             if (!layerName || !isDuctworkLineLayer(layerName)) return;
+
+            // Check the path itself for rotation override
             var existing = getRotationOverride(pathItem);
             if (existing !== null && existing !== undefined) {
                 addRotation(existing);
+                return;
+            }
+
+            // For compound paths, check MDUX_META first, then child pathItems
+            try {
+                if (pathItem.typename === "CompoundPathItem") {
+                    // Check compound path's MDUX_META for rotation override
+                    var compoundMeta = MDUX_getMetadata(pathItem);
+                    if (compoundMeta && compoundMeta.MDUX_RotationOverride !== undefined && compoundMeta.MDUX_RotationOverride !== null) {
+                        var compoundRot = parseFloat(compoundMeta.MDUX_RotationOverride);
+                        if (isFinite(compoundRot)) {
+                            addRotation(compoundRot);
+                            return;
+                        }
+                    }
+
+                    // Check child pathItems for rotation overrides (MD:ROT= tokens are on segments)
+                    if (pathItem.pathItems) {
+                        for (var cpi = 0; cpi < pathItem.pathItems.length; cpi++) {
+                            var childPath = pathItem.pathItems[cpi];
+                            var childRot = getRotationOverride(childPath);
+                            if (childRot !== null && childRot !== undefined) {
+                                addRotation(childRot);
+                                return; // Found rotation in child, stop checking
+                            }
+                        }
+                    }
+                }
+            } catch (eCompound) {
+                // Ignore compound path errors
             }
         });
 
         var selectionArray = selectionToArray(items);
+        MDUX_debugLog("[ROT-SUMMARY] Processing " + selectionArray.length + " selection items...");
         for (var si = 0; si < selectionArray.length; si++) {
             var selectionItem = selectionArray[si];
             if (!selectionItem) continue;
+            MDUX_debugLog("[ROT-SUMMARY] Item " + si + ": typename=" + selectionItem.typename);
             if (selectionItem.typename === "PlacedItem") {
-                var placedRot = getPlacedRotation(selectionItem);
-                if (placedRot === null || placedRot === undefined) {
-                    try {
-                        var matrix = selectionItem.matrix;
-                        placedRot = Math.atan2(matrix.mValueB, matrix.mValueA) * (180 / Math.PI);
-                    } catch (eMatrix) {
-                        placedRot = null;
+                // Only check for stored rotation override in metadata - do NOT fall back to transform matrix
+                // The rotation override box should only show explicitly set rotation overrides
+                try {
+                    var meta = MDUX_getMetadata(selectionItem);
+                    MDUX_debugLog("[ROT-SUMMARY] PlacedItem meta: " + (meta ? JSON.stringify(meta).substring(0, 200) : "null"));
+                    if (meta && meta.MDUX_RotationOverride !== undefined && meta.MDUX_RotationOverride !== null) {
+                        var storedRotOverride = parseFloat(meta.MDUX_RotationOverride);
+                        MDUX_debugLog("[ROT-SUMMARY] PlacedItem has MDUX_RotationOverride: " + storedRotOverride);
+                        if (isFinite(storedRotOverride)) {
+                            addRotation(storedRotOverride);
+                        }
+                    } else {
+                        MDUX_debugLog("[ROT-SUMMARY] PlacedItem has no MDUX_RotationOverride - skipping (will not show in rotation override box)");
                     }
-                }
-                if (placedRot !== null && placedRot !== undefined) {
-                    addRotation(placedRot);
+                } catch (eMetaRot) {
+                    MDUX_debugLog("[ROT-SUMMARY] Error reading PlacedItem meta: " + eMetaRot);
                 }
                 continue;
             }
 
+            // Skip anchor points (single-point PathItems) for rotation override summary
+            // The rotation override box should only show values from placed ductwork parts
+            // Anchors use MD:POINT_ROT= format which is separate from placed item rotation
             if (selectionItem.typename === "PathItem" && selectionItem.pathPoints && selectionItem.pathPoints.length === 1) {
-                var pointRot = getPointRotation(selectionItem);
-                if (pointRot !== null && pointRot !== undefined) {
-                    addRotation(pointRot);
+                continue;
+            }
+
+            // Handle CompoundPathItems - check MDUX_META then child paths for rotation override
+            if (selectionItem.typename === "CompoundPathItem") {
+                MDUX_debugLog("[ROT-SUMMARY] Found CompoundPathItem in selection, checking for rotation override...");
+                var foundCompoundRot = false;
+                // First check compound path's MDUX_META for rotation override
+                try {
+                    var compMeta = MDUX_getMetadata(selectionItem);
+                    MDUX_debugLog("[ROT-SUMMARY] Compound MDUX_META: " + (compMeta ? JSON.stringify(compMeta).substring(0, 200) : "null"));
+                    if (compMeta && compMeta.MDUX_RotationOverride !== undefined && compMeta.MDUX_RotationOverride !== null) {
+                        var compRot = parseFloat(compMeta.MDUX_RotationOverride);
+                        MDUX_debugLog("[ROT-SUMMARY] Found MDUX_RotationOverride in compound meta: " + compRot);
+                        if (isFinite(compRot)) {
+                            addRotation(compRot);
+                            foundCompoundRot = true;
+                        }
+                    }
+                } catch (eCompMeta) {
+                    MDUX_debugLog("[ROT-SUMMARY] Error reading compound meta: " + eCompMeta);
+                }
+
+                // If not found in MDUX_META, check child pathItems for MD:ROT= tokens
+                if (!foundCompoundRot && selectionItem.pathItems) {
+                    MDUX_debugLog("[ROT-SUMMARY] Checking " + selectionItem.pathItems.length + " child paths for MD:ROT= tokens...");
+                    for (var cpIdx = 0; cpIdx < selectionItem.pathItems.length; cpIdx++) {
+                        var childPath = selectionItem.pathItems[cpIdx];
+                        var childNote = "";
+                        try { childNote = childPath.note || ""; } catch (eNote) { childNote = ""; }
+                        MDUX_debugLog("[ROT-SUMMARY] Child " + cpIdx + " note: " + childNote.substring(0, 100));
+                        var childRotOverride = getRotationOverride(childPath);
+                        if (childRotOverride !== null && childRotOverride !== undefined) {
+                            MDUX_debugLog("[ROT-SUMMARY] Found MD:ROT= in child " + cpIdx + ": " + childRotOverride);
+                            addRotation(childRotOverride);
+                            foundCompoundRot = true;
+                            break; // Found rotation in child, stop checking
+                        }
+                    }
+                }
+                if (!foundCompoundRot) {
+                    MDUX_debugLog("[ROT-SUMMARY] No rotation override found in compound path or children");
                 }
             }
         }
 
-        if (rotationList.length === 0) {
-            forEachPathInItems(items, function (fallbackPath) {
-                if (!fallbackPath) return;
-                var pts = null;
-                try { pts = fallbackPath.pathPoints; } catch (ePts) { pts = null; }
-                if (!pts || pts.length < 2) return;
-                var first = pts[0];
-                var second = pts[1];
-                var dx = second.anchor[0] - first.anchor[0];
-                var dy = second.anchor[1] - first.anchor[1];
-                if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return;
-                var fallbackAngle = Math.atan2(dy, dx) * (180 / Math.PI);
-                addRotation(fallbackAngle);
-            });
-        }
+        // NOTE: Removed fallback that calculated rotation from path geometry.
+        // We only want to show rotation values stored in metadata, not computed from geometry.
 
         rotationList.sort(function (a, b) {
             return a - b;
@@ -7839,9 +7953,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         angleDeg = (angleDeg + 360) % 360;
         return (
             (angleDeg >= STEEP_MIN && angleDeg <= STEEP_MAX) ||
-            (angleDeg >= 110 && angleDeg <= 150) ||
-            (angleDeg >= 210 && angleDeg <= 250) ||
-            (angleDeg >= 290 && angleDeg <= 330)
+            (angleDeg >= 107 && angleDeg <= 160) ||
+            (angleDeg >= 197 && angleDeg <= 250) ||
+            (angleDeg >= 287 && angleDeg <= 340)
         );
     }
 
@@ -8412,6 +8526,36 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         writeNoteTokens(item, filtered);
     }
 
+    function MDUX_getMetadata(item) {
+        try {
+            var note = item.note || "";
+            addDebug("[META GET INNER] Item typename=" + item.typename + ", note=" + (note ? note.substring(0, 500) : "(empty)"));
+            if (!note || note.indexOf("MDUX_META:") !== 0) {
+                addDebug("[META GET INNER] No MDUX_META prefix, returning null");
+                return null;
+            }
+            var jsonStr = note.substring(10); // Remove "MDUX_META:" prefix
+            addDebug("[META GET INNER] JSON string: " + jsonStr.substring(0, 500));
+            var result = JSON.parse(jsonStr);
+            addDebug("[META GET INNER] Parsed successfully");
+            return result;
+        } catch (e) {
+            addDebug("[META GET INNER] ERROR: " + e);
+            return null;
+        }
+    }
+
+    function MDUX_setMetadata(item, metadata) {
+        try {
+            var jsonStr = JSON.stringify(metadata);
+            addDebug("[META SET INNER] Item typename=" + item.typename + ", metadata=" + jsonStr.substring(0, 500));
+            item.note = "MDUX_META:" + jsonStr;
+            addDebug("[META SET INNER] Written. Item note is now: " + (item.note || "(empty)").substring(0, 500));
+        } catch (e) {
+            addDebug("[META SET INNER] ERROR: " + e);
+        }
+    }
+
     function getPlacedBaseRotation(item) {
         if (!item) return null;
         var tokens = readNoteTokens(item);
@@ -8974,37 +9118,45 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var worldAngle = Math.atan2(dy, dx) * (180 / Math.PI);
                 addDebug("[Orthogonalize Seg " + i + "] World angle: " + worldAngle.toFixed(1) + "°, Local angle: " + localAngle.toFixed(1) + "°");
 
-                var targetX = localX;
-                var targetY = localY;
-                if (Math.abs(localX) >= Math.abs(localY)) {
-                    targetY = 0;
-                    addDebug("[Orthogonalize Seg " + i + "] Snapping to horizontal in rotated grid");
+                // Check if the angle is steep relative to the rotation override
+                var isLocalSteep = isSteepAngle(localAngle);
+                addDebug("[Orthogonalize Seg " + i + "] Local angle steep check: " + isLocalSteep);
+
+                if (!isLocalSteep) {
+                    var targetX = localX;
+                    var targetY = localY;
+                    if (Math.abs(localX) >= Math.abs(localY)) {
+                        targetY = 0;
+                        addDebug("[Orthogonalize Seg " + i + "] Snapping to horizontal in rotated grid");
+                    } else {
+                        targetX = 0;
+                        addDebug("[Orthogonalize Seg " + i + "] Snapping to vertical in rotated grid");
+                    }
+
+                    var newDX = targetX * cosTheta - targetY * sinTheta;
+                    var newDY = targetX * sinTheta + targetY * cosTheta;
+                    var newWorldAngle = Math.atan2(newDY, newDX) * (180 / Math.PI);
+                    addDebug("[Orthogonalize Seg " + i + "] New world angle: " + newWorldAngle.toFixed(1) + "°");
+
+                    var newX = curr.anchor[0] + newDX;
+                    var newY = curr.anchor[1] + newDY;
+                    if (!almostEqualPoints([newX, newY], next.anchor)) {
+                        next.anchor = [newX, newY];
+                        changed = true;
+                    }
+
+                    curr.rightDirection = curr.anchor.slice();
+                    next.leftDirection = next.anchor.slice();
+                    next.rightDirection = next.anchor.slice();
+                    if (i > 0) {
+                        var prevRot = pts[i - 1];
+                        prevRot.rightDirection = prevRot.anchor.slice();
+                    }
+                    curr.leftDirection = curr.anchor.slice();
+                    curr.rightDirection = curr.anchor.slice();
                 } else {
-                    targetX = 0;
-                    addDebug("[Orthogonalize Seg " + i + "] Snapping to vertical in rotated grid");
+                    addDebug("[Orthogonalize Seg " + i + "] SKIPPED (steep angle relative to rotation override)");
                 }
-
-                var newDX = targetX * cosTheta - targetY * sinTheta;
-                var newDY = targetX * sinTheta + targetY * cosTheta;
-                var newWorldAngle = Math.atan2(newDY, newDX) * (180 / Math.PI);
-                addDebug("[Orthogonalize Seg " + i + "] New world angle: " + newWorldAngle.toFixed(1) + "°");
-
-                var newX = curr.anchor[0] + newDX;
-                var newY = curr.anchor[1] + newDY;
-                if (!almostEqualPoints([newX, newY], next.anchor)) {
-                    next.anchor = [newX, newY];
-                    changed = true;
-                }
-
-                curr.rightDirection = curr.anchor.slice();
-                next.leftDirection = next.anchor.slice();
-                next.rightDirection = next.anchor.slice();
-                if (i > 0) {
-                    var prevRot = pts[i - 1];
-                    prevRot.rightDirection = prevRot.anchor.slice();
-                }
-                curr.leftDirection = curr.anchor.slice();
-                curr.rightDirection = curr.anchor.slice();
             } else {
                 var angle = Math.atan2(dy, dx) * (180 / Math.PI);
                 var isSteep = isSteepAngle(angle);
@@ -10073,6 +10225,20 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         }
                     } catch (e) {
                         // Skip this path
+                    }
+                }
+
+                // IMPORTANT: Also collect center positions from PlacedItems (Units, Registers, etc.)
+                // This prevents creating new anchor points when placed items already exist at those locations
+                for (var pi = 0; pi < container.placedItems.length; pi++) {
+                    try {
+                        var placed = container.placedItems[pi];
+                        var gb = placed.geometricBounds;
+                        var centerX = (gb[0] + gb[2]) / 2;
+                        var centerY = (gb[1] + gb[3]) / 2;
+                        existingAnchors.push([centerX, centerY]);
+                    } catch (e) {
+                        // Skip this placed item
                     }
                 }
 
@@ -11408,6 +11574,43 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                                 // Track for styling in normal mode
                                 markCreatedPath(compoundItem);
                                 COMPOUND_PATHS_TO_STYLE.push(compoundItem);
+
+                                // Copy rotation override from child paths to compound path metadata
+                                try {
+                                    addDebug("[COMPOUND] Processing compound path, typename=" + compoundItem.typename);
+                                    if (compoundItem.typename === "CompoundPathItem" && compoundItem.pathItems) {
+                                        addDebug("[COMPOUND] Compound path has " + compoundItem.pathItems.length + " child paths");
+                                        addDebug("[COMPOUND] Compound path note BEFORE rotation copy: " + (compoundItem.note || "(empty)"));
+
+                                        var foundRotation = null;
+                                        for (var childIdx = 0; childIdx < compoundItem.pathItems.length; childIdx++) {
+                                            var childPath = compoundItem.pathItems[childIdx];
+                                            addDebug("[COMPOUND] Child " + childIdx + " note: " + (childPath.note || "(empty)"));
+                                            var childRot = getRotationOverride(childPath);
+                                            addDebug("[COMPOUND] Child " + childIdx + " rotation override: " + childRot);
+                                            if (childRot !== null && childRot !== undefined && isFinite(childRot)) {
+                                                foundRotation = childRot;
+                                                addDebug("[COMPOUND] Found rotation: " + foundRotation);
+                                                break; // Found rotation, use it
+                                            }
+                                        }
+                                        // Store rotation override in compound path's MDUX_META
+                                        if (foundRotation !== null) {
+                                            addDebug("[COMPOUND] Storing rotation " + foundRotation + " in compound path metadata");
+                                            var compoundMeta = MDUX_getMetadata(compoundItem);
+                                            addDebug("[COMPOUND] Existing metadata: " + (compoundMeta ? JSON.stringify(compoundMeta) : "null"));
+                                            if (!compoundMeta) compoundMeta = {};
+                                            compoundMeta.MDUX_RotationOverride = foundRotation;
+                                            addDebug("[COMPOUND] New metadata: " + JSON.stringify(compoundMeta));
+                                            MDUX_setMetadata(compoundItem, compoundMeta);
+                                            addDebug("[COMPOUND] Metadata written. Compound path note AFTER: " + (compoundItem.note || "(empty)"));
+                                        } else {
+                                            addDebug("[COMPOUND] No rotation override found in child paths");
+                                        }
+                                    }
+                                } catch (eRotCopy) {
+                                    addDebug("[COMPOUND] ERROR copying rotation: " + eRotCopy);
+                                }
                             }
                         } catch (eMarkCompound) {}
                     }
@@ -11459,9 +11662,15 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 {name: "Unit",                       layer: "Units",                      file: componentFile("Unit")}
             ];
 
+            // GLOBAL DEBUG ARRAY FOR UNIT PLACEMENT
+            var UNIT_DEBUG = [];
+
             function embeddedMain() {
                 if (!doc) { alert("No document provided to embedded Place Ductwork routine."); return; }
                 try { doc.rulerOrigin = [0, 0]; } catch (e) {}
+
+                // Clear debug array
+                UNIT_DEBUG = [];
 
                 // Skipped cleanupLayers_local to preserve unselected artwork
 
@@ -11474,6 +11683,42 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 // SELECTED_PATHS is defined in the outer scope and accessible via closure
                 var selectedPathsToUse = (typeof SELECTED_PATHS !== 'undefined' && SELECTED_PATHS && SELECTED_PATHS.length > 0) ? SELECTED_PATHS : null;
                 placeLinkedComponents_local(doc, selectedPathsToUse);
+
+                // DEBUG OUTPUT COMMENTED OUT - uncomment to show unit placement debug info
+                /*
+                // Show debug output in copyable dialog window
+                var debugText = "UNIT DEBUG OUTPUT\n";
+                var separator = "";
+                for (var i = 0; i < 80; i++) { separator += "="; }
+                debugText += separator + "\n";
+                if (UNIT_DEBUG.length > 0) {
+                    debugText += UNIT_DEBUG.join("\n");
+                } else {
+                    debugText += "No Unit anchors were processed.\n";
+                    debugText += "This might mean:\n";
+                    debugText += "- No Units layer exists\n";
+                    debugText += "- Units layer is locked\n";
+                    debugText += "- No unit anchor points were found\n";
+                }
+                debugText += "\n" + separator;
+
+                try {
+                    var w = new Window("dialog", "Unit Debug Output");
+                    w.preferredSize = [900, 700];
+
+                    var debugTextbox = w.add("edittext", undefined, "", {multiline: true, scrolling: true});
+                    debugTextbox.preferredSize = [880, 650];
+                    debugTextbox.text = debugText;
+
+                    var btnGroup = w.add("group");
+                    btnGroup.alignment = "center";
+                    var closeBtn = btnGroup.add("button", undefined, "Close", {name: "ok"});
+
+                    w.show();
+                } catch (e) {
+                    alert("Debug dialog error: " + e + "\n\nOutput:\n\n" + debugText.substring(0, 1000));
+                }
+                */
             }
 
             function cleanupLayers_local(docParam) {
@@ -11844,7 +12089,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 }
 
                 // Build list of existing items with their positions (tolerance-based matching)
-                var POSITION_TOLERANCE = 2.0; // pixels - tolerance for matching existing items to anchor points
+                var POSITION_TOLERANCE = 10.0; // pixels - tolerance for matching existing items to anchor points (MUST match CLOSE_DIST so units behave like registers)
                 for (var i = 0; i < docParam.placedItems.length; i++) {
                     var itm = docParam.placedItems[i];
                     try {
@@ -11969,6 +12214,39 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     var targetItem = null;
                     var createdNew = false;
 
+                    // DEBUG OUTPUT FOR UNITS - COMMENTED OUT FOR PERFORMANCE
+                    /*
+                    if (type.layer === "Units") {
+                        UNIT_DEBUG.push("---");
+                        UNIT_DEBUG.push("Anchor: " + key);
+                        UNIT_DEBUG.push("Position: [" + a[0].toFixed(2) + ", " + a[1].toFixed(2) + "]");
+                        UNIT_DEBUG.push("existingItems has key? " + (existingItems[key] ? "YES" : "NO"));
+                        UNIT_DEBUG.push("POSITION_TOLERANCE: " + POSITION_TOLERANCE + "px");
+
+                        // Count existing units near this position
+                        var nearbyCount = 0;
+                        for (var pi = 0; pi < docParam.placedItems.length; pi++) {
+                            var checkItem = docParam.placedItems[pi];
+                            try {
+                                if (checkItem.layer === layer && !checkItem.locked && checkItem.name.indexOf("Unit") !== -1) {
+                                    var gb = checkItem.geometricBounds;
+                                    var cx = (gb[0] + gb[2]) / 2;
+                                    var cy = (gb[1] + gb[3]) / 2;
+                                    var dx = a[0] - cx;
+                                    var dy = a[1] - cy;
+                                    var dist = Math.sqrt(dx * dx + dy * dy);
+                                    if (dist < 20) {  // Show all units within 20px
+                                        nearbyCount++;
+                                        var scaleInfo = getItemScale_local(checkItem);
+                                        UNIT_DEBUG.push("  Nearby Unit #" + nearbyCount + ": dist=" + dist.toFixed(2) + "px at [" + cx.toFixed(2) + "," + cy.toFixed(2) + "] scale=" + (scaleInfo ? scaleInfo.toFixed(1) : "?") + "%");
+                                    }
+                                }
+                            } catch (e) {}
+                        }
+                        UNIT_DEBUG.push("Total nearby units: " + nearbyCount);
+                    }
+                    */
+
                     // Check if an item already exists at this location
                     if (existingItems[key]) {
                         targetItem = existingItems[key];
@@ -11978,8 +12256,14 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         try {
                             targetItem.file = file;
                             addDebug("[" + type.name + "] Updated file link at " + key + " (preserving custom transforms)");
+                            if (type.layer === "Units") {
+                                UNIT_DEBUG.push("ACTION: Updated existing unit - preserving transforms");
+                            }
                         } catch (e) {
                             addDebug("[" + type.name + "] Failed to update file link at " + key + ": " + e);
+                            if (type.layer === "Units") {
+                                UNIT_DEBUG.push("ERROR: Failed to update file link: " + e);
+                            }
                         }
                     } else if (!layer.locked) {
                         // Create new placed item
@@ -11996,7 +12280,14 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                             targetItem = placed;
                             createdNew = true;
                             addDebug("[" + type.name + "] Created new item at " + key);
-                        } catch (e) {}
+                            if (type.layer === "Units") {
+                                UNIT_DEBUG.push("ACTION: Created NEW unit (will apply full size + default rotation)");
+                            }
+                        } catch (e) {
+                            if (type.layer === "Units") {
+                                UNIT_DEBUG.push("ERROR: Failed to create new unit: " + e);
+                            }
+                        }
                     }
 
                     // Only apply rotation and scale to NEW items
@@ -12032,36 +12323,63 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         addDebug("  baseRotation = " + (baseRotation !== null ? baseRotation + "°" : "null"));
                         addDebug("  desiredRotation (FINAL) = " + (desiredRotation !== null ? desiredRotation + "°" : "null"));
 
-                        // Apply rotation for NEW items
-                        if (type.layer !== "Thermostats" && desiredRotation !== null) {
-                            addDebug("  APPLYING rotation: " + desiredRotation + "° (base: " + baseRotation + "°)");
-                            rotatePageItemToAbsolute(targetItem, desiredRotation, baseRotation);
-                            customTransforms[key].absoluteRotation = desiredRotation;
+                        // Apply rotation and scale ONLY for NEW items to preserve custom transforms on existing items
+                        if (createdNew) {
+                            // Apply rotation for NEW items
+                            if (type.layer !== "Thermostats" && desiredRotation !== null) {
+                                addDebug("  APPLYING rotation: " + desiredRotation + "° (base: " + baseRotation + "°)");
+                                rotatePageItemToAbsolute(targetItem, desiredRotation, baseRotation);
+                                customTransforms[key].absoluteRotation = desiredRotation;
 
-                            // Fix bounding box orientation by re-assigning the file reference
-                            try {
-                                var currentFile = targetItem.file;
-                                targetItem.file = currentFile;
-                            } catch (e) {}
+                                // Fix bounding box orientation by re-assigning the file reference
+                                try {
+                                    var currentFile = targetItem.file;
+                                    targetItem.file = currentFile;
+                                } catch (e) {}
+                            }
+
+                            // Apply scale for NEW items
+                            var scaleToApply = globalScale;
+                            if (typeof customScale === 'number' && isFinite(customScale)) {
+                                scaleToApply = customScale;
+                            }
+
+                            if (scaleToApply !== 100) {
+                                try {
+                                    targetItem.resize(scaleToApply, scaleToApply, true, true, true, true, scaleToApply, Transformation.CENTER);
+                                    setPlacedScale(targetItem, scaleToApply);
+                                    addDebug("  APPLIED scale: " + scaleToApply + "%");
+                                } catch (e) {}
+                            }
+
+                            centerPageItemAt_local(targetItem, a);
+                        } else {
+                            addDebug("  EXISTING item - preserving custom transforms");
                         }
-
-                        // Apply scale for NEW items
-                        var scaleToApply = globalScale;
-                        if (typeof customScale === 'number' && isFinite(customScale)) {
-                            scaleToApply = customScale;
-                        }
-
-                        if (scaleToApply !== 100) {
-                            try {
-                                targetItem.resize(scaleToApply, scaleToApply, true, true, true, true, scaleToApply, Transformation.CENTER);
-                                setPlacedScale(targetItem, scaleToApply);
-                                addDebug("  APPLIED scale: " + scaleToApply + "%");
-                            } catch (e) {}
-                        }
-
-                        centerPageItemAt_local(targetItem, a);
 
                         try { targetItem.update(); } catch (e) {}
+                        
+                        // Store rotation metadata AFTER all item operations (file, scale, center, update)
+                        // to prevent operations from wiping the .note property
+                        // Write metadata for BOTH new and existing items if a rotation override was specified
+                        if (type.layer !== "Thermostats" && desiredRotation !== null) {
+                            try {
+                                var safeLog2 = (typeof MDUX_debugLog === "function") ? MDUX_debugLog : function(m) { addDebug("[PLACE-META] " + m); };
+                                var itemStatus = createdNew ? "NEW" : "EXISTING";
+                                safeLog2("[PLACE-META] Storing rotation " + desiredRotation + "° for " + itemStatus + " " + type.name + " at " + key);
+                                var placedMeta2 = MDUX_getMetadata(targetItem) || {};
+                                safeLog2("[PLACE-META] Got existing meta: " + JSON.stringify(placedMeta2).substring(0, 200));
+                                placedMeta2.MDUX_RotationOverride = desiredRotation;
+                                MDUX_setMetadata(targetItem, placedMeta2);
+                                safeLog2("[PLACE-META] STORED rotation " + desiredRotation + "° in MDUX_META.MDUX_RotationOverride");
+                                // Verify it was saved
+                                var verifyMeta = MDUX_getMetadata(targetItem);
+                                safeLog2("[PLACE-META] VERIFY after save: " + (verifyMeta ? JSON.stringify(verifyMeta).substring(0, 200) : "null"));
+                            } catch (eStoreMeta) {
+                                addDebug("  ERROR storing rotation metadata: " + eStoreMeta);
+                                try { if (typeof MDUX_debugLog === "function") MDUX_debugLog("[PLACE-META] ERROR: " + eStoreMeta); } catch(e2) {}
+                            }
+                        }
                     }
                 }
             }
@@ -12271,6 +12589,42 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     if (container.pathItems) {
                         for (var i = 0; i < container.pathItems.length; i++) {
                             processPath(container.pathItems[i]);
+                        }
+                    }
+
+                    // CRITICAL FIX: Also collect existing PlacedItems (Units/Registers) so their file links can be updated
+                    // This ensures existing scaled-down Units preserve their custom transforms when reprocessing
+                    if (container.placedItems) {
+                        for (var pi = 0; pi < container.placedItems.length; pi++) {
+                            try {
+                                var placed = container.placedItems[pi];
+                                if (placed.locked) continue;
+
+                                var gb = placed.geometricBounds;
+                                var centerX = (gb[0] + gb[2]) / 2;
+                                var centerY = (gb[1] + gb[3]) / 2;
+                                var centerPos = [centerX, centerY];
+                                var key = centerX.toFixed(2) + "_" + centerY.toFixed(2);
+
+                                // Skip if already seen
+                                if (seen[key]) continue;
+
+                                // Skip if anchor is ignored
+                                if (isPointIgnored_local(centerPos)) {
+                                    addDebug("[PLACED " + key + "] SKIPPED (on Ignored layer)");
+                                    continue;
+                                }
+
+                                // Only include if near selected paths (or no filter active)
+                                if (isNearSelectedPath(centerPos)) {
+                                    seen[key] = true;
+                                    // PlacedItems don't have rotation metadata on their anchor points, rotation will be determined later
+                                    pts.push({ pos: centerPos, rotation: null });
+                                    addDebug("[PLACED " + key + "] Collected existing PlacedItem for file link update");
+                                }
+                            } catch (e) {
+                                // Skip this placed item
+                            }
                         }
                     }
 

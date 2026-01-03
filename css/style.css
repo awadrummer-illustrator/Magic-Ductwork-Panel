@@ -446,3 +446,28 @@ footer:hover {
 /* Utility */
 .text-cyan { color: var(--primary-color); }
 .text-blue { color: var(--secondary-color); }
+
+/* Collapsible Sections */
+.collapsible-header {
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    transition: all 0.2s;
+}
+
+.collapsible-header:hover {
+    text-shadow: 0 0 8px var(--primary-color);
+}
+
+.collapse-icon {
+    font-size: 8px;
+    transition: transform 0.2s;
+    color: var(--primary-color);
+}
+
+.collapsible-content {
+    transition: max-height 0.3s ease-out;
+    overflow: hidden;
+}
