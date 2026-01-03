@@ -19,3 +19,6 @@ node_modules/
 DEPLOYMENT_INSTRUCTIONS.md
 index.html.bak
 css/style.css.bak
+
+# Standalone scripts (not part of extension)
+jsx/Generate 2K, 4K, 8K Renders With Automatic Compression.jsx
