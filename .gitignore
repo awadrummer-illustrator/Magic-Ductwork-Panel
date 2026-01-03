@@ -9,6 +9,13 @@ Thumbs.db
 # Debug files
 js/debug-location.jsx
 jsx/debug.log
+.debug
+.agent/
+
+# Dependencies
+node_modules/
 
 # Deployment instructions (not part of extension)
 DEPLOYMENT_INSTRUCTIONS.md
+index.html.bak
+css/style.css.bak
