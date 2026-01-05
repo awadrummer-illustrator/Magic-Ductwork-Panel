@@ -11908,84 +11908,13 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     if (EARLY_CROSSOVER_SEGMENTS.length > 0) {
         addDebug("[POST-ORTHO-SPLIT] Splitting " + EARLY_CROSSOVER_SEGMENTS.length + " crossover path(s)");
 
-        // *** FORCE-ORTHO CROSSOVER PATHS - FULL PATH ORTHOGONALIZATION ***
-        // The crossover path may have segments at various angles after main ortho
-        // Force the ENTIRE PATH to be orthogonalized BEFORE any centering or splitting
-        // Use Point 0 as the reference - all horizontal segments align to Point 0's Y
-        for (var forceOrthoIdx = 0; forceOrthoIdx < EARLY_CROSSOVER_SEGMENTS.length; forceOrthoIdx++) {
-            var xoData = EARLY_CROSSOVER_SEGMENTS[forceOrthoIdx];
-            var xoPath = xoData.path;
-            var xoSegIdx = xoData.segmentIdx;
-
-            if (!xoPath || !xoPath.pathPoints || xoPath.pathPoints.length < 2) {
-                addDebug("[FORCE-ORTHO-XOVER] Skipping invalid crossover path " + forceOrthoIdx);
-                continue;
-            }
-
-            var foPts = xoPath.pathPoints;
-            addDebug("[FORCE-ORTHO-XOVER] === ORTHOGONALIZING ENTIRE PATH " + forceOrthoIdx + " (" + foPts.length + " points) ===");
-
-            // Log original point positions
-            for (var logIdx = 0; logIdx < foPts.length; logIdx++) {
-                var logPt = foPts[logIdx].anchor;
-                addDebug("[FORCE-ORTHO-XOVER] Original Point " + logIdx + ": [" + logPt[0].toFixed(2) + ", " + logPt[1].toFixed(2) + "]");
-            }
-
-            // Determine overall path orientation from first segment
-            var firstPt = foPts[0].anchor;
-            var lastPt = foPts[foPts.length - 1].anchor;
-            var overallDx = Math.abs(lastPt[0] - firstPt[0]);
-            var overallDy = Math.abs(lastPt[1] - firstPt[1]);
-
-            // Path is primarily horizontal if X span > Y span
-            var pathIsHorizontal = (overallDx >= overallDy);
-            addDebug("[FORCE-ORTHO-XOVER] Path orientation: " + (pathIsHorizontal ? "HORIZONTAL" : "VERTICAL") + " (dx=" + overallDx.toFixed(2) + ", dy=" + overallDy.toFixed(2) + ")");
-
-            // Use Point 0's coordinate as the reference for alignment
-            var referenceY = firstPt[1];
-            var referenceX = firstPt[0];
-            addDebug("[FORCE-ORTHO-XOVER] Reference position from Point 0: X=" + referenceX.toFixed(2) + ", Y=" + referenceY.toFixed(2));
-
-            if (pathIsHorizontal) {
-                // For a primarily horizontal path, all points should be at the same Y
-                // Move ALL points to Point 0's Y
-                addDebug("[FORCE-ORTHO-XOVER] Aligning ALL points to Y=" + referenceY.toFixed(2));
-                for (var alignIdx = 0; alignIdx < foPts.length; alignIdx++) {
-                    var oldAnchor = foPts[alignIdx].anchor;
-                    if (Math.abs(oldAnchor[1] - referenceY) > 0.01) {
-                        addDebug("[FORCE-ORTHO-XOVER] Point " + alignIdx + ": Y " + oldAnchor[1].toFixed(2) + " -> " + referenceY.toFixed(2));
-                        foPts[alignIdx].anchor = [oldAnchor[0], referenceY];
-                        foPts[alignIdx].leftDirection = [oldAnchor[0], referenceY];
-                        foPts[alignIdx].rightDirection = [oldAnchor[0], referenceY];
-                    } else {
-                        addDebug("[FORCE-ORTHO-XOVER] Point " + alignIdx + ": already at Y=" + oldAnchor[1].toFixed(2) + " (OK)");
-                    }
-                }
-            } else {
-                // For a primarily vertical path, all points should be at the same X
-                // Move ALL points to Point 0's X
-                addDebug("[FORCE-ORTHO-XOVER] Aligning ALL points to X=" + referenceX.toFixed(2));
-                for (var alignIdx = 0; alignIdx < foPts.length; alignIdx++) {
-                    var oldAnchor = foPts[alignIdx].anchor;
-                    if (Math.abs(oldAnchor[0] - referenceX) > 0.01) {
-                        addDebug("[FORCE-ORTHO-XOVER] Point " + alignIdx + ": X " + oldAnchor[0].toFixed(2) + " -> " + referenceX.toFixed(2));
-                        foPts[alignIdx].anchor = [referenceX, oldAnchor[1]];
-                        foPts[alignIdx].leftDirection = [referenceX, oldAnchor[1]];
-                        foPts[alignIdx].rightDirection = [referenceX, oldAnchor[1]];
-                    } else {
-                        addDebug("[FORCE-ORTHO-XOVER] Point " + alignIdx + ": already at X=" + oldAnchor[0].toFixed(2) + " (OK)");
-                    }
-                }
-            }
-
-            // Log final point positions
-            addDebug("[FORCE-ORTHO-XOVER] === AFTER FULL ORTHOGONALIZATION ===");
-            for (var logIdx2 = 0; logIdx2 < foPts.length; logIdx2++) {
-                var logPt2 = foPts[logIdx2].anchor;
-                addDebug("[FORCE-ORTHO-XOVER] Final Point " + logIdx2 + ": [" + logPt2[0].toFixed(2) + ", " + logPt2[1].toFixed(2) + "]");
-            }
-            addDebug("[FORCE-ORTHO-XOVER] Path " + forceOrthoIdx + " fully orthogonalized");
-        }
+        // *** FORCE-ORTHO CROSSOVER PATHS - REMOVED ***
+        // This code was incorrectly flattening entire paths with multiple elbows
+        // into single lines by aligning ALL points to the same coordinate.
+        // The regular segment-by-segment orthogonalization already handles
+        // crossover paths correctly - this extra step was destroying valid geometry.
+        // Bug fixed: 2026-01-05
+        addDebug("[POST-ORTHO-SPLIT] Skipping destructive FORCE-ORTHO (normal ortho already applied)");
 
         // Helper: Calculate intersection point of two line segments
         function getLineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
@@ -12034,6 +11963,49 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     var halfLen = segLen / 2;
 
                     addDebug("[POST-ORTHO-SPLIT] Crossover segment: [" + segStartPt[0].toFixed(1) + "," + segStartPt[1].toFixed(1) + "] to [" + segEndPt[0].toFixed(1) + "," + segEndPt[1].toFixed(1) + "] len=" + segLen.toFixed(1));
+
+                    // *** FORCE ORTHOGONALIZATION OF ENTIRE PATH ***
+                    // If the crossover segment was skipped during normal ortho (steep angle), force it now.
+                    // IMPORTANT: Must orthogonalize ALL segments from crossover to end of path
+                    // before splitting, otherwise the split halves will have misaligned endpoints.
+                    var tolerance = 0.5; // Allow small tolerance for already-orthogonal segments
+                    if (Math.abs(segDx) > tolerance && Math.abs(segDy) > tolerance) {
+                        addDebug("[POST-ORTHO-SPLIT] Crossover segment is non-orthogonal (dx=" + segDx.toFixed(2) + ", dy=" + segDy.toFixed(2) + ") - forcing orthogonalization of entire path");
+
+                        // Determine orientation based on dominant direction of crossover segment
+                        var isHorizontal = Math.abs(segDx) > Math.abs(segDy);
+                        var alignmentCoord = segStartPt[isHorizontal ? 1 : 0]; // Y for horizontal, X for vertical
+
+                        addDebug("[POST-ORTHO-SPLIT] Forcing " + (isHorizontal ? "HORIZONTAL" : "VERTICAL") + " alignment at " + (isHorizontal ? "Y" : "X") + "=" + alignmentCoord.toFixed(2));
+
+                        // Orthogonalize ALL points from crossover segment to end of path
+                        for (var i = segIdx + 1; i < pts.length; i++) {
+                            var oldAnchor = pts[i].anchor;
+                            if (isHorizontal) {
+                                // Horizontal: set all Y coordinates to alignment Y
+                                pts[i].anchor = [oldAnchor[0], alignmentCoord];
+                                pts[i].leftDirection = [oldAnchor[0], alignmentCoord];
+                                pts[i].rightDirection = [oldAnchor[0], alignmentCoord];
+                                addDebug("[POST-ORTHO-SPLIT]   Point " + i + ": [" + oldAnchor[0].toFixed(1) + "," + oldAnchor[1].toFixed(1) + "] -> [" + oldAnchor[0].toFixed(1) + "," + alignmentCoord.toFixed(1) + "]");
+                            } else {
+                                // Vertical: set all X coordinates to alignment X
+                                pts[i].anchor = [alignmentCoord, oldAnchor[1]];
+                                pts[i].leftDirection = [alignmentCoord, oldAnchor[1]];
+                                pts[i].rightDirection = [alignmentCoord, oldAnchor[1]];
+                                addDebug("[POST-ORTHO-SPLIT]   Point " + i + ": [" + oldAnchor[0].toFixed(1) + "," + oldAnchor[1].toFixed(1) + "] -> [" + alignmentCoord.toFixed(1) + "," + oldAnchor[1].toFixed(1) + "]");
+                            }
+                        }
+
+                        // Update segment endpoint to the newly orthogonalized position
+                        segEndPt = pts[segIdx + 1].anchor;
+
+                        // Recalculate segment direction and length after orthogonalization
+                        segDx = segEndPt[0] - segStartPt[0];
+                        segDy = segEndPt[1] - segStartPt[1];
+                        segLen = Math.sqrt(segDx * segDx + segDy * segDy);
+                        halfLen = segLen / 2;
+                        addDebug("[POST-ORTHO-SPLIT] After forcing ortho: crossover seg dx=" + segDx.toFixed(2) + ", dy=" + segDy.toFixed(2) + ", len=" + segLen.toFixed(2));
+                    }
 
                     // Calculate intersection point with crossing path (AFTER ortho)
                     var intersectionPt = null;
@@ -12146,8 +12118,8 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     // Store stroke width on individual paths for later use
                     try {
                         var splitMeta = { MDUX_PreCompoundScale: preCompoundScale, MDUX_EarlySplitPath: true };
-                        setItemMetadata(targetPath, splitMeta);
-                        setItemMetadata(dupPath, splitMeta);
+                        MDUX_setMetadata(targetPath, splitMeta);
+                        MDUX_setMetadata(dupPath, splitMeta);
                         addDebug("[POST-ORTHO-SPLIT] Stored preCompoundScale=" + preCompoundScale + " on both split paths");
                     } catch (eStoreMeta) {
                         addDebug("[POST-ORTHO-SPLIT] Failed to store metadata: " + eStoreMeta);
