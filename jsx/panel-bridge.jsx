@@ -2562,59 +2562,50 @@ function MDUX_getSelectionTransformState() {
     }
 }
 
-// --- RESET STROKES: Apply default 4pt stroke width to selected ductwork lines ---
+// --- RESET STROKES: Apply appropriate graphic styles to selected ductwork lines based on layer ---
 function MDUX_resetStrokes() {
+    // Outer safety wrapper
     try {
-        var doc = app.activeDocument;
-        if (!doc) return "No document open";
-
-        var sel = doc.selection;
-        if (!sel || sel.length === 0) return "No selection";
-
-        var BASE_STROKE = 4; // Default stroke width
-        var count = 0;
-
-        function resetPathStroke(path) {
-            try {
-                if (path.typename !== "PathItem") return;
-                if (path.guides || path.clipping) return;
-                path.stroked = true;
-                path.strokeWidth = BASE_STROKE;
-                count++;
-            } catch (e) {}
+        if (typeof MDUX_debugLog !== "function") {
+            return "Error: MDUX_debugLog not defined";
         }
-
-        function walkItems(item) {
-            if (!item) return;
-            if (item.typename === "GroupItem") {
-                for (var i = 0; i < item.pageItems.length; i++) walkItems(item.pageItems[i]);
-            } else if (item.typename === "CompoundPathItem") {
-                for (var j = 0; j < item.pathItems.length; j++) resetPathStroke(item.pathItems[j]);
-            } else if (item.typename === "PathItem") {
-                resetPathStroke(item);
-            }
-        }
-
-        for (var i = 0; i < sel.length; i++) {
-            walkItems(sel[i]);
-        }
-
-        return "Reset strokes on " + count + " path(s) to " + BASE_STROKE + "pt";
-    } catch (e) {
-        return "Error: " + e.message;
+        MDUX_debugLog("[RESET-STROKES] ========== FUNCTION ENTRY ==========");
+    } catch (initErr) {
+        return "Error at init: " + initErr;
     }
-}
 
-// --- NORMALIZE DUCTWORK PARTS: Apply appropriate graphic styles to selected ductwork ---
-function MDUX_normalizeDuctworkParts() {
     try {
-        var doc = app.activeDocument;
-        if (!doc) return "No document open";
+        MDUX_debugLog("[RESET-STROKES] Checking for active document...");
+        var doc = null;
+        try {
+            doc = app.activeDocument;
+        } catch (docErr) {
+            MDUX_debugLog("[RESET-STROKES] Error getting activeDocument: " + docErr);
+            return "Error: Cannot access active document";
+        }
 
-        var sel = doc.selection;
-        if (!sel || sel.length === 0) return "No selection";
+        if (!doc) {
+            MDUX_debugLog("[RESET-STROKES] No document open");
+            return "No document open";
+        }
+        MDUX_debugLog("[RESET-STROKES] Document: " + doc.name);
 
-        // Layer to style mappings
+        MDUX_debugLog("[RESET-STROKES] Getting selection...");
+        var sel = null;
+        try {
+            sel = doc.selection;
+        } catch (selErr) {
+            MDUX_debugLog("[RESET-STROKES] Error getting selection: " + selErr);
+            return "Error: Cannot access selection";
+        }
+
+        if (!sel || sel.length === 0) {
+            MDUX_debugLog("[RESET-STROKES] No selection");
+            return "No selection";
+        }
+        MDUX_debugLog("[RESET-STROKES] Selection has " + sel.length + " items");
+
+        // Layer to style mappings - ductwork lines
         var LAYER_STYLE_MAP = {
             "Green Ductwork": "Green Ductwork",
             "Light Green Ductwork": "Light Green Ductwork",
@@ -2625,58 +2616,314 @@ function MDUX_normalizeDuctworkParts() {
         };
 
         var count = 0;
+        var errors = [];
         var styleCache = {};
 
         // Get graphic style by name
         function getStyle(styleName) {
             if (styleCache[styleName] !== undefined) return styleCache[styleName];
             try {
-                for (var i = 0; i < doc.graphicStyles.length; i++) {
-                    if (doc.graphicStyles[i].name === styleName) {
-                        styleCache[styleName] = doc.graphicStyles[i];
-                        return styleCache[styleName];
+                MDUX_debugLog("[RESET-STROKES] Looking for style: " + styleName);
+                var styleCount = doc.graphicStyles.length;
+                MDUX_debugLog("[RESET-STROKES] Document has " + styleCount + " graphic styles");
+                for (var i = 0; i < styleCount; i++) {
+                    try {
+                        var gs = doc.graphicStyles[i];
+                        if (gs && gs.name === styleName) {
+                            styleCache[styleName] = gs;
+                            MDUX_debugLog("[RESET-STROKES] Found style: " + styleName);
+                            return gs;
+                        }
+                    } catch (styleItemErr) {
+                        MDUX_debugLog("[RESET-STROKES] Error accessing style " + i + ": " + styleItemErr);
                     }
                 }
-            } catch (e) {}
+            } catch (e) {
+                MDUX_debugLog("[RESET-STROKES] Error in getStyle: " + e);
+            }
+            MDUX_debugLog("[RESET-STROKES] Style NOT found: " + styleName);
             styleCache[styleName] = null;
             return null;
         }
 
-        function applyStyleToPath(item) {
+        function applyStyleToItem(item) {
             try {
-                var layerName = item.layer ? item.layer.name : null;
+                var layerName = null;
+                try {
+                    layerName = item.layer ? item.layer.name : null;
+                } catch (layerErr) {
+                    MDUX_debugLog("[RESET-STROKES] Error getting layer: " + layerErr);
+                    return;
+                }
+
+                MDUX_debugLog("[RESET-STROKES] Item type=" + item.typename + ", layer=" + layerName);
                 if (!layerName) return;
 
                 var styleName = LAYER_STYLE_MAP[layerName];
-                if (!styleName) return;
+                if (!styleName) {
+                    MDUX_debugLog("[RESET-STROKES] No style mapping for layer: " + layerName);
+                    return;
+                }
 
                 var style = getStyle(styleName);
-                if (!style) return;
+                if (!style) {
+                    MDUX_debugLog("[RESET-STROKES] Style not available: " + styleName);
+                    return;
+                }
 
-                style.applyTo(item);
-                count++;
-            } catch (e) {}
+                MDUX_debugLog("[RESET-STROKES] Applying style " + styleName + " to item...");
+                try {
+                    style.applyTo(item);
+                    MDUX_debugLog("[RESET-STROKES] Applied style successfully");
+                    count++;
+                } catch (applyErr) {
+                    MDUX_debugLog("[RESET-STROKES] Error applying style: " + applyErr);
+                    errors.push("Apply error: " + applyErr);
+                }
+            } catch (e) {
+                MDUX_debugLog("[RESET-STROKES] Error in applyStyleToItem: " + e);
+                errors.push("Item error: " + e);
+            }
         }
 
         function walkItems(item) {
             if (!item) return;
-            if (item.typename === "GroupItem") {
-                for (var i = 0; i < item.pageItems.length; i++) walkItems(item.pageItems[i]);
-            } else if (item.typename === "CompoundPathItem") {
-                applyStyleToPath(item);
-            } else if (item.typename === "PathItem") {
-                if (!item.guides && !item.clipping) {
-                    applyStyleToPath(item);
+            try {
+                var typeName = item.typename;
+                MDUX_debugLog("[RESET-STROKES] Walking item type: " + typeName);
+
+                if (typeName === "GroupItem") {
+                    try {
+                        var itemCount = item.pageItems.length;
+                        for (var i = 0; i < itemCount; i++) {
+                            walkItems(item.pageItems[i]);
+                        }
+                    } catch (groupErr) {
+                        MDUX_debugLog("[RESET-STROKES] Error walking group: " + groupErr);
+                    }
+                } else if (typeName === "CompoundPathItem") {
+                    applyStyleToItem(item);
+                } else if (typeName === "PathItem") {
+                    try {
+                        if (!item.guides && !item.clipping) {
+                            applyStyleToItem(item);
+                        }
+                    } catch (pathErr) {
+                        MDUX_debugLog("[RESET-STROKES] Error checking path properties: " + pathErr);
+                    }
                 }
+            } catch (walkErr) {
+                MDUX_debugLog("[RESET-STROKES] Error in walkItems: " + walkErr);
             }
         }
 
+        MDUX_debugLog("[RESET-STROKES] Starting to walk " + sel.length + " selected items...");
         for (var i = 0; i < sel.length; i++) {
-            walkItems(sel[i]);
+            try {
+                walkItems(sel[i]);
+            } catch (loopErr) {
+                MDUX_debugLog("[RESET-STROKES] Error processing item " + i + ": " + loopErr);
+            }
         }
 
+        MDUX_debugLog("[RESET-STROKES] ========== COMPLETE ==========");
+        MDUX_debugLog("[RESET-STROKES] Applied styles to " + count + " items, " + errors.length + " errors");
+
+        if (errors.length > 0) {
+            return "Applied to " + count + " item(s), " + errors.length + " error(s)";
+        }
         return "Applied styles to " + count + " item(s)";
     } catch (e) {
+        try {
+            MDUX_debugLog("[RESET-STROKES] FATAL ERROR: " + e + " (line: " + e.line + ")");
+        } catch (logErr) {}
+        return "Error: " + (e.message || e.toString());
+    }
+}
+
+// --- RESET DUCTWORK PARTS SCALE: Reset ductwork parts to original scale while keeping rotation ---
+function MDUX_resetDuctworkPartsScale() {
+    // Outer safety wrapper
+    try {
+        if (typeof MDUX_debugLog !== "function") {
+            return "Error: MDUX_debugLog not defined";
+        }
+        MDUX_debugLog("[RESET-PARTS-SCALE] ========== FUNCTION ENTRY ==========");
+    } catch (initErr) {
+        return "Error at init: " + initErr;
+    }
+
+    try {
+        MDUX_debugLog("[RESET-PARTS-SCALE] Checking for active document...");
+        var doc = null;
+        try {
+            doc = app.activeDocument;
+        } catch (docErr) {
+            MDUX_debugLog("[RESET-PARTS-SCALE] Error getting activeDocument: " + docErr);
+            return "Error: Cannot access active document";
+        }
+
+        if (!doc) {
+            MDUX_debugLog("[RESET-PARTS-SCALE] No document open");
+            return "No document open";
+        }
+        MDUX_debugLog("[RESET-PARTS-SCALE] Document: " + doc.name);
+
+        MDUX_debugLog("[RESET-PARTS-SCALE] Getting selection...");
+        var sel = null;
+        try {
+            sel = doc.selection;
+        } catch (selErr) {
+            MDUX_debugLog("[RESET-PARTS-SCALE] Error getting selection: " + selErr);
+            return "Error: Cannot access selection";
+        }
+
+        if (!sel || sel.length === 0) {
+            MDUX_debugLog("[RESET-PARTS-SCALE] No selection");
+            return "No selection";
+        }
+        MDUX_debugLog("[RESET-PARTS-SCALE] Selection has " + sel.length + " items");
+
+        var count = 0;
+        var skipped = 0;
+        var errors = [];
+
+        function resetPartScale(item) {
+            try {
+                MDUX_debugLog("[RESET-PARTS-SCALE] Processing " + item.typename);
+
+                // Get current scale from metadata
+                var currentScaleTag = null;
+                try {
+                    currentScaleTag = MDUX_getTag(item, "MDUX_CurrentScale");
+                } catch (tagErr) {
+                    MDUX_debugLog("[RESET-PARTS-SCALE] Error getting tag: " + tagErr);
+                    skipped++;
+                    return;
+                }
+                MDUX_debugLog("[RESET-PARTS-SCALE] MDUX_CurrentScale tag = " + currentScaleTag);
+
+                if (currentScaleTag === null) {
+                    MDUX_debugLog("[RESET-PARTS-SCALE] No scale metadata, skipping");
+                    skipped++;
+                    return;
+                }
+
+                var currentScale = parseFloat(currentScaleTag);
+                if (isNaN(currentScale) || currentScale <= 0) {
+                    MDUX_debugLog("[RESET-PARTS-SCALE] Invalid scale value: " + currentScaleTag);
+                    skipped++;
+                    return;
+                }
+
+                // If already at 100%, skip
+                if (Math.abs(currentScale - 100) < 1) {
+                    MDUX_debugLog("[RESET-PARTS-SCALE] Already at 100%, skipping");
+                    return;
+                }
+
+                // Calculate the scale factor needed to return to 100%
+                // If current is 50%, we need to scale by 200% (100/50 * 100)
+                var resetScalePercent = (100 / currentScale) * 100;
+                MDUX_debugLog("[RESET-PARTS-SCALE] Current: " + currentScale + "%, reset factor: " + resetScalePercent + "%");
+
+                // Apply uniform scale to reset to original size
+                try {
+                    var matrix = app.getScaleMatrix(resetScalePercent, resetScalePercent);
+                    // Use simpler transform call that works with more item types
+                    item.transform(matrix);
+                    MDUX_debugLog("[RESET-PARTS-SCALE] Transform applied successfully");
+                } catch (transformErr) {
+                    MDUX_debugLog("[RESET-PARTS-SCALE] Transform error: " + transformErr);
+                    errors.push("Transform error: " + transformErr);
+                    skipped++;
+                    return;
+                }
+
+                // Update metadata
+                try {
+                    MDUX_setTag(item, "MDUX_CurrentScale", "100");
+                    MDUX_debugLog("[RESET-PARTS-SCALE] Set MDUX_CurrentScale to 100");
+                } catch (setTagErr) {
+                    MDUX_debugLog("[RESET-PARTS-SCALE] Error setting tag: " + setTagErr);
+                }
+
+                count++;
+            } catch (e) {
+                MDUX_debugLog("[RESET-PARTS-SCALE] Error in resetPartScale: " + e);
+                errors.push("Reset error: " + e);
+                skipped++;
+            }
+        }
+
+        function walkItems(item) {
+            if (!item) return;
+            try {
+                var typeName = item.typename;
+                MDUX_debugLog("[RESET-PARTS-SCALE] Walking item type: " + typeName);
+
+                // Check if item has MDUX_CurrentScale metadata
+                var hasScaleTag = false;
+                try {
+                    hasScaleTag = MDUX_getTag(item, "MDUX_CurrentScale") !== null;
+                } catch (tagCheckErr) {
+                    MDUX_debugLog("[RESET-PARTS-SCALE] Error checking tag: " + tagCheckErr);
+                }
+
+                // Handle PlacedItem (linked/embedded images or symbols)
+                if (typeName === "PlacedItem" || typeName === "SymbolItem") {
+                    if (hasScaleTag) {
+                        resetPartScale(item);
+                    } else {
+                        MDUX_debugLog("[RESET-PARTS-SCALE] " + typeName + " has no scale metadata");
+                        skipped++;
+                    }
+                } else if (typeName === "GroupItem") {
+                    // Groups with MDUX metadata are ductwork parts (Units, Registers, etc.)
+                    if (hasScaleTag) {
+                        resetPartScale(item);
+                    } else {
+                        // Walk into group to find nested items
+                        try {
+                            var itemCount = item.pageItems.length;
+                            for (var i = 0; i < itemCount; i++) {
+                                walkItems(item.pageItems[i]);
+                            }
+                        } catch (groupErr) {
+                            MDUX_debugLog("[RESET-PARTS-SCALE] Error walking group: " + groupErr);
+                        }
+                    }
+                } else if (typeName === "CompoundPathItem" || typeName === "PathItem") {
+                    // Check if this item has scale metadata stored
+                    if (hasScaleTag) {
+                        resetPartScale(item);
+                    }
+                }
+            } catch (walkErr) {
+                MDUX_debugLog("[RESET-PARTS-SCALE] Error in walkItems: " + walkErr);
+            }
+        }
+
+        MDUX_debugLog("[RESET-PARTS-SCALE] Starting to walk " + sel.length + " selected items...");
+        for (var i = 0; i < sel.length; i++) {
+            try {
+                walkItems(sel[i]);
+            } catch (loopErr) {
+                MDUX_debugLog("[RESET-PARTS-SCALE] Error processing item " + i + ": " + loopErr);
+            }
+        }
+
+        MDUX_debugLog("[RESET-PARTS-SCALE] ========== COMPLETE ==========");
+        MDUX_debugLog("[RESET-PARTS-SCALE] Reset " + count + " parts, skipped " + skipped + ", errors " + errors.length);
+
+        if (count === 0 && skipped > 0) {
+            return "No parts with scale metadata found (checked " + skipped + " items)";
+        }
+        return "Reset scale on " + count + " part(s) to 100%" + (skipped > 0 ? ", skipped " + skipped : "");
+    } catch (e) {
+        try {
+            MDUX_debugLog("[RESET-PARTS-SCALE] FATAL ERROR: " + e + " (line: " + e.line + ")");
+        } catch (logErr) {}
         return "Error: " + e.message;
     }
 }

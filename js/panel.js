@@ -60,7 +60,7 @@
 
     // Reset/Normalize Controls
     const resetStrokesBtn = document.getElementById('reset-strokes-btn');
-    const normalizePartsBtn = document.getElementById('normalize-parts-btn');
+    const resetPartsScaleBtn = document.getElementById('reset-parts-scale-btn');
 
     // Collapsible Section Controls
     const docScaleToggle = document.getElementById('doc-scale-toggle');
@@ -1336,12 +1336,12 @@
                     }
                 });
             }
-            if (normalizePartsBtn) {
-                normalizePartsBtn.addEventListener('click', async () => {
+            if (resetPartsScaleBtn) {
+                resetPartsScaleBtn.addEventListener('click', async () => {
                     try {
                         await ensureBridgeLoaded();
-                        const result = await evalScript('MDUX_normalizeDuctworkParts()');
-                        if (selectionStatus) selectionStatus.textContent = result || 'Parts normalized';
+                        const result = await evalScript('MDUX_resetDuctworkPartsScale()');
+                        if (selectionStatus) selectionStatus.textContent = result || 'Parts scale reset';
                     } catch (e) {
                         if (selectionStatus) selectionStatus.textContent = 'Error: ' + e.message;
                     }
