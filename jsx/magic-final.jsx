@@ -11282,7 +11282,21 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                                     addDebug("[STROKE-DETECT] Method 1 SKIPPED: no valid MDUX_CurrentScale in metadata");
                                 }
                             } else {
-                                addDebug("[STROKE-DETECT] Method 1 SKIPPED: CompoundPathItem requires Method 3 for accurate stroke detection");
+                                // For CompoundPathItem, check for pre-compound scale stored during compounding
+                                addDebug("[STROKE-DETECT] Method 1b: Checking MDUX_PreCompoundScale for CompoundPathItem...");
+                                var compoundMeta = MDUX_getMetadata(item);
+                                var preCompScale = compoundMeta ? compoundMeta.MDUX_PreCompoundScale : null;
+                                if (typeof preCompScale === "string") {
+                                    preCompScale = parseFloat(preCompScale);
+                                }
+                                if (typeof preCompScale === "number" && isFinite(preCompScale) && preCompScale > 0) {
+                                    itemScaleFactor = preCompScale;
+                                    currentStrokeWidth = 4 * (itemScaleFactor / 100);
+                                    strokeMethod = "pre-compound-scale";
+                                    addDebug("[STROKE-DETECT] Method 1b SUCCESS: scale=" + itemScaleFactor + "% from MDUX_PreCompoundScale");
+                                } else {
+                                    addDebug("[STROKE-DETECT] Method 1b SKIPPED: no MDUX_PreCompoundScale, will try other methods");
+                                }
                             }
 
                             // METHOD 2: Try reading strokeWidth directly from the item (for simple PathItems)
@@ -11294,6 +11308,42 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                                     addDebug("[STROKE-DETECT] Method 2 SUCCESS: " + currentStrokeWidth.toFixed(4) + "pt");
                                 } else {
                                     addDebug("[STROKE-DETECT] Method 2 FAILED: stroked=" + item.stroked + ", strokeWidth=" + (item.strokeWidth || "undefined"));
+                                }
+                            }
+
+                            // METHOD 2.5: For CompoundPathItem, check strokes at compound level and child level
+                            // After compounding, strokes may be at compound level or on individual children
+                            if (currentStrokeWidth === null && item.typename === "CompoundPathItem") {
+                                addDebug("[STROKE-DETECT] Method 2.5: Check compound and child path strokes...");
+                                try {
+                                    // First check if compound path itself has a stroke (common after menu compounding)
+                                    if (item.stroked && item.strokeWidth > 0.1) {
+                                        currentStrokeWidth = item.strokeWidth;
+                                        strokeMethod = "compound-direct";
+                                        addDebug("[STROKE-DETECT] Method 2.5 SUCCESS: " + currentStrokeWidth.toFixed(4) + "pt from compound path itself");
+                                    }
+
+                                    // If not, check child paths
+                                    if (currentStrokeWidth === null) {
+                                        var childPaths = item.pathItems;
+                                        for (var cp = 0; cp < childPaths.length; cp++) {
+                                            var child = childPaths[cp];
+                                            if (child.stroked && child.strokeWidth > 0.1) {
+                                                // Take the largest stroke found
+                                                if (currentStrokeWidth === null || child.strokeWidth > currentStrokeWidth) {
+                                                    currentStrokeWidth = child.strokeWidth;
+                                                    strokeMethod = "compound-child-direct";
+                                                }
+                                            }
+                                        }
+                                        if (currentStrokeWidth !== null) {
+                                            addDebug("[STROKE-DETECT] Method 2.5 SUCCESS: " + currentStrokeWidth.toFixed(4) + "pt from child path");
+                                        } else {
+                                            addDebug("[STROKE-DETECT] Method 2.5 FAILED: no strokes on compound or children");
+                                        }
+                                    }
+                                } catch (eChild) {
+                                    addDebug("[STROKE-DETECT] Method 2.5 ERROR: " + eChild);
                                 }
                             }
 
@@ -11790,10 +11840,15 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // Track compound paths created during compounding for styling
     var COMPOUND_PATHS_TO_STYLE = [];
 
+    // Track crossover segment coordinates for post-processing (ignore anchors + segment deletion)
+    var ALL_CROSSOVER_SEGMENTS = [];
+
     for (var layerIdx = 0; layerIdx < layersToProcess.length; layerIdx++) {
         var layerName = layersToProcess[layerIdx];
+        addDebug("[COMPOUND] Processing layer: " + layerName);
         // Only process selected paths on this layer
         var layerPaths = filterPathsToProcessable(getPathsOnLayerSelected(layerName));
+        addDebug("[COMPOUND] " + layerName + " has " + layerPaths.length + " selected paths");
 
         // Only compound open paths (centerlines), not closed paths
         // In Emory mode, this excludes the Double Ductwork rectangles/connectors from compounding
@@ -11801,11 +11856,204 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         for (var fp = 0; fp < layerPaths.length; fp++) {
             if (!layerPaths[fp].closed) filteredPaths.push(layerPaths[fp]);
         }
+        addDebug("[COMPOUND] " + layerName + " after filter: " + filteredPaths.length + " open paths");
         layerPaths = filteredPaths;
+
+        // CROSSOVER DETECTION: Find small internal segments (5-17pt) where another path intersects
+        // These represent crossover points between separate ductwork runs that should NOT be merged
+        var crossoverInfo = [];
+        if (layerName.toLowerCase().indexOf("blue") !== -1 && layerPaths.length > 1) {
+            var SMALL_SEG_MIN = 5;
+            var SMALL_SEG_MAX = 17;
+            var INTERSECT_DIST = 5; // Max distance to consider an intersection
+
+            for (var pathIdx = 0; pathIdx < layerPaths.length; pathIdx++) {
+                var path = layerPaths[pathIdx];
+                var pts = path.pathPoints;
+
+                // Check each internal segment (not first or last segment)
+                for (var segIdx = 1; segIdx < pts.length - 2; segIdx++) {
+                    var segStart = pts[segIdx].anchor;
+                    var segEnd = pts[segIdx + 1].anchor;
+                    var dx = segEnd[0] - segStart[0];
+                    var dy = segEnd[1] - segStart[1];
+                    var segLen = Math.sqrt(dx * dx + dy * dy);
+
+                    if (segLen >= SMALL_SEG_MIN && segLen <= SMALL_SEG_MAX) {
+                        // Found a small internal segment - check if another path's segment intersects it
+                        for (var otherIdx = 0; otherIdx < layerPaths.length; otherIdx++) {
+                            if (otherIdx === pathIdx) continue;
+                            var otherPath = layerPaths[otherIdx];
+                            var otherPts = otherPath.pathPoints;
+                            var foundIntersection = false;
+
+                            // Check if any segment of otherPath intersects this small segment
+                            for (var otherSegIdx = 0; otherSegIdx < otherPts.length - 1 && !foundIntersection; otherSegIdx++) {
+                                var oSegStart = otherPts[otherSegIdx].anchor;
+                                var oSegEnd = otherPts[otherSegIdx + 1].anchor;
+
+                                // Use segment intersection test (already exists in codebase)
+                                if (segmentsIntersect(
+                                    segStart[0], segStart[1], segEnd[0], segEnd[1],
+                                    oSegStart[0], oSegStart[1], oSegEnd[0], oSegEnd[1]
+                                )) {
+                                    foundIntersection = true;
+                                    addDebug("[XOVER] FOUND: P" + pathIdx + "S" + segIdx + " (" + segLen.toFixed(1) + "pt) crossed by P" + otherIdx + "S" + otherSegIdx);
+                                    var xoverData = {
+                                        pathWithSmallSeg: path,
+                                        pathWithSmallSegIdx: pathIdx,
+                                        intersectingPath: otherPath,
+                                        intersectingPathIdx: otherIdx,
+                                        segmentIdx: segIdx,
+                                        segStart: [segStart[0], segStart[1]],
+                                        segEnd: [segEnd[0], segEnd[1]],
+                                        layerName: layerName
+                                    };
+                                    crossoverInfo.push(xoverData);
+                                    ALL_CROSSOVER_SEGMENTS.push(xoverData);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            addDebug("[XOVER] " + layerPaths.length + " paths, found " + crossoverInfo.length + " crossover(s)");
+
+            // FORCE ORTHOGONALIZATION for paths with crossover segments BEFORE splitting
+            // This ensures the segments are properly aligned before we split and compound
+            if (crossoverInfo.length > 0) {
+                addDebug("[XOVER-ORTHO] Forcing orthogonalization on " + crossoverInfo.length + " crossover path(s)");
+
+                // Temporarily disable skip-final so ALL segments get orthogonalized
+                var savedSkipFinal = SKIP_FINAL_REGISTER_ORTHO;
+                SKIP_FINAL_REGISTER_ORTHO = false;
+                addDebug("[XOVER-ORTHO] Temporarily disabled SKIP_FINAL_REGISTER_ORTHO (was " + savedSkipFinal + ")");
+
+                var pathsToOrtho = [];
+                for (var orthoIdx = 0; orthoIdx < crossoverInfo.length; orthoIdx++) {
+                    var orthoPath = crossoverInfo[orthoIdx].pathWithSmallSeg;
+                    // Clear ortho lock so it can be re-processed
+                    try { clearOrthoLock(orthoPath); } catch (e) {}
+                    // Add to list if not already included
+                    var alreadyIn = false;
+                    for (var chk = 0; chk < pathsToOrtho.length; chk++) {
+                        if (pathsToOrtho[chk] === orthoPath) { alreadyIn = true; break; }
+                    }
+                    if (!alreadyIn) pathsToOrtho.push(orthoPath);
+                }
+                // Run orthogonalization on these paths
+                var orthoConnections = collectEndpointConnections(pathsToOrtho, RECONNECT_CAPTURE_DIST);
+                for (var orthoRunIdx = 0; orthoRunIdx < pathsToOrtho.length; orthoRunIdx++) {
+                    addDebug("[XOVER-ORTHO] Orthogonalizing crossover path " + orthoRunIdx);
+                    try {
+                        orthogonalizePath(pathsToOrtho[orthoRunIdx], orthoConnections.pairs);
+                    } catch (eOrtho) {
+                        addDebug("[XOVER-ORTHO] ERROR: " + eOrtho);
+                    }
+                }
+
+                // Restore skip-final setting
+                SKIP_FINAL_REGISTER_ORTHO = savedSkipFinal;
+                addDebug("[XOVER-ORTHO] Restored SKIP_FINAL_REGISTER_ORTHO to " + savedSkipFinal);
+                addDebug("[XOVER-ORTHO] Done orthogonalizing crossover paths");
+            }
+
+            // CROSSOVER SPLITTING: Split paths at crossover segments BEFORE compounding
+            // This must happen early so the new split paths are included in layerPaths
+            var splitPathPairs = []; // Track pairs of split paths that should be connected
+            for (var xoSplitIdx = 0; xoSplitIdx < crossoverInfo.length; xoSplitIdx++) {
+                var xoSplit = crossoverInfo[xoSplitIdx];
+                var targetPath = xoSplit.pathWithSmallSeg;
+                var segIdx = xoSplit.segmentIdx;
+
+                try {
+                    if (targetPath && targetPath.pathPoints && targetPath.pathPoints.length > segIdx + 1) {
+                        var pts = targetPath.pathPoints;
+                        var numPoints = pts.length;
+
+                        if (segIdx > 0 && segIdx < numPoints - 2) {
+                            addDebug("[XOVER-SPLIT] Splitting P" + xoSplit.pathWithSmallSegIdx + " at segment " + segIdx + " (has " + numPoints + " points)");
+
+                            // Create duplicate for second half
+                            var dupPath = targetPath.duplicate();
+                            var dupPts = dupPath.pathPoints;
+
+                            // From original: keep [0..segIdx], remove rest
+                            for (var delIdx = numPoints - 1; delIdx > segIdx; delIdx--) {
+                                pts[delIdx].remove();
+                            }
+
+                            // From duplicate: keep [segIdx+1..end], remove start
+                            for (var delIdx2 = 0; delIdx2 <= segIdx; delIdx2++) {
+                                dupPts[0].remove();
+                            }
+
+                            addDebug("[XOVER-SPLIT] Original now " + targetPath.pathPoints.length + " pts, new split has " + dupPath.pathPoints.length + " pts");
+
+                            // Add the new split path to layerPaths so it gets processed
+                            layerPaths.push(dupPath);
+
+                            // Also add to SELECTED_PATHS so endpoint collection includes this path's endpoints
+                            SELECTED_PATHS.push(dupPath);
+
+                            // Track this pair so we can force a connection between them
+                            splitPathPairs.push({pathA: targetPath, pathB: dupPath});
+
+                            // Mark both as created paths for styling
+                            markCreatedPath(targetPath);
+                            markCreatedPath(dupPath);
+                        }
+                    }
+                } catch (eSplit) {
+                    addDebug("[XOVER-SPLIT] ERROR: " + eSplit);
+                }
+            }
+        }
 
         if (layerPaths.length > 1) {
             var connections = findAllConnections(layerPaths, CONNECTION_DIST);
+
+            // Add forced connections for split path pairs (they should stay connected)
+            if (typeof splitPathPairs !== 'undefined' && splitPathPairs.length > 0) {
+                for (var spIdx = 0; spIdx < splitPathPairs.length; spIdx++) {
+                    connections.push([splitPathPairs[spIdx].pathA, splitPathPairs[spIdx].pathB]);
+                    addDebug("[XOVER] Added forced connection between split path halves");
+                }
+            }
+
+            // CROSSOVER FILTER: Remove connections between paths that are linked by a crossover segment
+            if (crossoverInfo.length > 0) {
+                var originalConnCount = connections.length;
+                var filteredConnections = [];
+                for (var connIdx = 0; connIdx < connections.length; connIdx++) {
+                    var connPathA = connections[connIdx][0];
+                    var connPathB = connections[connIdx][1];
+                    var isCrossoverConnection = false;
+
+                    for (var xoIdx = 0; xoIdx < crossoverInfo.length; xoIdx++) {
+                        var xo = crossoverInfo[xoIdx];
+                        if ((connPathA === xo.pathWithSmallSeg && connPathB === xo.intersectingPath) ||
+                            (connPathB === xo.pathWithSmallSeg && connPathA === xo.intersectingPath)) {
+                            isCrossoverConnection = true;
+                            break;
+                        }
+                    }
+
+                    if (!isCrossoverConnection) {
+                        filteredConnections.push(connections[connIdx]);
+                    }
+                }
+                addDebug("[XOVER] Filtered connections: " + originalConnCount + " -> " + filteredConnections.length);
+                connections = filteredConnections;
+            }
+
             var components = findConnectedComponents(layerPaths, connections);
+
+            // DEBUG: Log connections and components for blue ductwork (compact)
+            if (layerName.toLowerCase().indexOf("blue") !== -1) {
+                addDebug("[XOVER] " + connections.length + " connections -> " + components.length + " components");
+            }
+
             for (var i = 0; i < components.length; i++) {
                 var comp = components[i];
                 if (comp.length <= 1) continue;
@@ -11819,7 +12067,38 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     }
                 }
 
+                // *** CAPTURE STROKE WIDTH BEFORE NORMALIZING OR COMPOUNDING ***
+                // This MUST happen first because normalizeStrokeProperties resets strokeWidth to 1pt
+                // And after executeMenuCommand("compoundPath"), stroke detection also fails
+                var preCompoundStrokeWidth = null;
+                var preCompoundScale = null;
+                addDebug("[COMPOUND] Checking " + comp.length + " paths for stroke width BEFORE normalization");
+                for (var swIdx = 0; swIdx < comp.length; swIdx++) {
+                    try {
+                        var swPath = comp[swIdx];
+                        var swStroked = swPath.stroked;
+                        var swWidth = swPath.strokeWidth;
+                        addDebug("[COMPOUND] Path " + swIdx + ": stroked=" + swStroked + ", strokeWidth=" + (swWidth || "undefined"));
+                        // Check strokeWidth even if stroked is false (appearance-based strokes)
+                        if (swWidth > 0.1) {
+                            if (preCompoundStrokeWidth === null || swWidth > preCompoundStrokeWidth) {
+                                preCompoundStrokeWidth = swWidth;
+                            }
+                        }
+                    } catch (eSW) {
+                        addDebug("[COMPOUND] Path " + swIdx + " error: " + eSW);
+                    }
+                }
+                if (preCompoundStrokeWidth !== null) {
+                    // Calculate scale based on 4pt base stroke
+                    preCompoundScale = Math.round((preCompoundStrokeWidth / 4) * 100);
+                    addDebug("[COMPOUND] Captured pre-compound stroke: " + preCompoundStrokeWidth.toFixed(2) + "pt = " + preCompoundScale + "% scale");
+                } else {
+                    addDebug("[COMPOUND] WARNING: Could not capture stroke width from any path");
+                }
+
                 // *** NORMALIZE STROKE PROPERTIES BEFORE COMPOUNDING ***
+                // This resets stroke to 1pt which is why we capture above first
                 normalizeStrokeProperties(comp);
 
                 doc.selection = null;
@@ -11868,18 +12147,30 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                                                 break; // Found rotation, use it
                                             }
                                         }
-                                        // Store rotation override in compound path's MDUX_META
+                                        // Store rotation override AND pre-compound scale in compound path's MDUX_META
+                                        var compoundMeta = MDUX_getMetadata(compoundItem);
+                                        if (!compoundMeta) compoundMeta = {};
+                                        var metaChanged = false;
+
                                         if (foundRotation !== null) {
                                             addDebug("[COMPOUND] Storing rotation " + foundRotation + " in compound path metadata");
-                                            var compoundMeta = MDUX_getMetadata(compoundItem);
-                                            addDebug("[COMPOUND] Existing metadata: " + (compoundMeta ? JSON.stringify(compoundMeta) : "null"));
-                                            if (!compoundMeta) compoundMeta = {};
                                             compoundMeta.MDUX_RotationOverride = foundRotation;
-                                            addDebug("[COMPOUND] New metadata: " + JSON.stringify(compoundMeta));
-                                            MDUX_setMetadata(compoundItem, compoundMeta);
-                                            addDebug("[COMPOUND] Metadata written. Compound path note AFTER: " + (compoundItem.note || "(empty)"));
+                                            metaChanged = true;
                                         } else {
                                             addDebug("[COMPOUND] No rotation override found in child paths");
+                                        }
+
+                                        // Store pre-compound scale so styling can use it
+                                        if (preCompoundScale !== null) {
+                                            addDebug("[COMPOUND] Storing pre-compound scale " + preCompoundScale + "% in metadata");
+                                            compoundMeta.MDUX_PreCompoundScale = preCompoundScale;
+                                            metaChanged = true;
+                                        }
+
+                                        if (metaChanged) {
+                                            addDebug("[COMPOUND] Writing metadata: " + JSON.stringify(compoundMeta));
+                                            MDUX_setMetadata(compoundItem, compoundMeta);
+                                            addDebug("[COMPOUND] Metadata written. Compound path note AFTER: " + (compoundItem.note || "(empty)"));
                                         }
                                     }
                                 } catch (eRotCopy) {
@@ -11891,6 +12182,87 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     app.userInteractionLevel = originalInteractionLevel;
                 }
             }
+        }
+    }
+
+    // CROSSOVER POST-PROCESSING: Place ignore anchors at split endpoints
+    addDebug("[XOVER-POST] ALL_CROSSOVER_SEGMENTS count: " + ALL_CROSSOVER_SEGMENTS.length);
+    if (ALL_CROSSOVER_SEGMENTS.length > 0) {
+        addDebug("[XOVER-POST] Processing " + ALL_CROSSOVER_SEGMENTS.length + " crossover segment(s)");
+
+        // Get or create Ignored layer for placing ignore anchors
+        var ignoredLayer = null;
+        var ignoredLayerWasLocked = false;
+        var ignoredLayerWasHidden = false;
+        try {
+            ignoredLayer = doc.layers.getByName("Ignored");
+            addDebug("[XOVER-POST] Found 'Ignored' layer. locked=" + ignoredLayer.locked + ", visible=" + ignoredLayer.visible);
+
+            // Unlock if locked so we can place anchors
+            if (ignoredLayer.locked) {
+                ignoredLayerWasLocked = true;
+                ignoredLayer.locked = false;
+                addDebug("[XOVER-POST] Unlocked 'Ignored' layer");
+            }
+            // Make visible if hidden (can't add to hidden layers in some cases)
+            if (!ignoredLayer.visible) {
+                ignoredLayerWasHidden = true;
+                ignoredLayer.visible = true;
+                addDebug("[XOVER-POST] Made 'Ignored' layer visible");
+            }
+
+            // Also check parent layer if it exists
+            if (ignoredLayer.parent && ignoredLayer.parent.typename === "Layer") {
+                var parentLayer = ignoredLayer.parent;
+                if (parentLayer.locked) {
+                    parentLayer.locked = false;
+                    addDebug("[XOVER-POST] Unlocked parent layer: " + parentLayer.name);
+                }
+            }
+        } catch (e) {
+            addDebug("[XOVER-POST] Creating new 'Ignored' layer. Error was: " + e);
+            ignoredLayer = doc.layers.add();
+            ignoredLayer.name = "Ignored";
+        }
+
+        for (var xoPostIdx = 0; xoPostIdx < ALL_CROSSOVER_SEGMENTS.length; xoPostIdx++) {
+            var xoSeg = ALL_CROSSOVER_SEGMENTS[xoPostIdx];
+            addDebug("[XOVER-POST] Crossover " + xoPostIdx + ": seg from [" + xoSeg.segStart[0].toFixed(1) + "," + xoSeg.segStart[1].toFixed(1) + "] to [" + xoSeg.segEnd[0].toFixed(1) + "," + xoSeg.segEnd[1].toFixed(1) + "]");
+
+            // Place ignore anchors at both endpoints of the crossover segment
+            try {
+                // Create single-point path at segStart as ignore anchor
+                var ignoreAnchor1 = ignoredLayer.pathItems.add();
+                ignoreAnchor1.setEntirePath([[xoSeg.segStart[0], xoSeg.segStart[1]]]);
+                ignoreAnchor1.filled = false;
+                ignoreAnchor1.stroked = false;
+                addDebug("[XOVER-POST] Placed ignore anchor at [" + xoSeg.segStart[0].toFixed(1) + "," + xoSeg.segStart[1].toFixed(1) + "]");
+
+                // Create single-point path at segEnd as ignore anchor
+                var ignoreAnchor2 = ignoredLayer.pathItems.add();
+                ignoreAnchor2.setEntirePath([[xoSeg.segEnd[0], xoSeg.segEnd[1]]]);
+                ignoreAnchor2.filled = false;
+                ignoreAnchor2.stroked = false;
+                addDebug("[XOVER-POST] Placed ignore anchor at [" + xoSeg.segEnd[0].toFixed(1) + "," + xoSeg.segEnd[1].toFixed(1) + "]");
+            } catch (eIgnore) {
+                addDebug("[XOVER-POST] ERROR placing ignore anchors: " + eIgnore);
+            }
+            // Note: Path splitting now happens BEFORE compounding (see pre-compounding crossover split section)
+            // This ensures both halves get merged into the same compound path
+        }
+
+        // Restore Ignored layer state
+        if (ignoredLayer) {
+            try {
+                if (ignoredLayerWasHidden) {
+                    ignoredLayer.visible = false;
+                    addDebug("[XOVER-POST] Re-hid 'Ignored' layer");
+                }
+                if (ignoredLayerWasLocked) {
+                    ignoredLayer.locked = true;
+                    addDebug("[XOVER-POST] Re-locked 'Ignored' layer");
+                }
+            } catch (eRestore) {}
         }
     }
 
