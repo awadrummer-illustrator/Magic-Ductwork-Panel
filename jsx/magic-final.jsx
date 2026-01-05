@@ -3494,6 +3494,7 @@ var LAYER_TO_COLOR_NAME = {
                         childPath.strokeColor = childColorCopy;
                         childPath.strokeWidth = preservedStrokeWidth;
                         try { childPath.strokeDashes = []; } catch (e) {}
+                        try { childPath.strokeCap = StrokeCap.BUTTENDCAP; } catch (e) {}
                     } catch (eChild) {}
                 }
             }
@@ -10695,13 +10696,28 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     function getEndpoints(paths) {
         var endpoints = [];
         for (var i = 0; i < paths.length; i++) {
-            var path = paths[i];
-            var rotationOverride = getRotationOverride(path);
-            if (!path.closed && path.pathPoints.length > 0) {
-                endpoints.push({ path: path, index: 0, pos: path.pathPoints[0].anchor.slice(), rotationOverride: rotationOverride });
-                if (path.pathPoints.length > 1) {
-                    var lastIndex = path.pathPoints.length - 1;
-                    endpoints.push({ path: path, index: lastIndex, pos: path.pathPoints[lastIndex].anchor.slice(), rotationOverride: rotationOverride });
+            var item = paths[i];
+            var rotationOverride = getRotationOverride(item);
+
+            // Handle CompoundPathItems - iterate through child pathItems
+            if (item.typename === "CompoundPathItem" && item.pathItems) {
+                for (var cp = 0; cp < item.pathItems.length; cp++) {
+                    var childPath = item.pathItems[cp];
+                    if (!childPath.closed && childPath.pathPoints && childPath.pathPoints.length > 0) {
+                        endpoints.push({ path: childPath, index: 0, pos: childPath.pathPoints[0].anchor.slice(), rotationOverride: rotationOverride, parentCompound: item });
+                        if (childPath.pathPoints.length > 1) {
+                            var lastIndex = childPath.pathPoints.length - 1;
+                            endpoints.push({ path: childPath, index: lastIndex, pos: childPath.pathPoints[lastIndex].anchor.slice(), rotationOverride: rotationOverride, parentCompound: item });
+                        }
+                    }
+                }
+            }
+            // Handle regular PathItems
+            else if (item.pathPoints && !item.closed && item.pathPoints.length > 0) {
+                endpoints.push({ path: item, index: 0, pos: item.pathPoints[0].anchor.slice(), rotationOverride: rotationOverride });
+                if (item.pathPoints.length > 1) {
+                    var lastIndex = item.pathPoints.length - 1;
+                    endpoints.push({ path: item, index: lastIndex, pos: item.pathPoints[lastIndex].anchor.slice(), rotationOverride: rotationOverride });
                 }
             }
         }
@@ -11738,6 +11754,88 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
     addDebug("[Orthogonalize] === END PATH LIST ===");
 
+    // *** EARLY CROSSOVER DETECTION AND SPLITTING ***
+    // Must happen BEFORE orthogonalization so split paths get orthogonalized together at same Y level
+    var EARLY_CROSSOVER_SEGMENTS = []; // Store for later ignore anchor placement
+    var EARLY_SPLIT_PAIRS = []; // Store split path pairs for compounding phase (to include branches)
+    var SMALL_SEG_MIN = 5;
+    var SMALL_SEG_MAX = 17;
+
+    // Find Blue Ductwork paths in geometryPaths
+    var bluePaths = [];
+    var bluePathIndices = [];
+    for (var bpIdx = 0; bpIdx < geometryPaths.length; bpIdx++) {
+        try {
+            var bpPath = geometryPaths[bpIdx];
+            if (bpPath && bpPath.layer && bpPath.layer.name.toLowerCase().indexOf("blue") !== -1) {
+                bluePaths.push(bpPath);
+                bluePathIndices.push(bpIdx);
+            }
+        } catch (e) {}
+    }
+
+    if (bluePaths.length > 1) {
+        addDebug("[EARLY-XOVER] Checking " + bluePaths.length + " blue paths for crossovers");
+
+        var crossoversToSplit = [];
+
+        for (var xpIdx = 0; xpIdx < bluePaths.length; xpIdx++) {
+            var xPath = bluePaths[xpIdx];
+            var xPts = xPath.pathPoints;
+
+            // Check each internal segment (not first or last segment)
+            for (var xSegIdx = 1; xSegIdx < xPts.length - 2; xSegIdx++) {
+                var xSegStart = xPts[xSegIdx].anchor;
+                var xSegEnd = xPts[xSegIdx + 1].anchor;
+                var xDx = xSegEnd[0] - xSegStart[0];
+                var xDy = xSegEnd[1] - xSegStart[1];
+                var xSegLen = Math.sqrt(xDx * xDx + xDy * xDy);
+
+                if (xSegLen >= SMALL_SEG_MIN && xSegLen <= SMALL_SEG_MAX) {
+                    // Found a small internal segment - check if another path's segment intersects it
+                    for (var xOtherIdx = 0; xOtherIdx < bluePaths.length; xOtherIdx++) {
+                        if (xOtherIdx === xpIdx) continue;
+                        var xOtherPath = bluePaths[xOtherIdx];
+                        var xOtherPts = xOtherPath.pathPoints;
+                        var xFoundIntersection = false;
+
+                        for (var xOtherSegIdx = 0; xOtherSegIdx < xOtherPts.length - 1 && !xFoundIntersection; xOtherSegIdx++) {
+                            var xoSegStart = xOtherPts[xOtherSegIdx].anchor;
+                            var xoSegEnd = xOtherPts[xOtherSegIdx + 1].anchor;
+
+                            if (segmentsIntersect(
+                                xSegStart[0], xSegStart[1], xSegEnd[0], xSegEnd[1],
+                                xoSegStart[0], xoSegStart[1], xoSegEnd[0], xoSegEnd[1]
+                            )) {
+                                xFoundIntersection = true;
+                                addDebug("[EARLY-XOVER] FOUND: Path " + xpIdx + " seg " + xSegIdx + " (" + xSegLen.toFixed(1) + "pt) crossed by path " + xOtherIdx + " seg " + xOtherSegIdx);
+                                crossoversToSplit.push({
+                                    path: xPath,
+                                    pathIdx: xpIdx,
+                                    geometryIdx: bluePathIndices[xpIdx],
+                                    segmentIdx: xSegIdx,
+                                    segStart: [xSegStart[0], xSegStart[1]],
+                                    segEnd: [xSegEnd[0], xSegEnd[1]],
+                                    // Store crossing path info for intersection calculation after ortho
+                                    crossingPath: xOtherPath,
+                                    crossingSegIdx: xOtherSegIdx
+                                });
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        addDebug("[EARLY-XOVER] Found " + crossoversToSplit.length + " crossover(s) - will calculate intersection points after ortho");
+
+        // Store crossover info for post-ortho splitting with intersection calculation
+        for (var forceIdx = 0; forceIdx < crossoversToSplit.length; forceIdx++) {
+            EARLY_CROSSOVER_SEGMENTS.push(crossoversToSplit[forceIdx]);
+        }
+        addDebug("[EARLY-XOVER] Stored " + EARLY_CROSSOVER_SEGMENTS.length + " crossover(s) for post-ortho splitting");
+    }
+
     var iteration = 0;
     var changed = true;
     while (changed && iteration < MAX_ITER) {
@@ -11754,6 +11852,280 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
 
     restoreEndpointConnections(collectEndpointConnections(geometryPaths, CONNECTION_DIST));
+
+    // *** POST-ORTHO CROSSOVER SPLITTING ***
+    // Now that paths are orthogonalized, split at crossover points with intersection alignment
+    if (EARLY_CROSSOVER_SEGMENTS.length > 0) {
+        addDebug("[POST-ORTHO-SPLIT] Splitting " + EARLY_CROSSOVER_SEGMENTS.length + " crossover path(s)");
+
+        // *** FORCE-ORTHO CROSSOVER PATHS - FULL PATH ORTHOGONALIZATION ***
+        // The crossover path may have segments at various angles after main ortho
+        // Force the ENTIRE PATH to be orthogonalized BEFORE any centering or splitting
+        // Use Point 0 as the reference - all horizontal segments align to Point 0's Y
+        for (var forceOrthoIdx = 0; forceOrthoIdx < EARLY_CROSSOVER_SEGMENTS.length; forceOrthoIdx++) {
+            var xoData = EARLY_CROSSOVER_SEGMENTS[forceOrthoIdx];
+            var xoPath = xoData.path;
+            var xoSegIdx = xoData.segmentIdx;
+
+            if (!xoPath || !xoPath.pathPoints || xoPath.pathPoints.length < 2) {
+                addDebug("[FORCE-ORTHO-XOVER] Skipping invalid crossover path " + forceOrthoIdx);
+                continue;
+            }
+
+            var foPts = xoPath.pathPoints;
+            addDebug("[FORCE-ORTHO-XOVER] === ORTHOGONALIZING ENTIRE PATH " + forceOrthoIdx + " (" + foPts.length + " points) ===");
+
+            // Log original point positions
+            for (var logIdx = 0; logIdx < foPts.length; logIdx++) {
+                var logPt = foPts[logIdx].anchor;
+                addDebug("[FORCE-ORTHO-XOVER] Original Point " + logIdx + ": [" + logPt[0].toFixed(2) + ", " + logPt[1].toFixed(2) + "]");
+            }
+
+            // Determine overall path orientation from first segment
+            var firstPt = foPts[0].anchor;
+            var lastPt = foPts[foPts.length - 1].anchor;
+            var overallDx = Math.abs(lastPt[0] - firstPt[0]);
+            var overallDy = Math.abs(lastPt[1] - firstPt[1]);
+
+            // Path is primarily horizontal if X span > Y span
+            var pathIsHorizontal = (overallDx >= overallDy);
+            addDebug("[FORCE-ORTHO-XOVER] Path orientation: " + (pathIsHorizontal ? "HORIZONTAL" : "VERTICAL") + " (dx=" + overallDx.toFixed(2) + ", dy=" + overallDy.toFixed(2) + ")");
+
+            // Use Point 0's coordinate as the reference for alignment
+            var referenceY = firstPt[1];
+            var referenceX = firstPt[0];
+            addDebug("[FORCE-ORTHO-XOVER] Reference position from Point 0: X=" + referenceX.toFixed(2) + ", Y=" + referenceY.toFixed(2));
+
+            if (pathIsHorizontal) {
+                // For a primarily horizontal path, all points should be at the same Y
+                // Move ALL points to Point 0's Y
+                addDebug("[FORCE-ORTHO-XOVER] Aligning ALL points to Y=" + referenceY.toFixed(2));
+                for (var alignIdx = 0; alignIdx < foPts.length; alignIdx++) {
+                    var oldAnchor = foPts[alignIdx].anchor;
+                    if (Math.abs(oldAnchor[1] - referenceY) > 0.01) {
+                        addDebug("[FORCE-ORTHO-XOVER] Point " + alignIdx + ": Y " + oldAnchor[1].toFixed(2) + " -> " + referenceY.toFixed(2));
+                        foPts[alignIdx].anchor = [oldAnchor[0], referenceY];
+                        foPts[alignIdx].leftDirection = [oldAnchor[0], referenceY];
+                        foPts[alignIdx].rightDirection = [oldAnchor[0], referenceY];
+                    } else {
+                        addDebug("[FORCE-ORTHO-XOVER] Point " + alignIdx + ": already at Y=" + oldAnchor[1].toFixed(2) + " (OK)");
+                    }
+                }
+            } else {
+                // For a primarily vertical path, all points should be at the same X
+                // Move ALL points to Point 0's X
+                addDebug("[FORCE-ORTHO-XOVER] Aligning ALL points to X=" + referenceX.toFixed(2));
+                for (var alignIdx = 0; alignIdx < foPts.length; alignIdx++) {
+                    var oldAnchor = foPts[alignIdx].anchor;
+                    if (Math.abs(oldAnchor[0] - referenceX) > 0.01) {
+                        addDebug("[FORCE-ORTHO-XOVER] Point " + alignIdx + ": X " + oldAnchor[0].toFixed(2) + " -> " + referenceX.toFixed(2));
+                        foPts[alignIdx].anchor = [referenceX, oldAnchor[1]];
+                        foPts[alignIdx].leftDirection = [referenceX, oldAnchor[1]];
+                        foPts[alignIdx].rightDirection = [referenceX, oldAnchor[1]];
+                    } else {
+                        addDebug("[FORCE-ORTHO-XOVER] Point " + alignIdx + ": already at X=" + oldAnchor[0].toFixed(2) + " (OK)");
+                    }
+                }
+            }
+
+            // Log final point positions
+            addDebug("[FORCE-ORTHO-XOVER] === AFTER FULL ORTHOGONALIZATION ===");
+            for (var logIdx2 = 0; logIdx2 < foPts.length; logIdx2++) {
+                var logPt2 = foPts[logIdx2].anchor;
+                addDebug("[FORCE-ORTHO-XOVER] Final Point " + logIdx2 + ": [" + logPt2[0].toFixed(2) + ", " + logPt2[1].toFixed(2) + "]");
+            }
+            addDebug("[FORCE-ORTHO-XOVER] Path " + forceOrthoIdx + " fully orthogonalized");
+        }
+
+        // Helper: Calculate intersection point of two line segments
+        function getLineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
+            var denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+            if (Math.abs(denom) < 0.0001) return null; // Parallel lines
+
+            var t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+            return [x1 + t * (x2 - x1), y1 + t * (y2 - y1)];
+        }
+
+        for (var postSplitIdx = EARLY_CROSSOVER_SEGMENTS.length - 1; postSplitIdx >= 0; postSplitIdx--) {
+            var xoInfo = EARLY_CROSSOVER_SEGMENTS[postSplitIdx];
+            var targetPath = xoInfo.path;
+            var segIdx = xoInfo.segmentIdx;
+            var crossingPath = xoInfo.crossingPath;
+            var crossingSegIdx = xoInfo.crossingSegIdx;
+
+            try {
+                var pts = targetPath.pathPoints;
+                var numPoints = pts.length;
+
+                if (segIdx > 0 && segIdx < numPoints - 2 && numPoints >= 4) {
+                    addDebug("[POST-ORTHO-SPLIT] Splitting path at segment " + segIdx + " (has " + numPoints + " points)");
+
+                    // *** CAPTURE STROKE WIDTH BEFORE SPLITTING ***
+                    // This will be stored on the compound path for proper style application
+                    var preCompoundScale = 100; // Default
+                    try {
+                        if (targetPath.stroked && targetPath.strokeWidth > 0) {
+                            var baseStrokeWidth = 4; // Base stroke width for 100% scale
+                            preCompoundScale = Math.round((targetPath.strokeWidth / baseStrokeWidth) * 100);
+                            addDebug("[POST-ORTHO-SPLIT] Captured stroke: " + targetPath.strokeWidth.toFixed(2) + "pt = " + preCompoundScale + "% scale");
+                        }
+                    } catch (eStroke) {
+                        addDebug("[POST-ORTHO-SPLIT] Could not read stroke width: " + eStroke);
+                    }
+
+                    // Get the crossover segment endpoints (AFTER ortho)
+                    var segStartPt = pts[segIdx].anchor;
+                    var segEndPt = pts[segIdx + 1].anchor;
+
+                    // Calculate segment length and direction
+                    var segDx = segEndPt[0] - segStartPt[0];
+                    var segDy = segEndPt[1] - segStartPt[1];
+                    var segLen = Math.sqrt(segDx * segDx + segDy * segDy);
+                    var halfLen = segLen / 2;
+
+                    addDebug("[POST-ORTHO-SPLIT] Crossover segment: [" + segStartPt[0].toFixed(1) + "," + segStartPt[1].toFixed(1) + "] to [" + segEndPt[0].toFixed(1) + "," + segEndPt[1].toFixed(1) + "] len=" + segLen.toFixed(1));
+
+                    // Calculate intersection point with crossing path (AFTER ortho)
+                    var intersectionPt = null;
+                    if (crossingPath && crossingPath.pathPoints && crossingPath.pathPoints.length > crossingSegIdx + 1) {
+                        var crossPts = crossingPath.pathPoints;
+                        var crossStart = crossPts[crossingSegIdx].anchor;
+                        var crossEnd = crossPts[crossingSegIdx + 1].anchor;
+                        addDebug("[POST-ORTHO-SPLIT] Crossing segment: [" + crossStart[0].toFixed(1) + "," + crossStart[1].toFixed(1) + "] to [" + crossEnd[0].toFixed(1) + "," + crossEnd[1].toFixed(1) + "]");
+
+                        intersectionPt = getLineIntersection(
+                            segStartPt[0], segStartPt[1], segEndPt[0], segEndPt[1],
+                            crossStart[0], crossStart[1], crossEnd[0], crossEnd[1]
+                        );
+                        if (intersectionPt) {
+                            addDebug("[POST-ORTHO-SPLIT] Intersection point: [" + intersectionPt[0].toFixed(2) + "," + intersectionPt[1].toFixed(2) + "]");
+                        }
+                    }
+
+                    // CENTER the crossover segment around the intersection point
+                    // This ensures both endpoints are equidistant from the crossing line
+                    if (intersectionPt && segLen > 0.1) {
+                        // Normalize segment direction
+                        var normDx = segDx / segLen;
+                        var normDy = segDy / segLen;
+
+                        // Calculate new positions for B and C, centered on intersection
+                        var newSegStart = [
+                            intersectionPt[0] - normDx * halfLen,
+                            intersectionPt[1] - normDy * halfLen
+                        ];
+                        var newSegEnd = [
+                            intersectionPt[0] + normDx * halfLen,
+                            intersectionPt[1] + normDy * halfLen
+                        ];
+
+                        addDebug("[POST-ORTHO-SPLIT] Centering segment on intersection:");
+                        addDebug("[POST-ORTHO-SPLIT]   Old B: [" + segStartPt[0].toFixed(2) + "," + segStartPt[1].toFixed(2) + "] -> New B: [" + newSegStart[0].toFixed(2) + "," + newSegStart[1].toFixed(2) + "]");
+                        addDebug("[POST-ORTHO-SPLIT]   Old C: [" + segEndPt[0].toFixed(2) + "," + segEndPt[1].toFixed(2) + "] -> New C: [" + newSegEnd[0].toFixed(2) + "," + newSegEnd[1].toFixed(2) + "]");
+
+                        // Update the path points BEFORE splitting
+                        // Also reset handles to make them corner points (no bezier curves)
+                        pts[segIdx].anchor = [newSegStart[0], newSegStart[1]];
+                        pts[segIdx].leftDirection = [newSegStart[0], newSegStart[1]];
+                        pts[segIdx].rightDirection = [newSegStart[0], newSegStart[1]];
+                        pts[segIdx + 1].anchor = [newSegEnd[0], newSegEnd[1]];
+                        pts[segIdx + 1].leftDirection = [newSegEnd[0], newSegEnd[1]];
+                        pts[segIdx + 1].rightDirection = [newSegEnd[0], newSegEnd[1]];
+
+                        // Update our local copies
+                        segStartPt = newSegStart;
+                        segEndPt = newSegEnd;
+                    }
+
+                    // Store segment endpoints for ignore anchors (at the centered positions)
+                    xoInfo.segStart = [segStartPt[0], segStartPt[1]];
+                    xoInfo.segEnd = [segEndPt[0], segEndPt[1]];
+
+                    // Create duplicate for second half (points from segIdx+1 to end)
+                    var dupPath = targetPath.duplicate();
+                    var dupPts = dupPath.pathPoints;
+
+                    // Remove points 0 through segIdx from duplicate (keep segIdx+1 onwards)
+                    for (var rmDup = 0; rmDup <= segIdx; rmDup++) {
+                        dupPts[0].remove();
+                    }
+
+                    // Remove points segIdx+1 through end from original (keep 0 through segIdx)
+                    var origPts = targetPath.pathPoints;
+                    while (origPts.length > segIdx + 1) {
+                        origPts[origPts.length - 1].remove();
+                    }
+
+                    // Ensure both paths have butt end caps (not round)
+                    try { targetPath.strokeCap = StrokeCap.BUTTENDCAP; } catch (eCap1) {}
+                    try { dupPath.strokeCap = StrokeCap.BUTTENDCAP; } catch (eCap2) {}
+
+                    // Ensure split endpoints are corner points (no bezier handles)
+                    try {
+                        var lastPtIdx = targetPath.pathPoints.length - 1;
+                        var lastPt = targetPath.pathPoints[lastPtIdx];
+                        lastPt.leftDirection = lastPt.anchor;
+                        lastPt.rightDirection = lastPt.anchor;
+                    } catch (eHandle1) {}
+                    try {
+                        var firstPt = dupPath.pathPoints[0];
+                        firstPt.leftDirection = firstPt.anchor;
+                        firstPt.rightDirection = firstPt.anchor;
+                    } catch (eHandle2) {}
+
+                    addDebug("[POST-ORTHO-SPLIT] Original now " + targetPath.pathPoints.length + " pts ending at [" + targetPath.pathPoints[targetPath.pathPoints.length-1].anchor[0].toFixed(1) + "," + targetPath.pathPoints[targetPath.pathPoints.length-1].anchor[1].toFixed(1) + "]");
+                    addDebug("[POST-ORTHO-SPLIT] New split has " + dupPath.pathPoints.length + " pts starting at [" + dupPath.pathPoints[0].anchor[0].toFixed(1) + "," + dupPath.pathPoints[0].anchor[1].toFixed(1) + "]");
+
+                    // *** LOG ALL POINT POSITIONS AFTER SPLIT FOR DEBUGGING ***
+                    addDebug("[POST-ORTHO-SPLIT] === LEFT HALF POINTS ===");
+                    for (var lpIdx = 0; lpIdx < targetPath.pathPoints.length; lpIdx++) {
+                        var lpt = targetPath.pathPoints[lpIdx].anchor;
+                        addDebug("[POST-ORTHO-SPLIT]   Point " + lpIdx + ": [" + lpt[0].toFixed(2) + ", " + lpt[1].toFixed(2) + "]");
+                    }
+                    addDebug("[POST-ORTHO-SPLIT] === RIGHT HALF POINTS ===");
+                    for (var rpIdx = 0; rpIdx < dupPath.pathPoints.length; rpIdx++) {
+                        var rpt = dupPath.pathPoints[rpIdx].anchor;
+                        addDebug("[POST-ORTHO-SPLIT]   Point " + rpIdx + ": [" + rpt[0].toFixed(2) + ", " + rpt[1].toFixed(2) + "]");
+                    }
+
+                    // *** DEFER COMPOUNDING TO LATER PHASE ***
+                    // Don't compound here - store split pairs for COMPOUNDING CONNECTED PATHS phase
+                    // This allows branches that connect to split halves to be included in the same compound
+                    addDebug("[POST-ORTHO-SPLIT] Deferring compounding to later phase (to include branches)...");
+
+                    // Store stroke width on individual paths for later use
+                    try {
+                        var splitMeta = { MDUX_PreCompoundScale: preCompoundScale, MDUX_EarlySplitPath: true };
+                        setItemMetadata(targetPath, splitMeta);
+                        setItemMetadata(dupPath, splitMeta);
+                        addDebug("[POST-ORTHO-SPLIT] Stored preCompoundScale=" + preCompoundScale + " on both split paths");
+                    } catch (eStoreMeta) {
+                        addDebug("[POST-ORTHO-SPLIT] Failed to store metadata: " + eStoreMeta);
+                    }
+
+                    // Add dupPath to tracking arrays (targetPath is already in geometryPaths)
+                    geometryPaths.push(dupPath);
+                    SELECTED_PATHS.push(dupPath);
+                    addDebug("[POST-ORTHO-SPLIT] Added split path to geometryPaths (now " + geometryPaths.length + " paths)");
+
+                    // Store split pair for later forced connection
+                    EARLY_SPLIT_PAIRS.push({
+                        pathA: targetPath,
+                        pathB: dupPath,
+                        preCompoundScale: preCompoundScale
+                    });
+                    addDebug("[POST-ORTHO-SPLIT] Stored split pair for later compounding");
+
+                    doc.selection = null;
+                } else {
+                    addDebug("[POST-ORTHO-SPLIT] Skipping path - invalid segIdx or not enough points");
+                }
+            } catch (eSplit) {
+                addDebug("[POST-ORTHO-SPLIT] ERROR: " + eSplit);
+            }
+        }
+        addDebug("[POST-ORTHO-SPLIT] Done splitting crossover paths");
+    }
 
     // STEP 2: Remove any art on target layers that conflicts with the 'Ignore' layer
     doc.selection = null;
@@ -12021,6 +12393,24 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 }
             }
 
+            // Add forced connections for EARLY split path pairs (from POST-ORTHO-SPLIT)
+            // This ensures split halves and any branches that connect to them end up in the same compound
+            if (typeof EARLY_SPLIT_PAIRS !== 'undefined' && EARLY_SPLIT_PAIRS.length > 0) {
+                for (var espIdx = 0; espIdx < EARLY_SPLIT_PAIRS.length; espIdx++) {
+                    var espPair = EARLY_SPLIT_PAIRS[espIdx];
+                    // Only add if both paths are in layerPaths (same layer)
+                    var pathAInLayer = false, pathBInLayer = false;
+                    for (var lpCheck = 0; lpCheck < layerPaths.length; lpCheck++) {
+                        if (layerPaths[lpCheck] === espPair.pathA) pathAInLayer = true;
+                        if (layerPaths[lpCheck] === espPair.pathB) pathBInLayer = true;
+                    }
+                    if (pathAInLayer && pathBInLayer) {
+                        connections.push([espPair.pathA, espPair.pathB]);
+                        addDebug("[XOVER] Added forced connection for EARLY split pair (POST-ORTHO-SPLIT)");
+                    }
+                }
+            }
+
             // CROSSOVER FILTER: Remove connections between paths that are linked by a crossover segment
             if (crossoverInfo.length > 0) {
                 var originalConnCount = connections.length;
@@ -12073,28 +12463,45 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var preCompoundStrokeWidth = null;
                 var preCompoundScale = null;
                 addDebug("[COMPOUND] Checking " + comp.length + " paths for stroke width BEFORE normalization");
-                for (var swIdx = 0; swIdx < comp.length; swIdx++) {
+
+                // First, check if any path has MDUX_PreCompoundScale metadata (from EARLY_SPLIT paths)
+                for (var metaIdx = 0; metaIdx < comp.length && preCompoundScale === null; metaIdx++) {
                     try {
-                        var swPath = comp[swIdx];
-                        var swStroked = swPath.stroked;
-                        var swWidth = swPath.strokeWidth;
-                        addDebug("[COMPOUND] Path " + swIdx + ": stroked=" + swStroked + ", strokeWidth=" + (swWidth || "undefined"));
-                        // Check strokeWidth even if stroked is false (appearance-based strokes)
-                        if (swWidth > 0.1) {
-                            if (preCompoundStrokeWidth === null || swWidth > preCompoundStrokeWidth) {
-                                preCompoundStrokeWidth = swWidth;
-                            }
+                        var metaPath = comp[metaIdx];
+                        var pathMeta = MDUX_getMetadata(metaPath);
+                        if (pathMeta && pathMeta.MDUX_PreCompoundScale) {
+                            preCompoundScale = pathMeta.MDUX_PreCompoundScale;
+                            preCompoundStrokeWidth = (preCompoundScale / 100) * 4; // Convert back to pt
+                            addDebug("[COMPOUND] Found MDUX_PreCompoundScale=" + preCompoundScale + "% from EARLY_SPLIT path metadata");
                         }
-                    } catch (eSW) {
-                        addDebug("[COMPOUND] Path " + swIdx + " error: " + eSW);
-                    }
+                    } catch (eMeta) {}
                 }
-                if (preCompoundStrokeWidth !== null) {
-                    // Calculate scale based on 4pt base stroke
-                    preCompoundScale = Math.round((preCompoundStrokeWidth / 4) * 100);
-                    addDebug("[COMPOUND] Captured pre-compound stroke: " + preCompoundStrokeWidth.toFixed(2) + "pt = " + preCompoundScale + "% scale");
-                } else {
-                    addDebug("[COMPOUND] WARNING: Could not capture stroke width from any path");
+
+                // If no metadata found, check actual strokeWidth values
+                if (preCompoundScale === null) {
+                    for (var swIdx = 0; swIdx < comp.length; swIdx++) {
+                        try {
+                            var swPath = comp[swIdx];
+                            var swStroked = swPath.stroked;
+                            var swWidth = swPath.strokeWidth;
+                            addDebug("[COMPOUND] Path " + swIdx + ": stroked=" + swStroked + ", strokeWidth=" + (swWidth || "undefined"));
+                            // Check strokeWidth even if stroked is false (appearance-based strokes)
+                            if (swWidth > 0.1) {
+                                if (preCompoundStrokeWidth === null || swWidth > preCompoundStrokeWidth) {
+                                    preCompoundStrokeWidth = swWidth;
+                                }
+                            }
+                        } catch (eSW) {
+                            addDebug("[COMPOUND] Path " + swIdx + " error: " + eSW);
+                        }
+                    }
+                    if (preCompoundStrokeWidth !== null) {
+                        // Calculate scale based on 4pt base stroke
+                        preCompoundScale = Math.round((preCompoundStrokeWidth / 4) * 100);
+                        addDebug("[COMPOUND] Captured pre-compound stroke: " + preCompoundStrokeWidth.toFixed(2) + "pt = " + preCompoundScale + "% scale");
+                    } else {
+                        addDebug("[COMPOUND] WARNING: Could not capture stroke width from any path");
+                    }
                 }
 
                 // *** NORMALIZE STROKE PROPERTIES BEFORE COMPOUNDING ***
@@ -12186,9 +12593,18 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
 
     // CROSSOVER POST-PROCESSING: Place ignore anchors at split endpoints
-    addDebug("[XOVER-POST] ALL_CROSSOVER_SEGMENTS count: " + ALL_CROSSOVER_SEGMENTS.length);
-    if (ALL_CROSSOVER_SEGMENTS.length > 0) {
-        addDebug("[XOVER-POST] Processing " + ALL_CROSSOVER_SEGMENTS.length + " crossover segment(s)");
+    // Combine early crossover segments with any found during compounding
+    var combinedCrossoverSegments = [];
+    for (var ecIdx = 0; ecIdx < EARLY_CROSSOVER_SEGMENTS.length; ecIdx++) {
+        combinedCrossoverSegments.push(EARLY_CROSSOVER_SEGMENTS[ecIdx]);
+    }
+    for (var acIdx = 0; acIdx < ALL_CROSSOVER_SEGMENTS.length; acIdx++) {
+        combinedCrossoverSegments.push(ALL_CROSSOVER_SEGMENTS[acIdx]);
+    }
+    addDebug("[XOVER-POST] EARLY_CROSSOVER_SEGMENTS: " + EARLY_CROSSOVER_SEGMENTS.length + ", ALL_CROSSOVER_SEGMENTS: " + ALL_CROSSOVER_SEGMENTS.length + ", combined: " + combinedCrossoverSegments.length);
+
+    if (combinedCrossoverSegments.length > 0) {
+        addDebug("[XOVER-POST] Processing " + combinedCrossoverSegments.length + " crossover segment(s)");
 
         // Get or create Ignored layer for placing ignore anchors
         var ignoredLayer = null;
@@ -12225,8 +12641,8 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             ignoredLayer.name = "Ignored";
         }
 
-        for (var xoPostIdx = 0; xoPostIdx < ALL_CROSSOVER_SEGMENTS.length; xoPostIdx++) {
-            var xoSeg = ALL_CROSSOVER_SEGMENTS[xoPostIdx];
+        for (var xoPostIdx = 0; xoPostIdx < combinedCrossoverSegments.length; xoPostIdx++) {
+            var xoSeg = combinedCrossoverSegments[xoPostIdx];
             addDebug("[XOVER-POST] Crossover " + xoPostIdx + ": seg from [" + xoSeg.segStart[0].toFixed(1) + "," + xoSeg.segStart[1].toFixed(1) + "] to [" + xoSeg.segEnd[0].toFixed(1) + "," + xoSeg.segEnd[1].toFixed(1) + "]");
 
             // Place ignore anchors at both endpoints of the crossover segment
@@ -13135,13 +13551,27 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 if (useProximityFilter) {
                     addDebug("[ANCHOR COLLECTION] Proximity filter active with " + selectedPaths.length + " selected paths");
                     for (var sp = 0; sp < selectedPaths.length; sp++) {
-                        var path = selectedPaths[sp];
-                        if (path && path.pathPoints && path.pathPoints.length > 0) {
+                        var item = selectedPaths[sp];
+
+                        // Handle CompoundPathItems - iterate through child pathItems
+                        if (item && item.typename === "CompoundPathItem" && item.pathItems) {
+                            for (var cpIdx = 0; cpIdx < item.pathItems.length; cpIdx++) {
+                                var childPath = item.pathItems[cpIdx];
+                                if (childPath && childPath.pathPoints && childPath.pathPoints.length > 0) {
+                                    var cFirstPt = childPath.pathPoints[0].anchor;
+                                    selectedEndpoints.push([cFirstPt[0], cFirstPt[1]]);
+                                    var cLastPt = childPath.pathPoints[childPath.pathPoints.length - 1].anchor;
+                                    selectedEndpoints.push([cLastPt[0], cLastPt[1]]);
+                                }
+                            }
+                        }
+                        // Handle regular PathItems
+                        else if (item && item.pathPoints && item.pathPoints.length > 0) {
                             // Add first endpoint
-                            var firstPt = path.pathPoints[0].anchor;
+                            var firstPt = item.pathPoints[0].anchor;
                             selectedEndpoints.push([firstPt[0], firstPt[1]]);
                             // Add last endpoint
-                            var lastPt = path.pathPoints[path.pathPoints.length - 1].anchor;
+                            var lastPt = item.pathPoints[item.pathPoints.length - 1].anchor;
                             selectedEndpoints.push([lastPt[0], lastPt[1]]);
                         }
                     }
