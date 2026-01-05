@@ -42,11 +42,12 @@
     const reexportFloorplanBtn = document.getElementById('reexport-floorplan-btn');
     const exportStatus = document.getElementById('export-status');
 
-    // Document Scale Controls
+    // Document Scale Controls (read-only anchor display)
     const docScaleInput = document.getElementById('doc-scale-input');
     const getDocScaleBtn = document.getElementById('get-doc-scale-btn');
-    const setDocScale100Btn = document.getElementById('set-doc-scale-100-btn');
-    const applyDocScaleBtn = document.getElementById('apply-doc-scale-btn');
+    // Legacy: Document scaling controls disabled to prevent desync issues
+    // const setDocScale100Btn = document.getElementById('set-doc-scale-100-btn');
+    // const applyDocScaleBtn = document.getElementById('apply-doc-scale-btn');
 
     // Transform Each Controls
     let teScaleInput = document.getElementById('te-scale');
@@ -1150,10 +1151,11 @@
             });
         }
 
-        // Document Scale listeners
+        // Document Scale listeners (read-only - only refresh button active)
         if (getDocScaleBtn) getDocScaleBtn.addEventListener('click', refreshDocScale);
-        if (setDocScale100Btn) setDocScale100Btn.addEventListener('click', handleSetDocScale100);
-        if (applyDocScaleBtn) applyDocScaleBtn.addEventListener('click', handleApplyDocScale);
+        // Legacy: Document scaling controls disabled to prevent desync issues
+        // if (setDocScale100Btn) setDocScale100Btn.addEventListener('click', handleSetDocScale100);
+        // if (applyDocScaleBtn) applyDocScaleBtn.addEventListener('click', handleApplyDocScale);
 
         // New Mutual Exclusivity Logic
         const orthoToggles = [skipOrthoOption, skipAllBranchesOption, skipFinalOption];

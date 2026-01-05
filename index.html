@@ -60,25 +60,24 @@
                 <button id="clear-rotation-metadata-btn">Clear Rotation Metadata</button>
             </div>
 
-            <!-- Document Scale (Collapsible) -->
-            <div class="section collapsible" style="border-color: var(--primary-color);">
-                <div class="section-title collapsible-header">
-                    <span>Document Scale</span>
-                    <span class="collapse-icon">▼</span>
+            <!-- Document Scale (Read-only anchor display) -->
+            <div class="section" style="border-color: var(--primary-color);">
+                <div class="section-title">
+                    <span>Document Scale Anchor</span>
                 </div>
-                <div class="collapsible-content" style="display: none;">
-                    <div class="control-group">
-                        <div class="slider-row">
-                            <span class="slider-label" style="width: 70px;">Doc Scale (%):</span>
-                            <input type="number" id="doc-scale-input" value="100" step="0.1" style="width: 60px;">
-                            <button id="get-doc-scale-btn" style="padding: 2px 5px; font-size: 10px;">Get</button>
-                        </div>
-                        <div class="btn-row">
-                            <button id="set-doc-scale-100-btn">Make Current 100%</button>
-                            <button id="apply-doc-scale-btn" class="btn-primary-glow"
-                                style="margin-bottom: 0; font-size: 8px;">Scale Entire Document</button>
-                        </div>
+                <div class="control-group">
+                    <div class="slider-row">
+                        <span class="slider-label" style="width: 70px;">Anchor (%):</span>
+                        <input type="number" id="doc-scale-input" value="100" step="0.1" style="width: 60px;" readonly disabled>
+                        <button id="get-doc-scale-btn" style="padding: 2px 5px; font-size: 10px;">Refresh</button>
                     </div>
+                    <!-- Legacy: Document scaling controls removed to prevent desync issues
+                    <div class="btn-row">
+                        <button id="set-doc-scale-100-btn">Make Current 100%</button>
+                        <button id="apply-doc-scale-btn" class="btn-primary-glow"
+                            style="margin-bottom: 0; font-size: 8px;">Scale Entire Document</button>
+                    </div>
+                    -->
                 </div>
             </div>
 

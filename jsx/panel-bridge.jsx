@@ -286,6 +286,8 @@ function MDUX_getDocumentScale() {
     }
 }
 
+// LEGACY: Document scale editing disabled in UI to prevent desync issues.
+// This function is kept for internal use only (called by MDUX_applyScaleToFullDocument).
 function MDUX_setDocumentScale(percent) {
     try {
         if (app.documents.length === 0) return "ERROR:No document";
@@ -306,7 +308,10 @@ function MDUX_setDocumentScale(percent) {
 }
 
 /**
- * Ported logic from old script: Portions the document into Geometry (Resized) 
+ * LEGACY: Full document scaling disabled in UI to prevent desync issues.
+ * Kept for reference - do not expose in panel UI.
+ *
+ * Ported logic from old script: Portions the document into Geometry (Resized)
  * and Strokes (StrokeWidth Scaled).
  */
 function MDUX_applyScaleToFullDocument(targetPercent) {
@@ -1557,6 +1562,19 @@ function MDUX_moveToLayerBridge(optionsJSON) {
         var anchorsMoved = 0;
         var itemsSkipped = 0;
         var filePath = null;
+        var artPlacedPositions = []; // Track positions where art has been placed to avoid duplicates
+
+        // Helper to check if art was already placed at a position (within 5px tolerance)
+        function wasArtPlacedNear(x, y) {
+            for (var ap = 0; ap < artPlacedPositions.length; ap++) {
+                var dx = artPlacedPositions[ap].x - x;
+                var dy = artPlacedPositions[ap].y - y;
+                if (Math.sqrt(dx * dx + dy * dy) < 5) {
+                    return true;
+                }
+            }
+            return false;
+        }
 
         if (fileBaseName) {
             var COMPONENT_FILES_PATH = 'E:/Work/Work/Floorplans/Ductwork Assets/';
@@ -1714,12 +1732,16 @@ function MDUX_moveToLayerBridge(optionsJSON) {
             var item = selection[i];
             $.writeln("[MOVE] Item " + i + " typename: " + item.typename);
 
-            // Check if item is on a valid ductwork parts layer
+            // Check if item is on a valid source layer (ductwork parts or Ignore only - NOT ductwork lines)
             var itemLayerName = item.layer ? item.layer.name : null;
             $.writeln("[MOVE]   Item layer: " + itemLayerName);
 
-            if (!isValidDuctworkLayer(itemLayerName)) {
-                $.writeln("[MOVE]   SKIPPED - not on a ductwork parts layer");
+            var isOnDuctworkParts = isValidDuctworkLayer(itemLayerName);
+            var isOnIgnoreLayer = (itemLayerName === 'Ignore' || itemLayerName === 'Ignored');
+            var isOnValidSourceLayer = isOnDuctworkParts || isOnIgnoreLayer;
+
+            if (!isOnValidSourceLayer) {
+                $.writeln("[MOVE]   SKIPPED - not on a ductwork parts or Ignore layer (ductwork lines excluded)");
                 itemsSkipped++;
                 continue;
             }
@@ -1786,6 +1808,9 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             // Position so center aligns with target anchor
                             newItem.position = [targetX - newWidth / 2, targetY + newHeight / 2];
                             $.writeln("[MOVE]   Item centered on anchor at " + targetX + ", " + targetY);
+
+                            // Record this position to prevent duplicate art placement
+                            artPlacedPositions.push({ x: targetX, y: targetY });
 
                             // Write complete metadata for the placed item
                             try {
@@ -1921,16 +1946,97 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                         }
                     }
                 }
-                // Move PathItems (anchors)
+                // Move PathItems (anchors or multi-point paths)
                 else if (item.typename === 'PathItem') {
-                    $.writeln("[MOVE]   Moving PathItem with " + item.pathPoints.length + " points...");
-                    item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
-                    if (item.pathPoints.length === 1) {
-                        anchorsMoved++;
-                        $.writeln("[MOVE]   Anchor moved");
+                    var numPoints = item.pathPoints.length;
+                    $.writeln("[MOVE]   Processing PathItem with " + numPoints + " points...");
+
+                    // Handle paths with art placement (not Ignore layer, and we have a file)
+                    if (filePath && !isIgnoreLayer) {
+
+                        // Collect all anchor positions from the path
+                        var anchorPositions = [];
+                        for (var pi = 0; pi < numPoints; pi++) {
+                            var pos = item.pathPoints[pi].anchor;
+                            anchorPositions.push({ x: pos[0], y: pos[1] });
+                        }
+                        $.writeln("[MOVE]   Extracted " + anchorPositions.length + " anchor positions");
+
+                        // Delete the original path (we'll create individual anchors)
+                        item.remove();
+                        $.writeln("[MOVE]   Original path removed");
+
+                        // For each anchor position, create an anchor point and place art (if not already placed)
+                        for (var ai = 0; ai < anchorPositions.length; ai++) {
+                            var anchorX = anchorPositions[ai].x;
+                            var anchorY = anchorPositions[ai].y;
+                            $.writeln("[MOVE]   Processing anchor " + (ai + 1) + "/" + anchorPositions.length + " at " + anchorX.toFixed(2) + ", " + anchorY.toFixed(2));
+
+                            // Create a new single-point anchor on the target layer
+                            var newAnchor = targetLayer.pathItems.add();
+                            newAnchor.setEntirePath([[anchorX, anchorY]]);
+                            newAnchor.filled = false;
+                            newAnchor.stroked = false;
+                            anchorsMoved++;
+
+                            // Check if art was already placed at this position (avoid duplicates)
+                            if (wasArtPlacedNear(anchorX, anchorY)) {
+                                $.writeln("[MOVE]   SKIPPED art placement - art already placed nearby");
+                                continue;
+                            }
+
+                            // Place art at this anchor
+                            var newItem = targetLayer.placedItems.add();
+                            newItem.file = filePath;
+                            MDUX_setPlacedItemName(newItem, filePath);
+
+                            // Get new item bounds
+                            var newBounds = newItem.geometricBounds;
+                            var newWidth = Math.abs(newBounds[2] - newBounds[0]);
+                            var newHeight = Math.abs(newBounds[1] - newBounds[3]);
+
+                            // Scale if needed
+                            if (smallestScale !== 100) {
+                                newItem.resize(smallestScale, smallestScale, true, false, false, false, 100, Transformation.CENTER);
+                                newBounds = newItem.geometricBounds;
+                                newWidth = Math.abs(newBounds[2] - newBounds[0]);
+                                newHeight = Math.abs(newBounds[1] - newBounds[3]);
+                            }
+
+                            // Position centered on anchor
+                            newItem.position = [anchorX - newWidth / 2, anchorY + newHeight / 2];
+
+                            // Record this position as having art placed
+                            artPlacedPositions.push({ x: anchorX, y: anchorY });
+
+                            // Write metadata
+                            try {
+                                var metadata = {
+                                    MDUX_OriginalWidth: newItem.width,
+                                    MDUX_OriginalHeight: newItem.height,
+                                    MDUX_OriginalStrokeWidth: 1,
+                                    MDUX_CumulativeRotation: "0",
+                                    MDUX_CurrentScale: String(smallestScale),
+                                    tagScale: smallestScale,
+                                    tagRotation: 0
+                                };
+                                MDUX_setMetadata(newItem, metadata);
+                            } catch (eMetadata) {}
+
+                            itemsMoved++;
+                            $.writeln("[MOVE]   Art placed at anchor " + (ai + 1));
+                        }
+
                     } else {
-                        itemsMoved++;
-                        $.writeln("[MOVE]   Path moved");
+                        // Just move the path item (no art placement - Ignore layer or no file)
+                        item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
+                        if (numPoints === 1) {
+                            anchorsMoved++;
+                            $.writeln("[MOVE]   Anchor moved (no art - Ignore layer or no file)");
+                        } else {
+                            itemsMoved++;
+                            $.writeln("[MOVE]   Path moved (no art - Ignore layer or no file)");
+                        }
                     }
                 }
                 // Move GroupItems
