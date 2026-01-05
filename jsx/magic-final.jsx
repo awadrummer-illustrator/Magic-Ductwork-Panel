@@ -8291,6 +8291,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         return;
     }
 
+    // *** EARLY STROKE NORMALIZATION ***
+    // Normalize all selected paths to the smallest stroke width in the selection
+    // This ensures consistent stroke widths before any processing begins
+    normalizeStrokesToSmallest(allPaths);
+
     var selectionContext = collectSelectionContext(originalSelectionItems);
 
     var forcedOptions = null;
@@ -11051,6 +11056,51 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 try { DIAG.thermostatsCreated++; } catch (e) {}
             } catch (e) { continue; }
         }
+    }
+
+    // --- EARLY STROKE NORMALIZATION: Set all paths to smallest stroke width in selection ---
+    function normalizeStrokesToSmallest(paths) {
+        if (!paths || paths.length === 0) return;
+
+        // Find the smallest stroke width in the selection
+        var smallestStroke = null;
+        for (var i = 0; i < paths.length; i++) {
+            try {
+                var path = paths[i];
+                if (!path || path.typename !== "PathItem") continue;
+                if (path.stroked && path.strokeWidth > 0) {
+                    if (smallestStroke === null || path.strokeWidth < smallestStroke) {
+                        smallestStroke = path.strokeWidth;
+                    }
+                }
+            } catch (e) {
+                continue;
+            }
+        }
+
+        if (smallestStroke === null || smallestStroke <= 0) {
+            addDebug("[EARLY-NORMALIZE] No valid stroke widths found in selection");
+            return;
+        }
+
+        addDebug("[EARLY-NORMALIZE] Normalizing all paths to smallest stroke: " + smallestStroke.toFixed(2) + "pt");
+
+        // Apply the smallest stroke width to all paths
+        var normalizedCount = 0;
+        for (var j = 0; j < paths.length; j++) {
+            try {
+                var normPath = paths[j];
+                if (!normPath || normPath.typename !== "PathItem") continue;
+                if (normPath.stroked && normPath.strokeWidth !== smallestStroke) {
+                    normPath.strokeWidth = smallestStroke;
+                    normalizedCount++;
+                }
+            } catch (e) {
+                continue;
+            }
+        }
+
+        addDebug("[EARLY-NORMALIZE] Normalized " + normalizedCount + " paths to " + smallestStroke.toFixed(2) + "pt");
     }
 
     // --- NEW: STROKE NORMALIZATION FUNCTION (ENHANCED WITH ERROR HANDLING) ---

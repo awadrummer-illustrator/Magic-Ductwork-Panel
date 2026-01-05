@@ -58,6 +58,14 @@
     let teResetOriginalBtn = document.getElementById('te-reset-original-btn');
     let teLiveOption = document.getElementById('te-live-option');
 
+    // Reset/Normalize Controls
+    const resetStrokesBtn = document.getElementById('reset-strokes-btn');
+    const normalizePartsBtn = document.getElementById('normalize-parts-btn');
+
+    // Collapsible Section Controls
+    const docScaleToggle = document.getElementById('doc-scale-toggle');
+    const docScaleSection = document.getElementById('doc-scale-section');
+
     let scaleDebounce = null;
     let bridgeReloaded = false;
     let skipOrthoRefreshTimer = null;
@@ -1315,6 +1323,47 @@
             // Fix Selection Transform listeners
             if (transformEachBtn) transformEachBtn.addEventListener('click', handleTransformEach);
             if (teResetOriginalBtn) teResetOriginalBtn.addEventListener('click', handleResetOriginal);
+
+            // Reset Strokes and Normalize Ductwork Parts buttons
+            if (resetStrokesBtn) {
+                resetStrokesBtn.addEventListener('click', async () => {
+                    try {
+                        await ensureBridgeLoaded();
+                        const result = await evalScript('MDUX_resetStrokes()');
+                        if (selectionStatus) selectionStatus.textContent = result || 'Strokes reset';
+                    } catch (e) {
+                        if (selectionStatus) selectionStatus.textContent = 'Error: ' + e.message;
+                    }
+                });
+            }
+            if (normalizePartsBtn) {
+                normalizePartsBtn.addEventListener('click', async () => {
+                    try {
+                        await ensureBridgeLoaded();
+                        const result = await evalScript('MDUX_normalizeDuctworkParts()');
+                        if (selectionStatus) selectionStatus.textContent = result || 'Parts normalized';
+                    } catch (e) {
+                        if (selectionStatus) selectionStatus.textContent = 'Error: ' + e.message;
+                    }
+                });
+            }
+
+            // Collapsible Document Scale Anchor section
+            if (docScaleToggle) {
+                docScaleToggle.addEventListener('click', () => {
+                    const content = docScaleSection.querySelector('.collapsible-content');
+                    const titleSpan = docScaleToggle.querySelector('span');
+                    if (docScaleSection.classList.contains('collapsed')) {
+                        docScaleSection.classList.remove('collapsed');
+                        content.style.display = 'block';
+                        titleSpan.textContent = '▼ Document Scale Anchor';
+                    } else {
+                        docScaleSection.classList.add('collapsed');
+                        content.style.display = 'none';
+                        titleSpan.textContent = '▶ Document Scale Anchor';
+                    }
+                });
+            }
 
             // Debug buttons
             const testNoteBtn = document.getElementById('test-note-btn');

@@ -2561,3 +2561,122 @@ function MDUX_getSelectionTransformState() {
         return JSON.stringify({ ok: false, message: e.message });
     }
 }
+
+// --- RESET STROKES: Apply default 4pt stroke width to selected ductwork lines ---
+function MDUX_resetStrokes() {
+    try {
+        var doc = app.activeDocument;
+        if (!doc) return "No document open";
+
+        var sel = doc.selection;
+        if (!sel || sel.length === 0) return "No selection";
+
+        var BASE_STROKE = 4; // Default stroke width
+        var count = 0;
+
+        function resetPathStroke(path) {
+            try {
+                if (path.typename !== "PathItem") return;
+                if (path.guides || path.clipping) return;
+                path.stroked = true;
+                path.strokeWidth = BASE_STROKE;
+                count++;
+            } catch (e) {}
+        }
+
+        function walkItems(item) {
+            if (!item) return;
+            if (item.typename === "GroupItem") {
+                for (var i = 0; i < item.pageItems.length; i++) walkItems(item.pageItems[i]);
+            } else if (item.typename === "CompoundPathItem") {
+                for (var j = 0; j < item.pathItems.length; j++) resetPathStroke(item.pathItems[j]);
+            } else if (item.typename === "PathItem") {
+                resetPathStroke(item);
+            }
+        }
+
+        for (var i = 0; i < sel.length; i++) {
+            walkItems(sel[i]);
+        }
+
+        return "Reset strokes on " + count + " path(s) to " + BASE_STROKE + "pt";
+    } catch (e) {
+        return "Error: " + e.message;
+    }
+}
+
+// --- NORMALIZE DUCTWORK PARTS: Apply appropriate graphic styles to selected ductwork ---
+function MDUX_normalizeDuctworkParts() {
+    try {
+        var doc = app.activeDocument;
+        if (!doc) return "No document open";
+
+        var sel = doc.selection;
+        if (!sel || sel.length === 0) return "No selection";
+
+        // Layer to style mappings
+        var LAYER_STYLE_MAP = {
+            "Green Ductwork": "Green Ductwork",
+            "Light Green Ductwork": "Light Green Ductwork",
+            "Blue Ductwork": "Blue Ductwork",
+            "Orange Ductwork": "Orange Ductwork",
+            "Light Orange Ductwork": "Light Orange Ductwork",
+            "Thermostat Lines": "Thermostat Lines"
+        };
+
+        var count = 0;
+        var styleCache = {};
+
+        // Get graphic style by name
+        function getStyle(styleName) {
+            if (styleCache[styleName] !== undefined) return styleCache[styleName];
+            try {
+                for (var i = 0; i < doc.graphicStyles.length; i++) {
+                    if (doc.graphicStyles[i].name === styleName) {
+                        styleCache[styleName] = doc.graphicStyles[i];
+                        return styleCache[styleName];
+                    }
+                }
+            } catch (e) {}
+            styleCache[styleName] = null;
+            return null;
+        }
+
+        function applyStyleToPath(item) {
+            try {
+                var layerName = item.layer ? item.layer.name : null;
+                if (!layerName) return;
+
+                var styleName = LAYER_STYLE_MAP[layerName];
+                if (!styleName) return;
+
+                var style = getStyle(styleName);
+                if (!style) return;
+
+                style.applyTo(item);
+                count++;
+            } catch (e) {}
+        }
+
+        function walkItems(item) {
+            if (!item) return;
+            if (item.typename === "GroupItem") {
+                for (var i = 0; i < item.pageItems.length; i++) walkItems(item.pageItems[i]);
+            } else if (item.typename === "CompoundPathItem") {
+                applyStyleToPath(item);
+            } else if (item.typename === "PathItem") {
+                if (!item.guides && !item.clipping) {
+                    applyStyleToPath(item);
+                }
+            }
+        }
+
+        for (var i = 0; i < sel.length; i++) {
+            walkItems(sel[i]);
+        }
+
+        return "Applied styles to " + count + " item(s)";
+    } catch (e) {
+        return "Error: " + e.message;
+    }
+}
