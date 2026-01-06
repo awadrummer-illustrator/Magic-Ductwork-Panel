@@ -8481,8 +8481,13 @@ function setStaticTextColor(control, rgbArray) {
         }
 
         // --- GLOBAL DEBUG LOG ---
+        // DEBUG_MODE: Set to false for production to skip all logging overhead
+        var DEBUG_MODE = false;
         var GLOBAL_DEBUG_LOG = [];
         function addDebug(msg) {
+            // PERFORMANCE: Skip all logging if debug mode is off
+            if (!DEBUG_MODE) return;
+
             // Collect in local memory
             GLOBAL_DEBUG_LOG.push(msg);
 
@@ -13883,14 +13888,49 @@ function setStaticTextColor(control, rgbArray) {
                         canCompound = false;
                     }
 
-                    // PERFORMANCE: Skip compounding entirely - just keep split halves as separate paths
-                    // Compounding was causing errors ("different groups") and adds significant overhead
-                    // The split halves work fine as separate paths for ductwork styling
-                    try {
-                        if (autoFirstHalf && autoFirstHalf.pathPoints) SELECTED_PATHS.push(autoFirstHalf);
-                        if (autoSecondHalf && autoSecondHalf.pathPoints) SELECTED_PATHS.push(autoSecondHalf);
-                        carveCount++; // Track successful carves for limit
-                    } catch (eAddHalves) { }
+                    // Try to create compound path, fall back to separate paths on failure
+                    var compoundSuccess = false;
+                    if (canCompound) {
+                        try {
+                            // Validate both halves are still valid before attempting compound
+                            var halfAValid = false, halfBValid = false;
+                            try { halfAValid = autoFirstHalf && autoFirstHalf.pathPoints && autoFirstHalf.pathPoints.length >= 2; } catch (eValA) { }
+                            try { halfBValid = autoSecondHalf && autoSecondHalf.pathPoints && autoSecondHalf.pathPoints.length >= 2; } catch (eValB) { }
+
+                            if (halfAValid && halfBValid) {
+                                // Deselect all, then select just the two halves
+                                doc.selection = null;
+                                autoFirstHalf.selected = true;
+                                autoSecondHalf.selected = true;
+
+                                if (doc.selection.length === 2) {
+                                    app.executeMenuCommand("compoundPath");
+
+                                    // Capture the new compound path
+                                    if (doc.selection.length === 1 && doc.selection[0].typename === "CompoundPathItem") {
+                                        var autoNewCompound = doc.selection[0];
+                                        autoNewCompoundPaths.push(autoNewCompound);
+                                        CARVE_OUT_COMPOUNDS.push(autoNewCompound);
+                                        SELECTED_PATHS.push(autoNewCompound);
+                                        compoundSuccess = true;
+                                        carveCount++;
+                                    }
+                                }
+                            }
+                        } catch (eCompound) {
+                            // Compounding failed - will fall back below
+                        }
+                    }
+
+                    // Fallback: if compounding failed, add the halves as separate paths
+                    if (!compoundSuccess) {
+                        try {
+                            var addedA = false, addedB = false;
+                            try { if (autoFirstHalf && autoFirstHalf.pathPoints && autoFirstHalf.pathPoints.length >= 2) { SELECTED_PATHS.push(autoFirstHalf); addedA = true; } } catch (eA) { }
+                            try { if (autoSecondHalf && autoSecondHalf.pathPoints && autoSecondHalf.pathPoints.length >= 2) { SELECTED_PATHS.push(autoSecondHalf); addedB = true; } } catch (eB) { }
+                            if (addedA || addedB) carveCount++;
+                        } catch (eAddHalves) { }
+                    }
 
                     // Mark original path for removal (use loop since ExtendScript lacks indexOf)
                     var alreadyMarked = false;
