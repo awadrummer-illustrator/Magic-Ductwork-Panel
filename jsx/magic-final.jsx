@@ -8238,6 +8238,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     var SELECTED_PATHS = [];
     var CREATED_ANCHOR_PATHS = [];
     var ACTIVE_CENTERLINES = [];
+    var CARVE_OUT_COMPOUNDS = []; // Track compound paths created during carve-out for styling
 
     // Ductwork parts layers to exclude from path collection
     var DUCTWORK_PARTS_LAYERS = {
@@ -11146,6 +11147,28 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             return shouldProcessPath(item);
         }
         if (item.typename === 'CompoundPathItem') {
+            // Check if this is a carve-out compound (tracked in global array)
+            if (typeof CARVE_OUT_COMPOUNDS !== 'undefined' && CARVE_OUT_COMPOUNDS.length > 0) {
+                for (var coIdx = 0; coIdx < CARVE_OUT_COMPOUNDS.length; coIdx++) {
+                    try {
+                        if (CARVE_OUT_COMPOUNDS[coIdx] === item) {
+                            addDebug("[COMPOUND-CHECK] Found in CARVE_OUT_COMPOUNDS - processing");
+                            return true;
+                        }
+                    } catch (e) {}
+                }
+            }
+
+            // Check if the compound path is currently selected
+            var isSelected = false;
+            try {
+                isSelected = item.selected;
+                addDebug("[COMPOUND-CHECK] item.selected = " + isSelected);
+                if (isSelected) return true;
+            } catch (e) {
+                addDebug("[COMPOUND-CHECK] Error checking selected: " + e);
+            }
+
             // Check if the compound path itself was marked
             if (isPathCreated(item)) return true;
 
@@ -11186,6 +11209,82 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             { layerName: "Light Orange Ductwork", styleName: "Light Orange Ductwork" + styleEmoryAppend },
             { layerName: "Thermostat Lines", styleName: "Thermostat Lines" }
         ];
+
+        // *** PRE-CHECK: Auto-import graphic styles if not found ***
+        var stylesFound = 0;
+        var stylesToCheck = ["Blue Ductwork", "Green Ductwork", "Orange Ductwork"];
+        for (var checkIdx = 0; checkIdx < stylesToCheck.length; checkIdx++) {
+            try {
+                var checkStyle = doc.graphicStyles.getByName(stylesToCheck[checkIdx]);
+                if (checkStyle) stylesFound++;
+            } catch (eCheck) {}
+        }
+
+        if (stylesFound === 0) {
+            addDebug("[ROBUST-STYLES] No graphic styles found - auto-importing from DuctworkLines.ai");
+            try {
+                // Import styles from the template file
+                var sourceFile = new File("E:/Work/Work/Floorplans/Ductwork Assets/DuctworkLines.ai");
+                if (sourceFile.exists) {
+                    var destDoc = doc;
+                    var sourceDoc = app.open(sourceFile);
+                    app.activeDocument = sourceDoc;
+
+                    // Unlock all layers
+                    for (var sL = 0; sL < sourceDoc.layers.length; sL++) {
+                        try { sourceDoc.layers[sL].locked = false; } catch (eLock) {}
+                        try { sourceDoc.layers[sL].visible = true; } catch (eVis) {}
+                    }
+
+                    // Select and copy all items
+                    var items = sourceDoc.pageItems;
+                    for (var sI = 0; sI < items.length; sI++) {
+                        try { items[sI].selected = true; } catch (eSel) {}
+                    }
+                    app.copy();
+                    sourceDoc.close(SaveOptions.DONOTSAVECHANGES);
+
+                    // Paste into destination document
+                    app.activeDocument = destDoc;
+                    destDoc.selection = null;
+
+                    // Create or get the template lines layer
+                    var tempLayerName = "__MDUX_STYLE_TEMPLATE_LINES__";
+                    var tempLayer = null;
+                    try { tempLayer = destDoc.layers.getByName(tempLayerName); } catch (eFind) {
+                        tempLayer = destDoc.layers.add();
+                        tempLayer.name = tempLayerName;
+                    }
+                    try { tempLayer.locked = false; } catch (eLock) {}
+                    destDoc.activeLayer = tempLayer;
+                    app.executeMenuCommand("pasteInPlace");
+
+                    // Move pasted items far away
+                    var pasted = destDoc.selection;
+                    if (pasted) {
+                        if (pasted.length === undefined) pasted = [pasted];
+                        var FAR_AWAY_X = -50000;
+                        var FAR_AWAY_Y = -50000;
+                        for (var pIdx = 0; pIdx < pasted.length; pIdx++) {
+                            try {
+                                var pItem = pasted[pIdx];
+                                var pBounds = pItem.geometricBounds;
+                                pItem.translate(FAR_AWAY_X - pBounds[0], FAR_AWAY_Y - pBounds[1]);
+                            } catch (eMove) {}
+                        }
+                    }
+                    destDoc.selection = null;
+                    try { tempLayer.locked = true; } catch (eLock) {}
+                    try { tempLayer.visible = false; } catch (eVis) {}
+
+                    addDebug("[ROBUST-STYLES] Auto-imported graphic styles successfully");
+                } else {
+                    addDebug("[ROBUST-STYLES] WARNING: DuctworkLines.ai not found - cannot auto-import styles");
+                }
+            } catch (eAutoImport) {
+                addDebug("[ROBUST-STYLES] ERROR auto-importing styles: " + eAutoImport);
+            }
+        }
 
         // Build a set of items that were originally selected or created from them
         // Comprehensive item collection function for layer
@@ -11307,7 +11406,14 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var processedCount = 0;
                 var itemsToScale = []; // Collect items with their scale factors
 
+                // *** PRE-NORMALIZE STROKES TO 3pt BEFORE STYLE APPLICATION ***
+                // This ensures consistent baseline before graphic styles are applied
+                var PRE_NORMALIZE_STROKE = 3; // Pre-normalization stroke width in points
+                var TARGET_SCALE_PERCENT = 65; // Target scale percentage after style application
+
                 addDebug("[STYLE-APPLY] Processing " + allItems.length + " items on " + layerName);
+                addDebug("[STYLE-APPLY] Pre-normalizing strokes to " + PRE_NORMALIZE_STROKE + "pt, then applying " + TARGET_SCALE_PERCENT + "% scale");
+
                 for (var j = 0; j < allItems.length; j++) {
                     try {
                         var item = allItems[j];
@@ -11317,185 +11423,38 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         addDebug("[STYLE-APPLY] Item " + j + " (" + item.typename + "): shouldProcess=" + shouldProcess);
                         if (!shouldProcess) continue;
 
-                        // BEFORE clearing appearance, get stroke width
-                        // Base stroke at 100% is 4pt, so scale = (currentStroke / 4) * 100
-                        var itemScaleFactor = 100; // Default
-                        var currentStrokeWidth = null;
-                        var strokeMethod = "none";
-
+                        // *** PRE-NORMALIZE: Set stroke width to 3pt before style application ***
                         try {
-                            // For CompoundPathItems with Appearance panel strokes, we MUST detect the actual
-                            // visual stroke - metadata can get out of sync with visual reality.
-                            // Method 3 (expand/ungroup/release) is the only reliable way to get the visual stroke.
-
-                            // METHOD 1: For simple PathItems only, try metadata for existing scale
-                            // Skip this for CompoundPathItems - they need Method 3
-                            if (item.typename !== "CompoundPathItem") {
-                                addDebug("[STROKE-DETECT] Method 1: Checking metadata for existing scale (non-compound)...");
-                                var existingMeta = MDUX_getMetadata(item);
-                                var metaScale = existingMeta ? existingMeta.MDUX_CurrentScale : null;
-                                // Convert string to number if needed
-                                if (typeof metaScale === "string") {
-                                    metaScale = parseFloat(metaScale);
+                            if (item.typename === "PathItem") {
+                                if (item.stroked) {
+                                    item.strokeWidth = PRE_NORMALIZE_STROKE;
                                 }
-                                if (typeof metaScale === "number" && isFinite(metaScale) && metaScale > 0) {
-                                    // Use the existing scale directly - no need to detect stroke
-                                    itemScaleFactor = metaScale;
-                                    currentStrokeWidth = 4 * (itemScaleFactor / 100); // Calculate stroke from scale
-                                    strokeMethod = "metadata-scale";
-                                    addDebug("[STROKE-DETECT] Method 1 SUCCESS: scale=" + itemScaleFactor + "%, stroke=" + currentStrokeWidth.toFixed(4) + "pt from MDUX_CurrentScale");
-                                } else {
-                                    addDebug("[STROKE-DETECT] Method 1 SKIPPED: no valid MDUX_CurrentScale in metadata");
-                                }
-                            } else {
-                                // For CompoundPathItem, check for pre-compound scale stored during compounding
-                                addDebug("[STROKE-DETECT] Method 1b: Checking MDUX_PreCompoundScale for CompoundPathItem...");
-                                var compoundMeta = MDUX_getMetadata(item);
-                                var preCompScale = compoundMeta ? compoundMeta.MDUX_PreCompoundScale : null;
-                                if (typeof preCompScale === "string") {
-                                    preCompScale = parseFloat(preCompScale);
-                                }
-                                if (typeof preCompScale === "number" && isFinite(preCompScale) && preCompScale > 0) {
-                                    itemScaleFactor = preCompScale;
-                                    currentStrokeWidth = 4 * (itemScaleFactor / 100);
-                                    strokeMethod = "pre-compound-scale";
-                                    addDebug("[STROKE-DETECT] Method 1b SUCCESS: scale=" + itemScaleFactor + "% from MDUX_PreCompoundScale");
-                                } else {
-                                    addDebug("[STROKE-DETECT] Method 1b SKIPPED: no MDUX_PreCompoundScale, will try other methods");
-                                }
-                            }
-
-                            // METHOD 2: Try reading strokeWidth directly from the item (for simple PathItems)
-                            if (currentStrokeWidth === null && item.typename !== "CompoundPathItem") {
-                                addDebug("[STROKE-DETECT] Method 2: Direct item.strokeWidth...");
-                                if (item.stroked && item.strokeWidth > 0.1) {
-                                    currentStrokeWidth = item.strokeWidth;
-                                    strokeMethod = "direct";
-                                    addDebug("[STROKE-DETECT] Method 2 SUCCESS: " + currentStrokeWidth.toFixed(4) + "pt");
-                                } else {
-                                    addDebug("[STROKE-DETECT] Method 2 FAILED: stroked=" + item.stroked + ", strokeWidth=" + (item.strokeWidth || "undefined"));
-                                }
-                            }
-
-                            // METHOD 2.5: For CompoundPathItem, check strokes at compound level and child level
-                            // After compounding, strokes may be at compound level or on individual children
-                            if (currentStrokeWidth === null && item.typename === "CompoundPathItem") {
-                                addDebug("[STROKE-DETECT] Method 2.5: Check compound and child path strokes...");
+                            } else if (item.typename === "CompoundPathItem") {
+                                // For compound paths, normalize child paths
                                 try {
-                                    // First check if compound path itself has a stroke (common after menu compounding)
-                                    if (item.stroked && item.strokeWidth > 0.1) {
-                                        currentStrokeWidth = item.strokeWidth;
-                                        strokeMethod = "compound-direct";
-                                        addDebug("[STROKE-DETECT] Method 2.5 SUCCESS: " + currentStrokeWidth.toFixed(4) + "pt from compound path itself");
-                                    }
-
-                                    // If not, check child paths
-                                    if (currentStrokeWidth === null) {
-                                        var childPaths = item.pathItems;
-                                        for (var cp = 0; cp < childPaths.length; cp++) {
-                                            var child = childPaths[cp];
-                                            if (child.stroked && child.strokeWidth > 0.1) {
-                                                // Take the largest stroke found
-                                                if (currentStrokeWidth === null || child.strokeWidth > currentStrokeWidth) {
-                                                    currentStrokeWidth = child.strokeWidth;
-                                                    strokeMethod = "compound-child-direct";
-                                                }
-                                            }
-                                        }
-                                        if (currentStrokeWidth !== null) {
-                                            addDebug("[STROKE-DETECT] Method 2.5 SUCCESS: " + currentStrokeWidth.toFixed(4) + "pt from child path");
-                                        } else {
-                                            addDebug("[STROKE-DETECT] Method 2.5 FAILED: no strokes on compound or children");
+                                    for (var preNormIdx = 0; preNormIdx < item.pathItems.length; preNormIdx++) {
+                                        var preNormChild = item.pathItems[preNormIdx];
+                                        if (preNormChild.stroked) {
+                                            preNormChild.strokeWidth = PRE_NORMALIZE_STROKE;
                                         }
                                     }
-                                } catch (eChild) {
-                                    addDebug("[STROKE-DETECT] Method 2.5 ERROR: " + eChild);
-                                }
-                            }
-
-                            // METHOD 3: For CompoundPathItem, expand appearance, ungroup, release compound, read stroke
-                            // This is the ONLY reliable method for CompoundPathItems with Appearance panel strokes
-                            if (currentStrokeWidth === null && item.typename === "CompoundPathItem") {
-                                addDebug("[STROKE-DETECT] Method 3: Expand Appearance, ungroup, release compound, read stroke...");
+                                } catch (ePreNormChild) {}
+                                // Also set on compound path itself if it has stroke
                                 try {
-                                    var dupItem = item.duplicate();
-                                    doc.selection = null;
-                                    dupItem.selected = true;
-
-                                    // Step 1: Expand Appearance
-                                    app.executeMenuCommand("expandStyle");
-                                    addDebug("[STROKE-DETECT] Step 1: Expanded appearance");
-
-                                    // Step 2: Ungroup the resulting group
-                                    if (doc.selection && doc.selection.length > 0) {
-                                        addDebug("[STROKE-DETECT] After expand: " + doc.selection[0].typename);
-                                        if (doc.selection[0].typename === "GroupItem") {
-                                            app.executeMenuCommand("ungroup");
-                                            addDebug("[STROKE-DETECT] Step 2: Ungrouped");
-                                        }
+                                    if (item.stroked) {
+                                        item.strokeWidth = PRE_NORMALIZE_STROKE;
                                     }
-
-                                    // Step 3: Release any compound paths in the selection
-                                    if (doc.selection && doc.selection.length > 0) {
-                                        var hasCompound = false;
-                                        for (var sc = 0; sc < doc.selection.length; sc++) {
-                                            if (doc.selection[sc].typename === "CompoundPathItem") {
-                                                hasCompound = true;
-                                                break;
-                                            }
-                                        }
-                                        if (hasCompound) {
-                                            app.executeMenuCommand("noCompoundPath");
-                                            addDebug("[STROKE-DETECT] Step 3: Released compound path");
-                                        }
-                                    }
-
-                                    // Step 4: Now read strokes from the resulting paths
-                                    if (doc.selection && doc.selection.length > 0) {
-                                        addDebug("[STROKE-DETECT] Final selection: " + doc.selection.length + " items");
-                                        for (var si2 = 0; si2 < doc.selection.length; si2++) {
-                                            var selItem = doc.selection[si2];
-                                            if (selItem.typename === "PathItem" && selItem.stroked && selItem.strokeWidth > 0.1) {
-                                                // Take the larger stroke (outer stroke from appearance panel)
-                                                if (currentStrokeWidth === null || selItem.strokeWidth > currentStrokeWidth) {
-                                                    currentStrokeWidth = selItem.strokeWidth;
-                                                    strokeMethod = "expand-ungroup-release";
-                                                }
-                                            }
-                                        }
-
-                                        if (currentStrokeWidth !== null) {
-                                            addDebug("[STROKE-DETECT] Method 3 SUCCESS: " + currentStrokeWidth.toFixed(4) + "pt");
-                                        } else {
-                                            addDebug("[STROKE-DETECT] Method 3 FAILED: no stroked paths found");
-                                        }
-
-                                        // Delete the expanded items
-                                        for (var rp = doc.selection.length - 1; rp >= 0; rp--) {
-                                            try { doc.selection[rp].remove(); } catch (eRem) {}
-                                        }
-                                    } else {
-                                        addDebug("[STROKE-DETECT] Method 3 FAILED: no selection after processing");
-                                        try { dupItem.remove(); } catch (eRem) {}
-                                    }
-                                    doc.selection = null;
-                                } catch (eExpand) {
-                                    addDebug("[STROKE-DETECT] Method 3 ERROR: " + eExpand);
-                                }
+                                } catch (ePreNormComp) {}
                             }
-
-                            // Only calculate scale from stroke if we didn't get it directly from metadata
-                            if (strokeMethod !== "metadata-scale" && currentStrokeWidth > 0.1 && currentStrokeWidth < 20) {
-                                itemScaleFactor = (currentStrokeWidth / 4) * 100;
-                                addDebug("[STROKE-DETECT] FINAL: stroke=" + currentStrokeWidth.toFixed(4) + "pt, scale=" + itemScaleFactor.toFixed(1) + "% (base=4pt), method=" + strokeMethod);
-                            } else if (strokeMethod === "metadata-scale") {
-                                addDebug("[STROKE-DETECT] FINAL: Using scale directly from metadata: " + itemScaleFactor.toFixed(1) + "%");
-                            } else {
-                                addDebug("[STROKE-DETECT] FINAL: stroke out of range (" + (currentStrokeWidth ? currentStrokeWidth.toFixed(4) : "null") + "), using default scale=100%");
-                            }
-                        } catch (eStroke) {
-                            addDebug("[STROKE-DETECT] ERROR: " + eStroke);
+                            addDebug("[PRE-NORMALIZE] Set stroke to " + PRE_NORMALIZE_STROKE + "pt on item " + j);
+                        } catch (ePreNorm) {
+                            addDebug("[PRE-NORMALIZE] Error on item " + j + ": " + ePreNorm);
                         }
+
+                        // Use fixed target scale (65%) instead of detecting existing stroke
+                        // This ensures consistent results: pre-normalize to 3pt, apply style, then scale to 65%
+                        var itemScaleFactor = TARGET_SCALE_PERCENT;
+                        addDebug("[SCALE-FIXED] Using fixed scale " + itemScaleFactor + "% for item " + j + " (" + item.typename + ")");
 
                         // Clear existing appearance
                         try {
@@ -11669,6 +11628,20 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // Ensure layers and colors before doing heavy work
     try { ensureDuctworkLayersExist(); } catch (e) { /* non-fatal */ }
 
+    // *** CLEANUP: Remove template lines layer from style import ***
+    // These are the lines moved far away during graphic style import
+    try {
+        var templateLayerName = "__MDUX_STYLE_TEMPLATE_LINES__";
+        var templateLayer = doc.layers.getByName(templateLayerName);
+        if (templateLayer) {
+            try { templateLayer.locked = false; } catch (eLock) {}
+            templateLayer.remove();
+            addDebug("[CLEANUP] Removed style template lines layer");
+        }
+    } catch (eTemplateCleanup) {
+        // Layer doesn't exist - that's fine
+    }
+
     // Pre-step: align thermostat endpoints to duct junctions before processing selection
     try { snapThermostatEndpointsToJunctions(); } catch (e) {}
 
@@ -11809,7 +11782,8 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     var EARLY_CROSSOVER_SEGMENTS = []; // Store for later ignore anchor placement
     var EARLY_SPLIT_PAIRS = []; // Store split path pairs for compounding phase (to include branches)
     var SMALL_SEG_MIN = 5;
-    var SMALL_SEG_MAX = 17;
+    var SMALL_SEG_MAX = 10;  // Changed from 17 to 10pt per user request
+    var CROSSOVER_NORMALIZE_DIST = 4.25;  // Distance from intersection to each anchor (4.25pt x 2 = 8.5pt apart)
 
     // Find Blue Ductwork paths in geometryPaths
     var bluePaths = [];
@@ -11886,6 +11860,65 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         addDebug("[EARLY-XOVER] Stored " + EARLY_CROSSOVER_SEGMENTS.length + " crossover(s) for post-ortho splitting");
     }
 
+    // *** CLEANUP: REMOVE INTERNAL ANCHORS WITHIN 4PT OF ENDPOINTS ***
+    // If an internal anchor on a blue ductwork path is within 4pt of an endpoint,
+    // remove the internal anchor and mark that endpoint to be ignored (no part placed there)
+    // Also mark the OPPOSITE endpoint for unit placement
+    var ENDPOINT_INTERNAL_THRESHOLD = 4;
+    var endpointsToIgnore = []; // Store endpoints that should be added to ignore layer
+    var oppositeEndpointsForUnits = []; // Store opposite endpoints where units should be created
+
+    for (var cleanIdx = 0; cleanIdx < bluePaths.length; cleanIdx++) {
+        try {
+            var cleanPath = bluePaths[cleanIdx];
+            var cleanPts = cleanPath.pathPoints;
+            if (cleanPts.length < 3) continue; // Need at least 3 points to have internal anchors
+
+            var startPt = cleanPts[0].anchor;
+            var endPt = cleanPts[cleanPts.length - 1].anchor;
+
+            // Check each internal anchor (not first or last)
+            // Work backwards to avoid index shifting issues when removing
+            for (var intIdx = cleanPts.length - 2; intIdx >= 1; intIdx--) {
+                var intAnchor = cleanPts[intIdx].anchor;
+                var distToStart = Math.sqrt(
+                    Math.pow(intAnchor[0] - startPt[0], 2) +
+                    Math.pow(intAnchor[1] - startPt[1], 2)
+                );
+                var distToEnd = Math.sqrt(
+                    Math.pow(intAnchor[0] - endPt[0], 2) +
+                    Math.pow(intAnchor[1] - endPt[1], 2)
+                );
+
+                if (distToStart <= ENDPOINT_INTERNAL_THRESHOLD) {
+                    addDebug("[CLEANUP] Path " + cleanIdx + ": Internal anchor at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "] is " + distToStart.toFixed(1) + "pt from start - REMOVING and marking start endpoint to ignore");
+                    cleanPts[intIdx].remove();
+                    endpointsToIgnore.push([startPt[0], startPt[1]]);
+                    // Add the OPPOSITE endpoint (end) for unit placement
+                    oppositeEndpointsForUnits.push([endPt[0], endPt[1]]);
+                    addDebug("[CLEANUP] Path " + cleanIdx + ": Marking opposite endpoint (end) [" + endPt[0].toFixed(1) + "," + endPt[1].toFixed(1) + "] for unit placement");
+                } else if (distToEnd <= ENDPOINT_INTERNAL_THRESHOLD) {
+                    addDebug("[CLEANUP] Path " + cleanIdx + ": Internal anchor at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "] is " + distToEnd.toFixed(1) + "pt from end - REMOVING and marking end endpoint to ignore");
+                    cleanPts[intIdx].remove();
+                    endpointsToIgnore.push([endPt[0], endPt[1]]);
+                    // Add the OPPOSITE endpoint (start) for unit placement
+                    oppositeEndpointsForUnits.push([startPt[0], startPt[1]]);
+                    addDebug("[CLEANUP] Path " + cleanIdx + ": Marking opposite endpoint (start) [" + startPt[0].toFixed(1) + "," + startPt[1].toFixed(1) + "] for unit placement");
+                }
+            }
+        } catch (eClean) {
+            addDebug("[CLEANUP] Error processing path " + cleanIdx + ": " + eClean);
+        }
+    }
+
+    // Add the identified endpoints to the ignore layer (will be done later after layer setup)
+    if (endpointsToIgnore.length > 0) {
+        addDebug("[CLEANUP] Marked " + endpointsToIgnore.length + " endpoint(s) to be added to Ignored layer");
+    }
+    if (oppositeEndpointsForUnits.length > 0) {
+        addDebug("[CLEANUP] Marked " + oppositeEndpointsForUnits.length + " opposite endpoint(s) for unit placement");
+    }
+
     var iteration = 0;
     var changed = true;
     while (changed && iteration < MAX_ITER) {
@@ -11960,9 +11993,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     var segDx = segEndPt[0] - segStartPt[0];
                     var segDy = segEndPt[1] - segStartPt[1];
                     var segLen = Math.sqrt(segDx * segDx + segDy * segDy);
-                    var halfLen = segLen / 2;
+                    // NORMALIZE: Use fixed 8.5pt distance from intersection instead of half segment length
+                    var halfLen = CROSSOVER_NORMALIZE_DIST;
 
-                    addDebug("[POST-ORTHO-SPLIT] Crossover segment: [" + segStartPt[0].toFixed(1) + "," + segStartPt[1].toFixed(1) + "] to [" + segEndPt[0].toFixed(1) + "," + segEndPt[1].toFixed(1) + "] len=" + segLen.toFixed(1));
+                    addDebug("[POST-ORTHO-SPLIT] Crossover segment: [" + segStartPt[0].toFixed(1) + "," + segStartPt[1].toFixed(1) + "] to [" + segEndPt[0].toFixed(1) + "," + segEndPt[1].toFixed(1) + "] len=" + segLen.toFixed(1) + " (normalizing to " + (halfLen * 2) + "pt)");
 
                     // *** FORCE ORTHOGONALIZATION OF ENTIRE PATH ***
                     // If the crossover segment was skipped during normal ortho (steep angle), force it now.
@@ -12003,7 +12037,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         segDx = segEndPt[0] - segStartPt[0];
                         segDy = segEndPt[1] - segStartPt[1];
                         segLen = Math.sqrt(segDx * segDx + segDy * segDy);
-                        halfLen = segLen / 2;
+                        // Keep using normalized 8.5pt distance (halfLen already set above)
                         addDebug("[POST-ORTHO-SPLIT] After forcing ortho: crossover seg dx=" + segDx.toFixed(2) + ", dy=" + segDy.toFixed(2) + ", len=" + segLen.toFixed(2));
                     }
 
@@ -12152,6 +12186,15 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // STEP 2: Remove any art on target layers that conflicts with the 'Ignore' layer
     doc.selection = null;
     var ignoredAnchors = getIgnoredAnchorPoints();
+
+    // Add endpoints that were identified during cleanup (internal anchors within 4pt of endpoints)
+    if (endpointsToIgnore && endpointsToIgnore.length > 0) {
+        for (var epIdx = 0; epIdx < endpointsToIgnore.length; epIdx++) {
+            ignoredAnchors.push(endpointsToIgnore[epIdx]);
+        }
+        addDebug("[CLEANUP] Added " + endpointsToIgnore.length + " endpoint(s) to ignored anchors (total: " + ignoredAnchors.length + ")");
+    }
+
     if (ignoredAnchors.length > 0) {
         removeConflictingArtAndAnchors(ignoredAnchors);
     }
@@ -12176,6 +12219,43 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     averageCloseEndpoints(greenSourceLayer, blueSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
     averageCloseEndpoints(orangeSourceLayer, lightOrangeSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
     averageCloseEndpoints("Thermostat Lines", blueSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
+
+    // *** CREATE UNITS AT OPPOSITE ENDPOINTS (from internal anchor cleanup) ***
+    // When an internal anchor is removed near an endpoint, create a unit at the opposite end of that path
+    if (oppositeEndpointsForUnits && oppositeEndpointsForUnits.length > 0) {
+        addDebug("\n=== OPPOSITE ENDPOINT UNITS (from internal anchor cleanup) ===");
+        var unitsLayer = getOrCreateLayer("Units");
+        var unitsCreated = 0;
+
+        // Refresh existing anchors to avoid duplicates
+        var existingForOppositeUnits = getExistingAnchorPoints(["Units", "Square Registers", "Exhaust Registers", "Thermostats", "Rectangular Registers"]);
+
+        for (var opIdx = 0; opIdx < oppositeEndpointsForUnits.length; opIdx++) {
+            var opPos = oppositeEndpointsForUnits[opIdx];
+
+            // Skip if this point is ignored
+            if (isPointIgnored(opPos, ignoredAnchors)) {
+                addDebug("[OPPOSITE-UNITS] Skipping [" + opPos[0].toFixed(1) + "," + opPos[1].toFixed(1) + "] - in ignored anchors");
+                continue;
+            }
+
+            // Skip if already has a unit/register nearby
+            if (isPointAlreadyPlaced(opPos, existingForOppositeUnits)) {
+                addDebug("[OPPOSITE-UNITS] Skipping [" + opPos[0].toFixed(1) + "," + opPos[1].toFixed(1) + "] - already placed");
+                continue;
+            }
+
+            // Create unit anchor at this position
+            addDebug("[OPPOSITE-UNITS] Creating unit at [" + opPos[0].toFixed(1) + "," + opPos[1].toFixed(1) + "]");
+            createAnchorPoint(unitsLayer, opPos, null);
+            unitsCreated++;
+
+            // Add to existing list to prevent duplicates
+            existingForOppositeUnits.push(opPos);
+        }
+
+        addDebug("[OPPOSITE-UNITS] Created " + unitsCreated + " unit(s) at opposite endpoints");
+    }
 
     // STEP 4: Create Registers, but skip endpoints that are close to existing Units, Ignored points, or existing points
     // *** REFACTORED: Create a single, comprehensive list of all existing points to check against ***
@@ -12208,6 +12288,437 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     duplicateIsolatedEndpointsFiltered(blueSourceLayer, "Square Registers", ignoredAnchors, allExistingRegisterPoints, rectangularRegisterAnchors);
     duplicateIsolatedEndpointsFiltered(orangeSourceLayer, "Exhaust Registers", ignoredAnchors, allExistingRegisterPoints, null);
 
+
+    // *** CARVE OUT BLUE DUCTWORK LINES THAT PASS THROUGH SQUARE REGISTERS ***
+    // After placing square registers, check if OTHER blue lines pass through register areas
+    // and carve out those segments to prevent overlap
+    addDebug("\n=== SQUARE REGISTER CARVE-OUT ===");
+
+    var REGISTER_CARVE_HALF_WIDTH = 13.5; // 27pt total gap centered on register
+    var REGISTER_DETECTION_THRESHOLD = 10; // How close a line segment must be to register center to trigger carve-out
+    var squareRegLayer = null;
+    try { squareRegLayer = doc.layers.getByName("Square Registers"); } catch (e) {}
+
+    if (squareRegLayer) {
+        // Collect all square register center positions
+        var registerCenters = [];
+        for (var sri = 0; sri < squareRegLayer.pathItems.length; sri++) {
+            try {
+                var regPath = squareRegLayer.pathItems[sri];
+                if (regPath.pathPoints && regPath.pathPoints.length > 0) {
+                    var regPt = regPath.pathPoints[0].anchor;
+                    registerCenters.push(regPt);
+                }
+            } catch (e) {}
+        }
+        addDebug("[CARVE-OUT] Found " + registerCenters.length + " square register position(s)");
+
+        // Get SELECTED blue ductwork paths only - do not touch unselected paths
+        var bluePathsForCarve = getPathsOnLayerSelected(blueSourceLayer) || [];
+        addDebug("[CARVE-OUT] Checking " + bluePathsForCarve.length + " selected blue path(s)");
+        var carveOutsPerformed = 0;
+        var pathsToRemove = [];
+
+        addDebug("[CARVE-OUT] Detection threshold: " + REGISTER_DETECTION_THRESHOLD + "pt");
+
+        // SAVE THE BLUE PATHS that need to be restored to selection after carve-out
+        // We use bluePathsForCarve since doc.selection may already be empty at this point
+        var originalBluePaths = [];
+        for (var origSelIdx = 0; origSelIdx < bluePathsForCarve.length; origSelIdx++) {
+            originalBluePaths.push(bluePathsForCarve[origSelIdx]);
+        }
+        addDebug("[CARVE-OUT] Saved " + originalBluePaths.length + " blue paths for restoration");
+
+        // Track new compound paths created during carve-out
+        var newCompoundPaths = [];
+
+        // For each register, check each blue path for segments passing through
+        for (var rcIdx = 0; rcIdx < registerCenters.length; rcIdx++) {
+            var regCenter = registerCenters[rcIdx];
+            addDebug("[CARVE-OUT] Checking register #" + rcIdx + " at [" + regCenter[0].toFixed(2) + ", " + regCenter[1].toFixed(2) + "]");
+
+            for (var bpIdx = 0; bpIdx < bluePathsForCarve.length; bpIdx++) {
+                var bluePath = bluePathsForCarve[bpIdx];
+                if (!bluePath || !bluePath.pathPoints || bluePath.pathPoints.length < 2) continue;
+
+                var pts = bluePath.pathPoints;
+
+                // Skip if the register is at an endpoint of THIS path - that's expected
+                var firstPt = pts[0].anchor;
+                var lastPt = pts[pts.length - 1].anchor;
+                var isRegisterOnThisPathEndpoint =
+                    (Math.abs(firstPt[0] - regCenter[0]) < 5 && Math.abs(firstPt[1] - regCenter[1]) < 5) ||
+                    (Math.abs(lastPt[0] - regCenter[0]) < 5 && Math.abs(lastPt[1] - regCenter[1]) < 5);
+
+                if (isRegisterOnThisPathEndpoint) {
+                    addDebug("[CARVE-OUT]   Path #" + bpIdx + " has this register at its endpoint - skipping");
+                    continue;
+                }
+
+                addDebug("[CARVE-OUT]   Checking path #" + bpIdx + " (" + pts.length + " points)");
+
+                // Check each segment for intersection with register area
+                for (var segIdx = 0; segIdx < pts.length - 1; segIdx++) {
+                    var segStart = pts[segIdx].anchor;
+                    var segEnd = pts[segIdx + 1].anchor;
+                    var segDx = segEnd[0] - segStart[0];
+                    var segDy = segEnd[1] - segStart[1];
+                    var segLen = Math.sqrt(segDx * segDx + segDy * segDy);
+                    if (segLen < 0.01) continue;
+
+                    // Project register center onto the line
+                    var t = ((regCenter[0] - segStart[0]) * segDx + (regCenter[1] - segStart[1]) * segDy) / (segLen * segLen);
+                    // Exclude t values at or very close to 0.0 or 1.0 - these are anchor points, not segment middles
+                    // t=0.0 means register is at segment start anchor, t=1.0 means register is at segment end anchor
+                    // We only want to carve out when a line passes THROUGH a register in the MIDDLE of a segment
+                    if (t < 0.02 || t > 0.98) {
+                        addDebug("[CARVE-OUT]     Seg " + segIdx + ": t=" + t.toFixed(3) + " - register at/near segment endpoint (not middle), skipping");
+                        continue;
+                    }
+
+                    // Calculate closest point on segment to register center
+                    var closestX = segStart[0] + t * segDx;
+                    var closestY = segStart[1] + t * segDy;
+                    var distToSeg = Math.sqrt(Math.pow(regCenter[0] - closestX, 2) + Math.pow(regCenter[1] - closestY, 2));
+
+                    addDebug("[CARVE-OUT]     Seg " + segIdx + ": t=" + t.toFixed(3) + ", closest=[" + closestX.toFixed(2) + "," + closestY.toFixed(2) + "], dist=" + distToSeg.toFixed(2) + "pt (threshold=" + REGISTER_DETECTION_THRESHOLD + ")");
+
+                    if (distToSeg > REGISTER_DETECTION_THRESHOLD) continue;
+
+                    addDebug("[CARVE-OUT] Blue path segment passes through register at [" + regCenter[0].toFixed(1) + "," + regCenter[1].toFixed(1) + "]");
+
+                    // Calculate cut points along the LINE (not from register center)
+                    // Use the closest point on the segment as the center of the gap
+                    var dirX = segDx / segLen;
+                    var dirY = segDy / segLen;
+                    var cutBefore = [closestX - REGISTER_CARVE_HALF_WIDTH * dirX, closestY - REGISTER_CARVE_HALF_WIDTH * dirY];
+                    var cutAfter = [closestX + REGISTER_CARVE_HALF_WIDTH * dirX, closestY + REGISTER_CARVE_HALF_WIDTH * dirY];
+
+                    try {
+                        var firstHalf = bluePath.duplicate();
+                        var firstPts = firstHalf.pathPoints;
+                        for (var delIdx = firstPts.length - 1; delIdx > segIdx; delIdx--) {
+                            firstPts[delIdx].remove();
+                        }
+                        var newEndPt = firstHalf.pathPoints.add();
+                        newEndPt.anchor = cutBefore;
+                        newEndPt.leftDirection = cutBefore;
+                        newEndPt.rightDirection = cutBefore;
+
+                        var secondHalf = bluePath.duplicate();
+                        var secondPts = secondHalf.pathPoints;
+
+                        // Set the segment start point (segIdx) to cutAfter position
+                        // This keeps the path structure intact
+                        secondPts[segIdx].anchor = cutAfter;
+                        secondPts[segIdx].leftDirection = cutAfter;
+                        secondPts[segIdx].rightDirection = cutAfter;
+
+                        // Remove all points BEFORE segIdx (from end to avoid index shifting)
+                        for (var delIdx2 = segIdx - 1; delIdx2 >= 0; delIdx2--) {
+                            secondPts[delIdx2].remove();
+                        }
+
+                        // Select the new paths so they're included in subsequent processing
+                        firstHalf.selected = true;
+                        secondHalf.selected = true;
+
+                        // Create ignore anchor markers on the Ignored layer
+                        try {
+                            var ignoredLayer = null;
+                            try { ignoredLayer = doc.layers.getByName("Ignored"); } catch (eNoIgn) {}
+                            if (!ignoredLayer) {
+                                ignoredLayer = doc.layers.add();
+                                ignoredLayer.name = "Ignored";
+                            }
+                            if (ignoredLayer && !ignoredLayer.locked) {
+                                // Create ignore anchor at cutBefore
+                                var ignoreAnchor1 = ignoredLayer.pathItems.add();
+                                ignoreAnchor1.setEntirePath([[cutBefore[0], cutBefore[1]]]);
+                                ignoreAnchor1.filled = false;
+                                ignoreAnchor1.stroked = false;
+                                addDebug("[CARVE-OUT] Placed ignore anchor at [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "]");
+
+                                // Create ignore anchor at cutAfter
+                                var ignoreAnchor2 = ignoredLayer.pathItems.add();
+                                ignoreAnchor2.setEntirePath([[cutAfter[0], cutAfter[1]]]);
+                                ignoreAnchor2.filled = false;
+                                ignoreAnchor2.stroked = false;
+                                addDebug("[CARVE-OUT] Placed ignore anchor at [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
+                            }
+                        } catch (eIgnore) {
+                            addDebug("[CARVE-OUT] Warning: Could not create ignore anchors: " + eIgnore);
+                        }
+
+                        // Compound the two halves into a single compound path
+                        try {
+                            // Deselect everything
+                            doc.selection = null;
+                            // Select just the two halves
+                            firstHalf.selected = true;
+                            secondHalf.selected = true;
+                            // Create compound path
+                            if (doc.selection.length === 2) {
+                                app.executeMenuCommand("compoundPath");
+                                addDebug("[CARVE-OUT] Compounded split segments into compound path");
+
+                                // The compound path is now selected - capture it for later
+                                if (doc.selection.length === 1) {
+                                    var newCompound = doc.selection[0];
+                                    newCompoundPaths.push(newCompound);
+                                    CARVE_OUT_COMPOUNDS.push(newCompound); // Also add to global tracking for styling
+                                    SELECTED_PATHS.push(newCompound); // Also add to SELECTED_PATHS for component placement
+                                    addDebug("[CARVE-OUT] New compound path captured (total: " + newCompoundPaths.length + ", global: " + CARVE_OUT_COMPOUNDS.length + ", SELECTED_PATHS: " + SELECTED_PATHS.length + ")");
+                                }
+                            }
+                        } catch (eCompound) {
+                            addDebug("[CARVE-OUT] Warning: Could not compound paths: " + eCompound);
+                        }
+
+                        pathsToRemove.push(bluePath);
+                        ignoredAnchors.push(cutBefore);
+                        ignoredAnchors.push(cutAfter);
+                        carveOutsPerformed++;
+                        addDebug("[CARVE-OUT] Created gap from [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "] to [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
+                        break;
+                    } catch (eCarve) {
+                        addDebug("[CARVE-OUT] Error: " + eCarve);
+                    }
+                }
+            }
+        }
+
+        for (var remIdx = 0; remIdx < pathsToRemove.length; remIdx++) {
+            try {
+                var pathToRemove = pathsToRemove[remIdx];
+                // Remove from SELECTED_PATHS before deleting the path
+                for (var spIdx = SELECTED_PATHS.length - 1; spIdx >= 0; spIdx--) {
+                    try {
+                        if (SELECTED_PATHS[spIdx] === pathToRemove) {
+                            SELECTED_PATHS.splice(spIdx, 1);
+                            addDebug("[CARVE-OUT] Removed deleted path from SELECTED_PATHS (now " + SELECTED_PATHS.length + " paths)");
+                        }
+                    } catch (eSpCheck) {}
+                }
+                pathToRemove.remove();
+            } catch (eRem) {}
+        }
+        addDebug("[CARVE-OUT] Performed " + carveOutsPerformed + " carve-out(s)");
+
+        // RESTORE SELECTION: original blue paths (if still valid) plus new compound paths
+        if (carveOutsPerformed > 0) {
+            doc.selection = null; // Clear first
+            var restoredCount = 0;
+
+            // Restore original blue paths - try to select each one
+            // If the item was removed, it will throw an error which we catch
+            for (var restIdx = 0; restIdx < originalBluePaths.length; restIdx++) {
+                try {
+                    var origItem = originalBluePaths[restIdx];
+                    // Check if item is still valid by accessing a property
+                    var testValid = origItem.typename;
+                    origItem.selected = true;
+                    restoredCount++;
+                } catch (eRest) {
+                    // Item was removed or is invalid - skip it
+                }
+            }
+
+            // Add new compound paths to selection
+            for (var cpIdx = 0; cpIdx < newCompoundPaths.length; cpIdx++) {
+                try {
+                    newCompoundPaths[cpIdx].selected = true;
+                    restoredCount++;
+                } catch (eCpSel) {}
+            }
+
+            addDebug("[CARVE-OUT] Restored selection: " + restoredCount + " items (including " + newCompoundPaths.length + " new compound path(s))");
+        }
+    }
+
+    // *** PLACE SQUARE REGISTERS AT INTERNAL ANCHORS WITH NO DIRECTION CHANGE ***
+    // For internal anchors on blue paths that are NOT crossovers and have no direction change
+    // (incoming/outgoing segments are collinear), place a square register
+    addDebug("\n=== INTERNAL ANCHOR REGISTERS (NO DIRECTION CHANGE) ===");
+
+    // Helper: Check if three points are collinear (no direction change at middle point)
+    function isAnchorCollinear(prevPt, anchorPt, nextPt, tolerance) {
+        // Calculate vectors from prev->anchor and anchor->next
+        var v1x = anchorPt[0] - prevPt[0];
+        var v1y = anchorPt[1] - prevPt[1];
+        var v2x = nextPt[0] - anchorPt[0];
+        var v2y = nextPt[1] - anchorPt[1];
+
+        // Normalize vectors
+        var len1 = Math.sqrt(v1x * v1x + v1y * v1y);
+        var len2 = Math.sqrt(v2x * v2x + v2y * v2y);
+
+        if (len1 < 0.001 || len2 < 0.001) return false;
+
+        v1x /= len1; v1y /= len1;
+        v2x /= len2; v2y /= len2;
+
+        // Dot product - if close to 1, vectors are in same direction (collinear continuation)
+        var dot = v1x * v2x + v1y * v2y;
+
+        // dot product of ~1 means same direction (path continues straight through anchor)
+        return dot > (1 - tolerance);
+    }
+
+    // Get blue ductwork paths for internal anchor processing
+    var bluePathsForRegisters = getPathsOnLayerSelected(blueSourceLayer) || [];
+    addDebug("[INTERNAL-REGISTERS] Processing " + bluePathsForRegisters.length + " blue paths");
+
+    // Build set of crossover anchor indices per path (using path reference as key via index)
+    // EARLY_CROSSOVER_SEGMENTS contains: { path, pathIdx, segmentIdx, ... }
+    var crossoverAnchorsByPath = {};
+    if (typeof EARLY_CROSSOVER_SEGMENTS !== 'undefined' && EARLY_CROSSOVER_SEGMENTS.length > 0) {
+        for (var xoRegIdx = 0; xoRegIdx < EARLY_CROSSOVER_SEGMENTS.length; xoRegIdx++) {
+            var xoReg = EARLY_CROSSOVER_SEGMENTS[xoRegIdx];
+            // Mark both endpoints of the crossover segment as crossover anchors
+            // Store the crossover segment midpoint for checking distance
+            var xoMidX = (xoReg.segStart[0] + xoReg.segEnd[0]) / 2;
+            var xoMidY = (xoReg.segStart[1] + xoReg.segEnd[1]) / 2;
+            if (!crossoverAnchorsByPath[xoReg.pathIdx]) {
+                crossoverAnchorsByPath[xoReg.pathIdx] = [];
+            }
+            crossoverAnchorsByPath[xoReg.pathIdx].push({
+                segIdx: xoReg.segmentIdx,
+                midpoint: [xoMidX, xoMidY]
+            });
+        }
+        addDebug("[INTERNAL-REGISTERS] Found " + EARLY_CROSSOVER_SEGMENTS.length + " crossover segment(s) to exclude");
+    }
+
+    // Refresh existing register points after endpoint registers were placed
+    var updatedRegisterPoints = getExistingAnchorPoints([
+        "Units", "Square Registers", "Exhaust Registers",
+        "Thermostats", "Rectangular Registers"
+    ]);
+
+    var squareRegisterLayer = getOrCreateLayer("Square Registers");
+    var internalRegistersPlaced = 0;
+    var internalRegistersSkipped = 0;
+
+    for (var irPathIdx = 0; irPathIdx < bluePathsForRegisters.length; irPathIdx++) {
+        var irPath = bluePathsForRegisters[irPathIdx];
+        try {
+            var irPts = irPath.pathPoints;
+            if (irPts.length < 3) continue; // Need at least 3 points for internal anchors
+
+            // Get crossover info for this path (check by comparing anchor positions)
+            var pathCrossovers = [];
+            for (var pcKey in crossoverAnchorsByPath) {
+                if (crossoverAnchorsByPath.hasOwnProperty(pcKey)) {
+                    var crossovers = crossoverAnchorsByPath[pcKey];
+                    for (var pcIdx = 0; pcIdx < crossovers.length; pcIdx++) {
+                        pathCrossovers.push(crossovers[pcIdx].midpoint);
+                    }
+                }
+            }
+
+            // Check each internal anchor (not first or last point)
+            for (var iaIdx = 1; iaIdx < irPts.length - 1; iaIdx++) {
+                var prevPt = irPts[iaIdx - 1].anchor;
+                var anchorPt = irPts[iaIdx].anchor;
+                var nextPt = irPts[iaIdx + 1].anchor;
+
+                // Check if this anchor is near a crossover midpoint
+                var isNearCrossover = false;
+                for (var ncIdx = 0; ncIdx < pathCrossovers.length; ncIdx++) {
+                    var crossMid = pathCrossovers[ncIdx];
+                    var distToCrossover = Math.sqrt(
+                        Math.pow(anchorPt[0] - crossMid[0], 2) +
+                        Math.pow(anchorPt[1] - crossMid[1], 2)
+                    );
+                    if (distToCrossover <= 15) { // Within 15pt of crossover midpoint
+                        isNearCrossover = true;
+                        break;
+                    }
+                }
+
+                if (isNearCrossover) {
+                    addDebug("[INTERNAL-REGISTERS] Skipping anchor at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] - near crossover");
+                    internalRegistersSkipped++;
+                    continue;
+                }
+
+                // Check if collinear (no direction change) - use tolerance of 0.02 (~8 degrees)
+                if (!isAnchorCollinear(prevPt, anchorPt, nextPt, 0.02)) {
+                    continue; // Has direction change - don't place register
+                }
+
+                // Skip if this point is in ignored anchors
+                if (isPointIgnored(anchorPt, ignoredAnchors)) {
+                    addDebug("[INTERNAL-REGISTERS] Skipping anchor at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] - ignored");
+                    internalRegistersSkipped++;
+                    continue;
+                }
+
+                // Skip if already has a register/unit nearby
+                if (isPointAlreadyPlaced(anchorPt, updatedRegisterPoints)) {
+                    addDebug("[INTERNAL-REGISTERS] Skipping anchor at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] - already placed");
+                    internalRegistersSkipped++;
+                    continue;
+                }
+
+                // Place a square register LINKED COMPONENT at this collinear internal anchor
+                addDebug("[INTERNAL-REGISTERS] Placing square register at internal anchor [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] (path " + irPathIdx + ", anchor " + iaIdx + ")");
+
+                // Create anchor point for reference
+                createAnchorPoint(squareRegisterLayer, anchorPt, null);
+
+                // Also directly place the linked Square Register component
+                try {
+                    var INTERNAL_REG_PATH = "E:/Work/Work/Floorplans/Ductwork Assets/";
+                    var squareRegFile = new File(INTERNAL_REG_PATH + "Square Register.ai");
+                    if (squareRegFile.exists) {
+                        var placed = squareRegisterLayer.placedItems.add();
+                        placed.file = squareRegFile;
+                        try { placed.relink(squareRegFile); } catch (eRelink) {}
+                        try { placed.update(); } catch (eUpdate) {}
+
+                        // Center on anchor position
+                        var bounds = placed.geometricBounds;
+                        var w = bounds[2] - bounds[0];
+                        var h = bounds[1] - bounds[3];
+                        placed.position = [anchorPt[0] - w/2, anchorPt[1] + h/2];
+                        placed.name = "Square Register (Linked)";
+
+                        // Apply default 50% scale
+                        var DEFAULT_SCALE = 50;
+                        placed.resize(DEFAULT_SCALE, DEFAULT_SCALE, true, true, true, true, DEFAULT_SCALE, Transformation.CENTER);
+
+                        // Re-center after scaling
+                        bounds = placed.geometricBounds;
+                        var cx = (bounds[0] + bounds[2]) / 2;
+                        var cy = (bounds[1] + bounds[3]) / 2;
+                        var dx = anchorPt[0] - cx;
+                        var dy = anchorPt[1] - cy;
+                        if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+                            placed.translate(dx, dy, true, true, true, true);
+                        }
+
+                        addDebug("[INTERNAL-REGISTERS] Placed linked Square Register component at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "]");
+                    } else {
+                        addDebug("[INTERNAL-REGISTERS] WARNING: Square Register file not found: " + squareRegFile.fsName);
+                    }
+                } catch (ePlaceReg) {
+                    addDebug("[INTERNAL-REGISTERS] Error placing linked component: " + ePlaceReg);
+                }
+
+                internalRegistersPlaced++;
+
+                // Add to updated points to prevent duplicates
+                updatedRegisterPoints.push(anchorPt);
+            }
+        } catch (irErr) {
+            addDebug("[INTERNAL-REGISTERS] Error processing path " + irPathIdx + ": " + irErr);
+        }
+    }
+
+    addDebug("[INTERNAL-REGISTERS] Placed " + internalRegistersPlaced + " square register(s) at internal anchors with no direction change");
+    addDebug("[INTERNAL-REGISTERS] Skipped " + internalRegistersSkipped + " internal anchor(s)");
 
     // STEP 5: Create Thermostats from endpoints not near units, ignored points, or existing points
     // *** Refresh existing anchor points after Registers creation ***
@@ -12919,21 +13430,32 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             }
 
             function placeLinkedComponents_local(docParam, selectedPaths) {
+                // *** DEFAULT SCALE FOR NEW DUCTWORK PARTS: 50% ***
+                var DEFAULT_PLACEMENT_SCALE = 50;
+
                 var globalScale = getCurrentScaleFactor_local(docParam);
-                if (!isFinite(globalScale) || globalScale <= 0) globalScale = 100;
+                if (!isFinite(globalScale) || globalScale <= 0) globalScale = DEFAULT_PLACEMENT_SCALE;
 
                 var inferredScale = inferGlobalScaleFallback_local(docParam);
                 if (inferredScale !== null) {
-                    if (Math.abs(globalScale - 100) < 0.01 && Math.abs(inferredScale - globalScale) > 0.5) {
+                    // Only override if we detected a valid non-default scale from existing items
+                    if (Math.abs(globalScale - DEFAULT_PLACEMENT_SCALE) < 0.01 && Math.abs(inferredScale - globalScale) > 0.5) {
                         if (inferredScale > globalScale) {
                             globalScale = inferredScale;
                         }
                     }
                 }
 
+                // If globalScale is still at default 100% (from old documents), use new default of 50%
+                if (Math.abs(globalScale - 100) < 0.01) {
+                    globalScale = DEFAULT_PLACEMENT_SCALE;
+                    addDebug("[SCALE] Overriding legacy 100% scale with new default: " + DEFAULT_PLACEMENT_SCALE + "%");
+                }
+
                 addDebug("");
                 addDebug("=== DUCTWORK COMPONENT PLACEMENT ===");
                 addDebug("Component Files Path: " + COMPONENT_FILES_PATH);
+                addDebug("Default Placement Scale: " + DEFAULT_PLACEMENT_SCALE + "%");
                 addDebug("Global Scale: " + globalScale);
                 addDebug("Use Emory Assets: " + USE_EMORY_ASSETS);
                 addDebug("");
@@ -13573,28 +14095,40 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 if (useProximityFilter) {
                     addDebug("[ANCHOR COLLECTION] Proximity filter active with " + selectedPaths.length + " selected paths");
                     for (var sp = 0; sp < selectedPaths.length; sp++) {
-                        var item = selectedPaths[sp];
+                        try {
+                            var item = selectedPaths[sp];
+                            // Validate item is still valid by accessing typename
+                            if (!item) {
+                                addDebug("[ANCHOR COLLECTION] Path " + sp + " is null/undefined - skipping");
+                                continue;
+                            }
+                            var itemType = item.typename; // This will throw if item is invalid/deleted
 
-                        // Handle CompoundPathItems - iterate through child pathItems
-                        if (item && item.typename === "CompoundPathItem" && item.pathItems) {
-                            for (var cpIdx = 0; cpIdx < item.pathItems.length; cpIdx++) {
-                                var childPath = item.pathItems[cpIdx];
-                                if (childPath && childPath.pathPoints && childPath.pathPoints.length > 0) {
-                                    var cFirstPt = childPath.pathPoints[0].anchor;
-                                    selectedEndpoints.push([cFirstPt[0], cFirstPt[1]]);
-                                    var cLastPt = childPath.pathPoints[childPath.pathPoints.length - 1].anchor;
-                                    selectedEndpoints.push([cLastPt[0], cLastPt[1]]);
+                            // Handle CompoundPathItems - iterate through child pathItems
+                            if (itemType === "CompoundPathItem" && item.pathItems) {
+                                addDebug("[ANCHOR COLLECTION] Path " + sp + " is CompoundPathItem with " + item.pathItems.length + " sub-paths");
+                                for (var cpIdx = 0; cpIdx < item.pathItems.length; cpIdx++) {
+                                    var childPath = item.pathItems[cpIdx];
+                                    if (childPath && childPath.pathPoints && childPath.pathPoints.length > 0) {
+                                        var cFirstPt = childPath.pathPoints[0].anchor;
+                                        selectedEndpoints.push([cFirstPt[0], cFirstPt[1]]);
+                                        var cLastPt = childPath.pathPoints[childPath.pathPoints.length - 1].anchor;
+                                        selectedEndpoints.push([cLastPt[0], cLastPt[1]]);
+                                    }
                                 }
                             }
-                        }
-                        // Handle regular PathItems
-                        else if (item && item.pathPoints && item.pathPoints.length > 0) {
-                            // Add first endpoint
-                            var firstPt = item.pathPoints[0].anchor;
-                            selectedEndpoints.push([firstPt[0], firstPt[1]]);
-                            // Add last endpoint
-                            var lastPt = item.pathPoints[item.pathPoints.length - 1].anchor;
-                            selectedEndpoints.push([lastPt[0], lastPt[1]]);
+                            // Handle regular PathItems
+                            else if (itemType === "PathItem" && item.pathPoints && item.pathPoints.length > 0) {
+                                // Add first endpoint
+                                var firstPt = item.pathPoints[0].anchor;
+                                selectedEndpoints.push([firstPt[0], firstPt[1]]);
+                                // Add last endpoint
+                                var lastPt = item.pathPoints[item.pathPoints.length - 1].anchor;
+                                selectedEndpoints.push([lastPt[0], lastPt[1]]);
+                            }
+                        } catch (ePathAccess) {
+                            // Path was deleted or is invalid - skip it
+                            addDebug("[ANCHOR COLLECTION] Path " + sp + " is invalid/deleted - skipping: " + ePathAccess.message);
                         }
                     }
                     addDebug("[ANCHOR COLLECTION] Built " + selectedEndpoints.length + " endpoints from selected paths");
