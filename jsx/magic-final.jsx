@@ -8578,7 +8578,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 progressLabel.text = stepName;
                 progressBar.value = currentStep;
                 progressWin.update();
-                // Note: app.redraw() removed to preserve single-undo behavior
+                $.sleep(1); // Brief pause to allow UI thread to update
             } catch (e) {}
         }
         addDebug("[PROGRESS] Step " + currentStep + "/" + PROGRESS_STEPS + ": " + stepName);
@@ -8817,7 +8817,15 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
 
     function isPathSelected(path) {
-        return isPathInList(SELECTED_PATHS, path);
+        if (isPathInList(SELECTED_PATHS, path)) return true;
+        // Also check if path's parent compound is in SELECTED_PATHS
+        // (handles paths inside compound paths created by AUTO-CARVE)
+        try {
+            if (path && path.parent && path.parent.typename === 'CompoundPathItem') {
+                if (isPathInList(SELECTED_PATHS, path.parent)) return true;
+            }
+        } catch (e) {}
+        return false;
     }
 
     function isPathCreated(path) {
@@ -9719,6 +9727,13 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         var connections = [];
         var seen = {};
         var ANGLE_THRESHOLD_DEG = 20;
+        var MIN_DIST = 0.5; // Minimum distance - paths closer than this are likely duplicates
+        var T_JUNCTION_DIST = 25; // Larger tolerance for T-junction detection (point-to-segment)
+        var DEBUG_CONNECTIONS = true; // Enable detailed connection debugging
+
+        if (DEBUG_CONNECTIONS && pathItems.length > 0) {
+            addDebug("[CONN-DEBUG] Checking " + pathItems.length + " paths with maxDist=" + maxDist);
+        }
 
         for (var i = 0; i < pathItems.length; i++) {
             var pathA = pathItems[i];
@@ -9728,6 +9743,38 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var ptsB = pathB.pathPoints;
                 var connected = false;
 
+                // DUPLICATE CHECK: Skip paths that are likely duplicates (same geometry at same location)
+                // Two paths with same number of points AND all anchors at same positions are duplicates
+                if (ptsA.length === ptsB.length && ptsA.length > 0) {
+                    var allAnchorsMatch = true;
+                    for (var dupCheck = 0; dupCheck < ptsA.length && allAnchorsMatch; dupCheck++) {
+                        var dupDx = ptsA[dupCheck].anchor[0] - ptsB[dupCheck].anchor[0];
+                        var dupDy = ptsA[dupCheck].anchor[1] - ptsB[dupCheck].anchor[1];
+                        if (Math.sqrt(dupDx * dupDx + dupDy * dupDy) >= MIN_DIST) {
+                            allAnchorsMatch = false;
+                        }
+                    }
+                    if (allAnchorsMatch) {
+                        // These are duplicate paths - don't connect them
+                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping duplicate paths " + i + " <-> " + j);
+                        continue;
+                    }
+                }
+
+                // Find closest anchor-to-anchor distance for debugging
+                var closestDist = Infinity;
+                for (var cai = 0; cai < ptsA.length; cai++) {
+                    for (var cbi = 0; cbi < ptsB.length; cbi++) {
+                        var cdx = ptsA[cai].anchor[0] - ptsB[cbi].anchor[0];
+                        var cdy = ptsA[cai].anchor[1] - ptsB[cbi].anchor[1];
+                        var cdist = Math.sqrt(cdx * cdx + cdy * cdy);
+                        if (cdist < closestDist) closestDist = cdist;
+                    }
+                }
+                if (DEBUG_CONNECTIONS) {
+                    addDebug("[CONN-DEBUG] Paths " + i + " <-> " + j + " closest dist=" + closestDist.toFixed(2) + " (maxDist=" + maxDist + ")");
+                }
+
                 // 1. Anchor-to-anchor with directional alignment
                 for (var ai = 0; ai < ptsA.length && !connected; ai++) {
                     for (var bi = 0; bi < ptsB.length && !connected; bi++) {
@@ -9736,7 +9783,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         var dx = aPos[0] - bPos[0];
                         var dy = aPos[1] - bPos[1];
                         var dist = Math.sqrt(dx * dx + dy * dy);
-                        if (dist <= maxDist) {
+                        if (dist >= MIN_DIST && dist <= maxDist) {
                             var dirsA = getAdjacentSegmentDirs(pathA, ai);
                             var dirsB = getAdjacentSegmentDirs(pathB, bi);
                             var aligned = false;
@@ -9752,8 +9799,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     }
                 }
 
-                // 2. Point-to-segment, projection inside segment
+                // 2. Point-to-segment (T-junction), projection inside segment
+                // Use larger T_JUNCTION_DIST tolerance for branch paths meeting trunks
                 if (!connected) {
+                    var bestTJDist = Infinity;
+                    var bestTJt = -1;
                     for (var ai = 0; ai < ptsA.length && !connected; ai++) {
                         for (var bi = 0; bi < ptsB.length - 1 && !connected; bi++) {
                             var res = closestPointOnSegment(
@@ -9764,7 +9814,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                             var dx = ptsA[ai].anchor[0] - res.pt[0];
                             var dy = ptsA[ai].anchor[1] - res.pt[1];
                             var dist = Math.sqrt(dx * dx + dy * dy);
-                            if (dist <= maxDist && res.t > 0 && res.t < 1) connected = true;
+                            if (dist < bestTJDist) { bestTJDist = dist; bestTJt = res.t; }
+                            if (dist >= MIN_DIST && dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
+                                connected = true;
+                                if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction detected: path " + i + " point -> path " + j + " segment, dist=" + dist.toFixed(2));
+                            }
                         }
                     }
                     for (var bi = 0; bi < ptsB.length && !connected; bi++) {
@@ -9777,7 +9831,37 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                             var dx = ptsB[bi].anchor[0] - res.pt[0];
                             var dy = ptsB[bi].anchor[1] - res.pt[1];
                             var dist = Math.sqrt(dx * dx + dy * dy);
-                            if (dist <= maxDist && res.t > 0 && res.t < 1) connected = true;
+                            if (dist < bestTJDist) { bestTJDist = dist; bestTJt = res.t; }
+                            if (dist >= MIN_DIST && dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
+                                connected = true;
+                                if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction detected: path " + j + " point -> path " + i + " segment, dist=" + dist.toFixed(2));
+                            }
+                        }
+                    }
+                    if (DEBUG_CONNECTIONS && !connected && bestTJDist < Infinity) {
+                        addDebug("[CONN-DEBUG] T-junction check: best dist=" + bestTJDist.toFixed(2) + ", t=" + bestTJt.toFixed(3) + " (needs t in 0-1, dist <= " + T_JUNCTION_DIST + ")");
+                    }
+                }
+
+                // 2b. Extended anchor-to-anchor: endpoints within T_JUNCTION_DIST (for branches connecting to branches)
+                // This handles cases where two branch endpoints are near each other but not close enough for strict maxDist
+                if (!connected) {
+                    var ENDPOINT_TOLERANCE = 15; // Allow endpoint connections up to 15pt apart
+                    for (var ai = 0; ai < ptsA.length && !connected; ai++) {
+                        // Only check actual endpoints (first or last point)
+                        if (ai !== 0 && ai !== ptsA.length - 1) continue;
+                        for (var bi = 0; bi < ptsB.length && !connected; bi++) {
+                            // Only check actual endpoints (first or last point)
+                            if (bi !== 0 && bi !== ptsB.length - 1) continue;
+                            var aPos = ptsA[ai].anchor;
+                            var bPos = ptsB[bi].anchor;
+                            var dx = aPos[0] - bPos[0];
+                            var dy = aPos[1] - bPos[1];
+                            var dist = Math.sqrt(dx * dx + dy * dy);
+                            if (dist >= MIN_DIST && dist <= ENDPOINT_TOLERANCE) {
+                                connected = true;
+                                if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Extended endpoint-to-endpoint: path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
+                            }
                         }
                     }
                 }
@@ -9803,10 +9887,15 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     if (!seen[key]) {
                         connections.push([pathA, pathB]);
                         seen[key] = true;
+                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] CONNECTED paths " + i + " <-> " + j);
                     }
+                } else if (DEBUG_CONNECTIONS && closestDist <= maxDist * 2) {
+                    // Log near-misses for debugging
+                    addDebug("[CONN-DEBUG] NOT connected paths " + i + " <-> " + j + " (dist=" + closestDist.toFixed(2) + " within 2x range but no connection found)");
                 }
             }
         }
+        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Total connections found: " + connections.length);
         return connections;
     }
 

@@ -352,6 +352,25 @@
         processBtn.disabled = false;
         revertBtn.disabled = false;
         scheduleSkipOrthoRefresh();
+
+        // Auto-copy debug log to clipboard after processing
+        try {
+            const debugLog = await evalScript('MDUX_getDebugLog()');
+            if (debugLog && debugLog.length > 0) {
+                // Use textarea + execCommand for CEP compatibility
+                const ta = document.createElement('textarea');
+                ta.value = debugLog;
+                ta.style.position = 'fixed';
+                ta.style.left = '-9999px';
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+                console.log('[PANEL] Debug log copied to clipboard (' + debugLog.length + ' chars)');
+            }
+        } catch (clipErr) {
+            console.log('[PANEL] Failed to copy debug log to clipboard:', clipErr);
+        }
     }
 
     async function handleProcessEmoryClick() {
