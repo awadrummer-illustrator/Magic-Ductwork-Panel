@@ -1,0 +1,509 @@
+Reset Strokes Button Debug
+
+=== DEBUG LOG ===
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 4 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 4: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 4: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 5 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 5: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 5: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 6: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 7: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 8 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 8: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 8: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 9 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 9: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 9: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 10 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 10: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 10: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 11 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 11: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 11: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 12 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 12: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 12: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 13 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 13: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 13: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 14 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 14: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 14: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 15 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 15: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 15: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 16 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 16: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 16: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 17 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 17: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 17: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 18 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 18: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 18: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 19 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 19: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 19: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 20 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 20: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 20: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 21 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 21: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 21: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 22 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 22: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 22: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 23 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 23: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 23: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 24 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 24: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 24: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 25 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 25: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 25: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 26 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 26: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 26: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 27 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 27: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 27: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 28 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 28: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 28: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 29 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 29: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 29: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 30 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 30: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 30: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 31 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 31: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 31: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 32: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 33: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 34: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 35: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 36: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 37: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 38: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 39: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 40: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 41: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 42: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 43: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 44: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 45: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 46: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 47: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 48: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 49: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 50: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 51: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 52: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 53: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 54: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 55: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 56: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 57: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=198, jsonStr length=188
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_PreCompoundScale":200,"MDUX_CurrentScale":50,"MDUX_OriginalWidth":645.777777777771,"MDUX_OriginalHeight":181.666666666664,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_PreCompoundScale, MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=198, jsonStr length=188
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_PreCompoundScale":200,"MDUX_CurrentScale":50,"MDUX_OriginalWidth":645.777777777771,"MDUX_OriginalHeight":181.666666666664,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_PreCompoundScale, MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 58 (CompoundPathItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 58: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 58: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=185, jsonStr length=175
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_PreCompoundScale":200,"MDUX_CurrentScale":50,"MDUX_OriginalWidth":84.6666666666679,"MDUX_OriginalHeight":181,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_PreCompoundScale, MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=185, jsonStr length=175
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_PreCompoundScale":200,"MDUX_CurrentScale":50,"MDUX_OriginalWidth":84.6666666666679,"MDUX_OriginalHeight":181,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_PreCompoundScale, MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 59 (CompoundPathItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 59: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 59: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=155, jsonStr length=145
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_CurrentScale":50,"MDUX_OriginalWidth":34.0000000000036,"MDUX_OriginalHeight":0,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=155, jsonStr length=145
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_CurrentScale":50,"MDUX_OriginalWidth":34.0000000000036,"MDUX_OriginalHeight":0,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 60 (PathItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 60: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 60: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=174, jsonStr length=164
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_CurrentScale":50,"MDUX_OriginalWidth":37.3333333333321,"MDUX_OriginalHeight":2.72848410531878e-12,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Raw note length=174, jsonStr length=164
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] jsonStr={"MDUX_CurrentScale":50,"MDUX_OriginalWidth":37.3333333333321,"MDUX_OriginalHeight":2.72848410531878e-12,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:16:53 GMT-0500] [META GET] Parsed keys: MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 61 (PathItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 61: absScale=50, rot=0
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Item 61: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:16:53 GMT-0500] [SELECT-STATE] Returning: {"ok":true,"scale":50,"rotation":0,"mixedScale":false,"mixedRotation":false,"count":32}
+[Mon Jan 05 2026 06:16:55 GMT-0500] MDUX_getDebugLog() was called at Mon Jan 05 2026 06:16:55 GMT-0500
+
+Reset Ductwork Parts Scale Button Debug
+
+=== DEBUG LOG ===
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 16 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 16: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 16: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 17 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 17: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 17: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 18 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 18: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 18: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 19 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 19: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 19: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 20 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 20: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 20: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 21 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 21: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 21: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 22 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 22: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 22: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 23 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 23: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 23: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 24 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 24: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 24: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 25 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 25: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 25: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 26 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 26: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 26: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 27 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 27: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 27: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 28 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 28: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 28: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 29 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 29: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 29: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 30 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 30: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 30: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=196, jsonStr length=186
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_RotationOverride":0,"MDUX_OriginalWidth":32.0820007324219,"MDUX_OriginalHeight":32.0820007324219,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0","MDUX_CurrentScale":50}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_RotationOverride, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation, MDUX_CurrentScale
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 31 (PlacedItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 31: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 31: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 32: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 33: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 34: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 35: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 36: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 37: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 38: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 39: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 40: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 41: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 42: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 43: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 44: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 45: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 46: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 47: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 48: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 49: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 50: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 51: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 52: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 53: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 54: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 55: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 56: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 57: Skipping anchor (single-point PathItem)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=198, jsonStr length=188
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_PreCompoundScale":200,"MDUX_CurrentScale":50,"MDUX_OriginalWidth":645.777777777771,"MDUX_OriginalHeight":181.666666666664,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_PreCompoundScale, MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=198, jsonStr length=188
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_PreCompoundScale":200,"MDUX_CurrentScale":50,"MDUX_OriginalWidth":645.777777777771,"MDUX_OriginalHeight":181.666666666664,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_PreCompoundScale, MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 58 (CompoundPathItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 58: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 58: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=185, jsonStr length=175
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_PreCompoundScale":200,"MDUX_CurrentScale":50,"MDUX_OriginalWidth":84.6666666666679,"MDUX_OriginalHeight":181,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_PreCompoundScale, MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=185, jsonStr length=175
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_PreCompoundScale":200,"MDUX_CurrentScale":50,"MDUX_OriginalWidth":84.6666666666679,"MDUX_OriginalHeight":181,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_PreCompoundScale, MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 59 (CompoundPathItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 59: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 59: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=155, jsonStr length=145
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_CurrentScale":50,"MDUX_OriginalWidth":34.0000000000036,"MDUX_OriginalHeight":0,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=155, jsonStr length=145
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_CurrentScale":50,"MDUX_OriginalWidth":34.0000000000036,"MDUX_OriginalHeight":0,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 60 (PathItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 60: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 60: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=174, jsonStr length=164
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_CurrentScale":50,"MDUX_OriginalWidth":37.3333333333321,"MDUX_OriginalHeight":2.72848410531878e-12,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Raw note length=174, jsonStr length=164
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] jsonStr={"MDUX_CurrentScale":50,"MDUX_OriginalWidth":37.3333333333321,"MDUX_OriginalHeight":2.72848410531878e-12,"MDUX_OriginalStrokeWidth":1,"MDUX_CumulativeRotation":"0"}
+[Mon Jan 05 2026 06:17:39 GMT-0500] [META GET] Parsed keys: MDUX_CurrentScale, MDUX_OriginalWidth, MDUX_OriginalHeight, MDUX_OriginalStrokeWidth, MDUX_CumulativeRotation
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 61 (PathItem): tagScale=50, tagRot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 61: absScale=50, rot=0
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Item 61: uiScale=50 (after normalization)
+[Mon Jan 05 2026 06:17:39 GMT-0500] [SELECT-STATE] Returning: {"ok":true,"scale":50,"rotation":0,"mixedScale":false,"mixedRotation":false,"count":32}
+[Mon Jan 05 2026 06:17:40 GMT-0500] MDUX_getDebugLog() was called at Mon Jan 05 2026 06:17:40 GMT-0500

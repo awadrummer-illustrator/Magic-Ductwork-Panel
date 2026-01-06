@@ -1,0 +1,1828 @@
+Run 1 
+
+=== DEBUG LOG ===
+[Tue Jan 06 2026 13:31:45 GMT-0500] Selection has 3 items
+[Tue Jan 06 2026 13:31:45 GMT-0500] Collected 3 paths from selection
+[Tue Jan 06 2026 13:31:45 GMT-0500] [PROGRESS] Step 1/12: Normalizing strokes...
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EARLY-NORMALIZE] Normalizing all paths to smallest stroke: 8.00pt
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EARLY-NORMALIZE] Normalized 0 paths to 8.00pt
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Register Rotation] SKIP_REGISTER_ROTATION=false
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Skip Ortho Settings] SKIP_ALL_BRANCH_ORTHO=false, SKIP_FINAL_REGISTER_ORTHO=true
+[Tue Jan 06 2026 13:31:45 GMT-0500] ========================================
+[Tue Jan 06 2026 13:31:45 GMT-0500] [ROTATION OVERRIDE] GLOBAL: None specified
+[Tue Jan 06 2026 13:31:45 GMT-0500] ========================================
+[Tue Jan 06 2026 13:31:45 GMT-0500] [PROGRESS] Step 2/12: Orthogonalizing paths...
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Pre-Orthogonalize Check] Checking 3 paths for rotation override
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Pre-Orthogonalize Check] 0 of 3 paths have rotation override
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] === PATH LIST (3 paths) ===
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path 0: layer='Blue Ductwork', points=3
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path 1: layer='Blue Ductwork', points=2
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path 2: layer='Blue Ductwork', points=2
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] === END PATH LIST ===
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EARLY-XOVER] Checking 3 blue paths for crossovers
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EARLY-XOVER] Found 0 crossover(s) - will calculate intersection points after ortho
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EARLY-XOVER] Stored 0 crossover(s) for post-ortho splitting
+[Tue Jan 06 2026 13:31:45 GMT-0500] 
+=== INTERNAL ANCHOR CLEANUP (near endpoints) ===
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CLEANUP] Checking 3 blue path(s) for internal anchors within 4pt of endpoints
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CLEANUP] Path 0: 3 points
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CLEANUP] Path 0 internal #1 at [2254.0,1900.8]: distToStart=25.5pt, distToEnd=14.3pt
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CLEANUP] Path 1: 2 points
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CLEANUP] Path 1: Skipping - less than 3 points (no internal anchors)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CLEANUP] Path 2: 2 points
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CLEANUP] Path 2: Skipping - less than 3 points (no internal anchors)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Iteration 1] Starting with 3 paths
+[Tue Jan 06 2026 13:31:45 GMT-0500] [snapAnchors] Starting with 3 paths and 4 segments, threshold=5px
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Iteration 1] Processing path 0 of 3
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path on 'Blue Ductwork' has NO rotation override
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=0 -> NO connectionPairs available
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=2 -> NO connectionPairs available
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path is a BRANCH (no endpoint-to-endpoint connections)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=0 - no T-junction found
+[Tue Jan 06 2026 13:31:45 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=2 - no T-junction found
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Branch orientation: AMBIGUOUS (both=false), defaulting to last=register
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Processing 'Blue Ductwork' - 2 segments (closed: false)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [shouldOrtho] Seg 0/2 | skipAll=false skipFinal=true isBranch=true regEndFirst=false
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Seg 0] Processing - branch segment (not register end)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Seg 0] Angle: 43.23Â°, dx: 18.61, dy: 17.49, isSteep: true
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Seg 0] SKIPPED (steep angle)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [shouldOrtho] Seg 1/2 | skipAll=false skipFinal=true isBranch=true regEndFirst=false
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Seg 1] SKIPPING - register-end segment
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path changed: false
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Iteration 1] Processing path 1 of 3
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path on 'Blue Ductwork' has NO rotation override
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=0 -> NO connectionPairs available
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=1 -> NO connectionPairs available
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path is a BRANCH (no endpoint-to-endpoint connections)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=0 - no T-junction found
+[Tue Jan 06 2026 13:31:45 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=1 T-junctions onto 'Blue Ductwork' at segment 0
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Branch orientation: LAST endpoint T-junctions, FIRST is register end
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Processing 'Blue Ductwork' - 1 segments (closed: false)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [shouldOrtho] Seg 0/1 | skipAll=false skipFinal=true isBranch=true regEndFirst=true
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Seg 0] Processing - single-segment branch (still orthogonalizing)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Seg 0] Angle: 44.30Â°, dx: 27.53, dy: 26.87, isSteep: true
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Seg 0] SKIPPED (steep angle)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path changed: false
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Iteration 1] Processing path 2 of 3
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path on 'Blue Ductwork' has NO rotation override
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=0 -> NO connectionPairs available
+[Tue Jan 06 2026 13:31:45 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=1 -> NO connectionPairs available
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path is a BRANCH (no endpoint-to-endpoint connections)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=0 - no T-junction found
+[Tue Jan 06 2026 13:31:45 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=1 - no T-junction found
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Branch orientation: AMBIGUOUS (both=false), defaulting to last=register
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Processing 'Blue Ductwork' - 1 segments (closed: false)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [shouldOrtho] Seg 0/1 | skipAll=false skipFinal=true isBranch=true regEndFirst=false
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Seg 0] Processing - single-segment branch (still orthogonalizing)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Seg 0] Angle: -44.86Â°, dx: 70.78, dy: -70.44, isSteep: true
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize Seg 0] SKIPPED (steep angle)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [Orthogonalize] Path changed: false
+[Tue Jan 06 2026 13:31:45 GMT-0500] [PROGRESS] Step 3/12: Cleaning ignored areas...
+[Tue Jan 06 2026 13:31:45 GMT-0500] [IGNORE-COLLECT] Found ignore anchor at [2060.9,1685.0]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [IGNORE-COLLECT] Found ignore anchor at [2054.9,1691.0]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [PROGRESS] Step 4/12: Creating units...
+[Tue Jan 06 2026 13:31:45 GMT-0500] [PROGRESS] Step 5/12: Creating registers...
+[Tue Jan 06 2026 13:31:45 GMT-0500] === REGISTER/UNIT CREATION ===
+[Tue Jan 06 2026 13:31:45 GMT-0500] Green Ductwork (resolved: Green Ductwork) paths: 0 selected, 38 total
+[Tue Jan 06 2026 13:31:45 GMT-0500] Blue Ductwork (resolved: Blue Ductwork) paths: 3 selected, 221 total
+[Tue Jan 06 2026 13:31:45 GMT-0500] Orange Ductwork (resolved: Orange Ductwork) paths: 0 selected, 76 total
+[Tue Jan 06 2026 13:31:45 GMT-0500] 
+[Tue Jan 06 2026 13:31:45 GMT-0500] [ENDPOINT-ROTATION] Calculated angle 63.6 deg at endpoint [2260.3,1913.6]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [ENDPOINT-ROTATION] Calculated angle 44.3 deg at endpoint [2220.6,1843.8]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [ENDPOINT-ROTATION] Calculated angle -44.9 deg at endpoint [2233.4,1885.2]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [ENDPOINT-ROTATION] Calculated angle -44.9 deg at endpoint [2304.2,1814.8]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [PROGRESS] Step 6/12: Carving register gaps...
+[Tue Jan 06 2026 13:31:45 GMT-0500] 
+=== SQUARE REGISTER CARVE-OUT ===
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Found 17 square register position(s)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking 3 selected blue path(s) (filtered from 3)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Detection threshold: 10pt
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Saved 3 blue paths for restoration
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #0 at [2304.22, 1814.80]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=0.126, closest=[2237.74,1885.51], dist=97.06pt (threshold=10)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-3.839 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=1.030 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Path #2 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #1 at [2233.44, 1885.24]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Path #0 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=0.992 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Path #2 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #2 at [2220.56, 1843.80]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-1.483 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-4.623 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Path #1 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=0.201, closest=[2247.69,1871.06], dist=38.47pt (threshold=10)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #3 at [2260.33, 1913.58]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Path #0 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=2.007 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-0.009 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #4 at [2039.00, 1668.91]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-11.352 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-21.264 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-6.553 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=0.148, closest=[2243.93,1874.81], dist=290.50pt (threshold=10)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #5 at [2084.22, 1661.80]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-10.253 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-20.302 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-5.840 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=0.519, closest=[2270.20,1848.66], dist=263.64pt (threshold=10)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #6 at [2013.44, 1732.24]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-10.383 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-18.081 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-5.878 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-0.481 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #7 at [2104.44, 1727.02]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-7.927 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-15.575 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-4.280 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=0.202, closest=[2247.75,1871.00], dist=203.14pt (threshold=10)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #8 at [2043.56, 1651.02]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-11.702 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-22.246 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-6.793 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=0.307, closest=[2255.16,1863.63], dist=299.97pt (threshold=10)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #9 at [2000.56, 1690.80]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-11.862 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-21.086 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-6.870 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-0.279 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #10 at [2040.33, 1760.58]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-8.856 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-15.463 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-4.864 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-0.490 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #11 at [1482.98, 1422.67]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-33.817 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-54.048 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-21.367 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-2.059 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #12 at [1438.44, 1467.00]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-33.899 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-52.650 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-21.391 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-2.688 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #13 at [1529.44, 1461.78]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-31.443 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-50.145 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-19.792 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-2.005 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #14 at [1468.56, 1385.78]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-35.219 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-56.816 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-22.305 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-1.901 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #15 at [1425.56, 1425.56]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-35.378 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-55.655 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-22.383 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-2.487 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Checking register #16 at [1465.33, 1495.33]
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-32.372 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 1: t=-50.033 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-20.376 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]   Checking path #2 (2 points)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT]     Seg 0: t=-2.697 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CARVE-OUT] Performed 0 carve-out(s)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [PROGRESS] Step 7/12: Carving intersections...
+[Tue Jan 06 2026 13:31:45 GMT-0500] 
+=== AUTOMATIC BLUE PATH INTERSECTION CARVE-OUT ===
+[Tue Jan 06 2026 13:31:45 GMT-0500] [AUTO-CARVE] Checking 3 selected blue path(s) for intersections (filtered from 3)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [AUTO-CARVE] Checking for self-intersections...
+[Tue Jan 06 2026 13:31:45 GMT-0500] [AUTO-CARVE] Found 0 new intersection(s) to carve out
+[Tue Jan 06 2026 13:31:45 GMT-0500] [AUTO-CARVE] No new intersections found (all may already be handled by small segments or registers)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [PROGRESS] Step 8/12: Internal anchor registers...
+[Tue Jan 06 2026 13:31:45 GMT-0500] 
+=== INTERNAL ANCHOR REGISTERS (NO DIRECTION CHANGE) ===
+[Tue Jan 06 2026 13:31:45 GMT-0500] [INTERNAL-REGISTERS] Processing 3 blue paths
+[Tue Jan 06 2026 13:31:45 GMT-0500] [INTERNAL-REGISTERS] Placed 0 square register(s) at internal anchors with no direction change
+[Tue Jan 06 2026 13:31:45 GMT-0500] [INTERNAL-REGISTERS] Skipped 0 internal anchor(s)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [PROGRESS] Step 9/12: Creating thermostats...
+[Tue Jan 06 2026 13:31:45 GMT-0500] [PROGRESS] Step 10/12: Compounding paths...
+[Tue Jan 06 2026 13:31:45 GMT-0500] 
+=== COMPOUNDING CONNECTED PATHS ===
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Processing layer: Green Ductwork
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Green Ductwork has 0 selected paths
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Green Ductwork after filter: 0 open paths
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Processing layer: Blue Ductwork
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Blue Ductwork has 3 selected paths
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Blue Ductwork after filter: 3 open paths
+[Tue Jan 06 2026 13:31:45 GMT-0500] [XOVER] 3 paths, found 0 crossover(s)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] Checking 3 paths with maxDist=2
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] Paths 0 <-> 1 closest dist=17.91 (maxDist=2)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] T-junction detected: path 0 point -> path 1 segment, dist=17.91
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] CONNECTED paths 0 <-> 1
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] Paths 0 <-> 2 closest dist=2.75 (maxDist=2)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] T-junction check: best dist=0.00, t=0.028 (needs t in 0-1, dist <= 25)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] Extended endpoint-to-endpoint: path 0 <-> path 2, dist=2.75
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] CONNECTED paths 0 <-> 2
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] Paths 1 <-> 2 closest dist=20.66 (maxDist=2)
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] T-junction detected: path 2 point -> path 1 segment, dist=20.66
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] CONNECTED paths 1 <-> 2
+[Tue Jan 06 2026 13:31:45 GMT-0500] [CONN-DEBUG] Total connections found: 3
+[Tue Jan 06 2026 13:31:45 GMT-0500] [XOVER] 3 connections -> 1 components
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Checking 3 paths for stroke width BEFORE normalization
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Path 0: stroked=true, strokeWidth=7.99999931999353
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Path 1: stroked=true, strokeWidth=7.99999931999353
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Path 2: stroked=true, strokeWidth=7.99999931999353
+[Tue Jan 06 2026 13:31:45 GMT-0500] [COMPOUND] Captured pre-compound stroke: 8.00pt = 200% scale
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Processing compound path, typename=CompoundPathItem
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Compound path has 3 child paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Compound path note BEFORE rotation copy: (empty)
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Child 0 note: MD:CENTERLINE|MD:CLID=CLmk2vi73j_8lu6|MD:PREORTHO=%7B%22closed%22%3Afalse%2C%22points%22%3A%5B%7B%22anchor%22%3A%5B2235.39254751858%2C1883.30388849341%5D%2C%22left%22%3A%5B2235.39254751858%2C1883.30388849341%5D%2C%22right%22%3A%5B2235.39254751858%2C1883.30388849341%5D%7D%2C%7B%22anchor%22%3A%5B2254%2C1900.79837238334%5D%2C%22left%22%3A%5B2254%2C1900.79837238334%5D%2C%22right%22%3A%5B2254%2C1900.79837238334%5D%7D%2C%7B%22anchor%22%3A%5B2260.33333333333%2C1913.57615016112%5D%2C%22left%22%3A%5B2260.33333333333%2C1913.57615016112%5D%2C%22right%22%3A%5B2260.33333333333%2C1913.57615016112%5D%7D%5D%7D
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Child 0 rotation override: null
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Child 1 note: MD:CENTERLINE|MD:CLID=CLmk2vi73j_8pn|MD:PREORTHO=%7B%22closed%22%3Afalse%2C%22points%22%3A%5B%7B%22anchor%22%3A%5B2220.55555555555%2C1843.79837238334%5D%2C%22left%22%3A%5B2220.55555555555%2C1843.79837238334%5D%2C%22right%22%3A%5B2220.55555555555%2C1843.79837238334%5D%7D%2C%7B%22anchor%22%3A%5B2248.08956692494%2C1870.66666666667%5D%2C%22left%22%3A%5B2248.08956692494%2C1870.66666666667%5D%2C%22right%22%3A%5B2248.08956692494%2C1870.66666666667%5D%7D%5D%7D
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Child 1 rotation override: null
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Child 2 note: MD:CENTERLINE|MD:CLID=CLmk2vi73j_al5w|MD:PREORTHO=%7B%22closed%22%3Afalse%2C%22points%22%3A%5B%7B%22anchor%22%3A%5B2233.44444444446%2C1885.24281682778%5D%2C%22left%22%3A%5B2233.44444444446%2C1885.24281682778%5D%2C%22right%22%3A%5B2233.44444444446%2C1885.24281682778%5D%7D%2C%7B%22anchor%22%3A%5B2304.22222222224%2C1814.79837238333%5D%2C%22left%22%3A%5B2304.22222222224%2C1814.79837238333%5D%2C%22right%22%3A%5B2304.22222222224%2C1814.79837238333%5D%7D%5D%7D
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Child 2 rotation override: null
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] No rotation override found in child paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Storing pre-compound scale 200% in metadata
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Writing metadata: {"MDUX_PreCompoundScale":200}
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Metadata written. Compound path note AFTER: MDUX_META:{"MDUX_PreCompoundScale":200}
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Processing layer: Orange Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Orange Ductwork has 0 selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Orange Ductwork after filter: 0 open paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Processing layer: Light Orange Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Light Orange Ductwork has 0 selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND] Light Orange Ductwork after filter: 0 open paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [XOVER-POST] EARLY_CROSSOVER_SEGMENTS: 0, ALL_CROSSOVER_SEGMENTS: 0, combined: 0
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PROGRESS] Step 11/12: Placing components...
+[Tue Jan 06 2026 13:31:46 GMT-0500] [SCALE] Overriding legacy 100% scale with new default: 50%
+[Tue Jan 06 2026 13:31:46 GMT-0500] 
+[Tue Jan 06 2026 13:31:46 GMT-0500] === DUCTWORK COMPONENT PLACEMENT ===
+[Tue Jan 06 2026 13:31:46 GMT-0500] Component Files Path: E:/Work/Work/Floorplans/Ductwork Assets/
+[Tue Jan 06 2026 13:31:46 GMT-0500] Default Placement Scale: 50%
+[Tue Jan 06 2026 13:31:46 GMT-0500] Global Scale: 50
+[Tue Jan 06 2026 13:31:46 GMT-0500] Use Emory Assets: false
+[Tue Jan 06 2026 13:31:46 GMT-0500] 
+[Tue Jan 06 2026 13:31:46 GMT-0500] 
+[Tue Jan 06 2026 13:31:46 GMT-0500] ========== Square Register ==========
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Square Register] Collecting anchors from layer: Square Registers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:2 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Found 2 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 3 selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Built 6 endpoints from selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR 2304.22_1814.80] Rotation: 315.135Â° from POINT_METADATA
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR 2233.44_1885.24] Rotation: 315.135Â° from POINT_METADATA
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR 2220.56_1843.80] Rotation: 44.299Â° from POINT_METADATA
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR 2260.33_1913.58] Rotation: 63.635Â° from POINT_METADATA
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Square Register] Collected 4 anchor points
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Square Register] Created new item at 2304.22_1814.80
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE Square Register at 2304.22_1814.80]
+[Tue Jan 06 2026 13:31:46 GMT-0500]   rotation (from anchor) = 315.135Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   fallbackRotation = null
+[Tue Jan 06 2026 13:31:46 GMT-0500]   baseRotation = 0Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   desiredRotation (FINAL) = 315.135Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=false, type.layer='Square Registers'
+[Tue Jan 06 2026 13:31:46 GMT-0500]   [SKIP-ROT-CHECK] shouldSkipRotation=false
+[Tue Jan 06 2026 13:31:46 GMT-0500]   APPLYING rotation: 315.135Â° (base: 0Â°)
+[Tue Jan 06 2026 13:31:46 GMT-0500]   APPLIED scale: 50%
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] Storing rotation 315.135Â° for NEW Square Register at 2304.22_1814.80
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] Got existing meta: {}
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] STORED rotation 315.135Â° in MDUX_META.MDUX_RotationOverride
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] VERIFY after save: {"MDUX_RotationOverride":315.135}
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Square Register] Created new item at 2233.44_1885.24
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE Square Register at 2233.44_1885.24]
+[Tue Jan 06 2026 13:31:46 GMT-0500]   rotation (from anchor) = 315.135Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   fallbackRotation = null
+[Tue Jan 06 2026 13:31:46 GMT-0500]   baseRotation = 0Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   desiredRotation (FINAL) = 315.135Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=false, type.layer='Square Registers'
+[Tue Jan 06 2026 13:31:46 GMT-0500]   [SKIP-ROT-CHECK] shouldSkipRotation=false
+[Tue Jan 06 2026 13:31:46 GMT-0500]   APPLYING rotation: 315.135Â° (base: 0Â°)
+[Tue Jan 06 2026 13:31:46 GMT-0500]   APPLIED scale: 50%
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] Storing rotation 315.135Â° for NEW Square Register at 2233.44_1885.24
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] Got existing meta: {}
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] STORED rotation 315.135Â° in MDUX_META.MDUX_RotationOverride
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] VERIFY after save: {"MDUX_RotationOverride":315.135}
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Square Register] Created new item at 2220.56_1843.80
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE Square Register at 2220.56_1843.80]
+[Tue Jan 06 2026 13:31:46 GMT-0500]   rotation (from anchor) = 44.299Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   fallbackRotation = null
+[Tue Jan 06 2026 13:31:46 GMT-0500]   baseRotation = 0Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   desiredRotation (FINAL) = 44.299Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=false, type.layer='Square Registers'
+[Tue Jan 06 2026 13:31:46 GMT-0500]   [SKIP-ROT-CHECK] shouldSkipRotation=false
+[Tue Jan 06 2026 13:31:46 GMT-0500]   APPLYING rotation: 44.299Â° (base: 0Â°)
+[Tue Jan 06 2026 13:31:46 GMT-0500]   APPLIED scale: 50%
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] Storing rotation 44.299Â° for NEW Square Register at 2220.56_1843.80
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] Got existing meta: {}
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] STORED rotation 44.299Â° in MDUX_META.MDUX_RotationOverride
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] VERIFY after save: {"MDUX_RotationOverride":44.299}
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Square Register] Created new item at 2260.33_1913.58
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE Square Register at 2260.33_1913.58]
+[Tue Jan 06 2026 13:31:46 GMT-0500]   rotation (from anchor) = 63.635Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   fallbackRotation = null
+[Tue Jan 06 2026 13:31:46 GMT-0500]   baseRotation = 0Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   desiredRotation (FINAL) = 63.635Â°
+[Tue Jan 06 2026 13:31:46 GMT-0500]   [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=false, type.layer='Square Registers'
+[Tue Jan 06 2026 13:31:46 GMT-0500]   [SKIP-ROT-CHECK] shouldSkipRotation=false
+[Tue Jan 06 2026 13:31:46 GMT-0500]   APPLYING rotation: 63.635Â° (base: 0Â°)
+[Tue Jan 06 2026 13:31:46 GMT-0500]   APPLIED scale: 50%
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] Storing rotation 63.635Â° for NEW Square Register at 2260.33_1913.58
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] Got existing meta: {}
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] STORED rotation 63.635Â° in MDUX_META.MDUX_RotationOverride
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PLACE-META] VERIFY after save: {"MDUX_RotationOverride":63.635}
+[Tue Jan 06 2026 13:31:46 GMT-0500] 
+[Tue Jan 06 2026 13:31:46 GMT-0500] ========== Rectangular Register ==========
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Rectangular Register] Collecting anchors from layer: Rectangular Registers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:2 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Found 2 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 3 selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Built 6 endpoints from selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Rectangular Register] Collected 0 anchor points
+[Tue Jan 06 2026 13:31:46 GMT-0500] 
+[Tue Jan 06 2026 13:31:46 GMT-0500] ========== Circular Register ==========
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Circular Register] Collecting anchors from layer: Circular Registers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:2 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Found 2 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 3 selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Built 6 endpoints from selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Circular Register] Collected 0 anchor points
+[Tue Jan 06 2026 13:31:46 GMT-0500] 
+[Tue Jan 06 2026 13:31:46 GMT-0500] ========== Exhaust Register ==========
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Exhaust Register] Collecting anchors from layer: Exhaust Registers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:2 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Found 2 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 3 selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Built 6 endpoints from selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Exhaust Register] Collected 0 anchor points
+[Tue Jan 06 2026 13:31:46 GMT-0500] 
+[Tue Jan 06 2026 13:31:46 GMT-0500] ========== Secondary Exhaust Register ==========
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Secondary Exhaust Register] Collecting anchors from layer: Secondary Exhaust Registers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:2 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Found 2 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 3 selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Built 6 endpoints from selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Secondary Exhaust Register] Collected 0 anchor points
+[Tue Jan 06 2026 13:31:46 GMT-0500] 
+[Tue Jan 06 2026 13:31:46 GMT-0500] ========== Orange Register ==========
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Orange Register] Collecting anchors from layer: Orange Register
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:2 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Found 2 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 3 selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Built 6 endpoints from selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Orange Register] Collected 0 anchor points
+[Tue Jan 06 2026 13:31:46 GMT-0500] 
+[Tue Jan 06 2026 13:31:46 GMT-0500] ========== Thermostat ==========
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Thermostat] Collecting anchors from layer: Thermostats
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:2 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Found 2 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 3 selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Built 6 endpoints from selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Thermostat] Collected 0 anchor points
+[Tue Jan 06 2026 13:31:46 GMT-0500] 
+[Tue Jan 06 2026 13:31:46 GMT-0500] ========== Unit ==========
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Unit] Collecting anchors from layer: Units
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:2 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:31:46 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Found 2 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 3 selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ANCHOR COLLECTION] Built 6 endpoints from selected paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Unit] Collected 0 anchor points
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PROGRESS] Step 12/12: Applying styles...
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STEP8] About to call applyAllDuctworkStylesRobust
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] === applyAllDuctworkStylesRobust CALLED ===
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] selectedItems count: 3
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Starting layer loop, 6 mappings
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Found layer: Green Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Found style: Green Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Processing 37 items on Green Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Pre-normalizing strokes to 3pt, then applying 65% scale
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 0 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 1 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 2 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 3 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 4 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 5 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 6 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 7 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 8 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 9 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 10 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 11 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 12 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 13 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 14 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 15 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 16 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 17 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 18 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 19 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 20 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 21 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 22 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 23 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 24 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 25 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 26 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 27 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 28 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 29 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 30 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 31 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 32 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 33 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 34 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 35 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 36 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Found layer: Light Green Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Style not found: Light Green Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Found layer: Blue Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Found style: Blue Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Processing 204 items on Blue Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Pre-normalizing strokes to 3pt, then applying 65% scale
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 0 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 1 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 2 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 3 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 4 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 5 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 6 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 7 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 8 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 9 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 10 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 11 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 12 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 13 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 14 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 15 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 16 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 17 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 18 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 19 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 20 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 21 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 22 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 23 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 24 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 25 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 26 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 27 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 28 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 29 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 30 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 31 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 32 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 33 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 34 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 35 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 36 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 37 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 38 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 39 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 40 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 41 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 42 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 43 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 44 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 45 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 46 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 47 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 48 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 49 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 50 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 51 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 52 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 53 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 54 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 55 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 56 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 57 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 58 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 59 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 60 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 61 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 62 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 63 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 64 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 65 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 66 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 67 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 68 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 69 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 70 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 71 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 72 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 73 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 74 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 75 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 76 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 77 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 78 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 79 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 80 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 81 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 82 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 83 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 84 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 85 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 86 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 87 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 88 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 89 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 90 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 91 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 92 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 93 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 94 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 95 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 96 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 97 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 98 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 99 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 100 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 101 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 102 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 103 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 104 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 105 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 106 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 107 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 108 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 109 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 110 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 111 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 112 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 113 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 114 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 115 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 116 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 117 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 118 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 119 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 120 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 121 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 122 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 123 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 124 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 125 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 126 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 127 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 128 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 129 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 130 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 131 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 132 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 133 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 134 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 135 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 136 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 137 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 138 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 139 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 140 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 141 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 142 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 143 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 144 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 145 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 146 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 147 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 148 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 149 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 150 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 151 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 152 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 153 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 154 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 155 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 156 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 157 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 158 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 159 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 160 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 161 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 162 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 163 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 164 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 165 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 166 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 167 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 168 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 169 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 170 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 171 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 172 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 173 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 174 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 175 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 176 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 177 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 178 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 179 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 180 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 181 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 182 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 183 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 184 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 185 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 186 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 187 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 188 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 189 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 190 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 191 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 192 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 193 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 194 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 195 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 196 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 197 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 198 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 199 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 200 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 201 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 202 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 203 (CompoundPathItem): shouldProcess=true
+[Tue Jan 06 2026 13:31:46 GMT-0500] [PRE-NORMALIZE] Set stroke to 3pt on item 203
+[Tue Jan 06 2026 13:31:46 GMT-0500] [SCALE-FIXED] Using fixed scale 65% for item 203 (CompoundPathItem)
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-SCALE] Applied preserved scale 65% to strokes
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-SCALE] Stored MDUX_CurrentScale=65% in metadata (with Original* fields)
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Found layer: Orange Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Found style: Orange Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Processing 75 items on Orange Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Pre-normalizing strokes to 3pt, then applying 65% scale
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 0 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 1 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 2 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 3 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 4 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 5 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 6 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 7 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 8 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 9 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 10 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 11 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 12 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 13 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 14 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 15 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 16 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 17 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 18 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 19 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 20 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 21 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 22 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 23 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 24 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 25 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 26 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 27 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 28 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 29 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 30 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 31 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 32 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 33 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 34 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 35 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 36 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 37 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 38 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 39 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 40 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 41 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 42 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 43 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 44 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 45 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 46 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 47 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 48 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 49 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 50 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 51 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 52 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 53 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 54 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 55 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 56 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 57 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 58 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 59 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 60 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 61 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 62 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 63 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 64 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 65 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 66 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 67 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 68 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 69 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 70 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 71 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 72 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 73 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Item 74 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Found layer: Light Orange Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Found style: Light Orange Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Processing 0 items on Light Orange Ductwork
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STYLE-APPLY] Pre-normalizing strokes to 3pt, then applying 65% scale
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Found layer: Thermostat Lines
+[Tue Jan 06 2026 13:31:46 GMT-0500] [ROBUST-STYLES] Style not found: Thermostat Lines
+[Tue Jan 06 2026 13:31:46 GMT-0500] [STEP8] applyAllDuctworkStylesRobust completed
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Thermostat Style] Style found: true, Layer found: true
+[Tue Jan 06 2026 13:31:46 GMT-0500] [Thermostat Style] Applied to 0 paths and 0 compound paths
+[Tue Jan 06 2026 13:31:46 GMT-0500] === MAGIC DUCTWORK COMPLETE ===
+[Tue Jan 06 2026 13:31:46 GMT-0500] SUCCESS: evalFile completed
+[Tue Jan 06 2026 13:31:46 GMT-0500] [POLL] tick
+[Tue Jan 06 2026 13:31:46 GMT-0500] [JS] scheduleSkipOrthoRefresh called
+[Tue Jan 06 2026 13:31:46 GMT-0500] MDUX_getDebugLog() was called at Tue Jan 06 2026 13:31:46 GMT-0500
+
+Run 2 
+
+=== DEBUG LOG ===
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CLEANUP] Path 3: Skipping - less than 3 points (no internal anchors)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Iteration 1] Starting with 4 paths
+[Tue Jan 06 2026 13:32:02 GMT-0500] [snapAnchors] Starting with 4 paths and 8 segments, threshold=5px
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Iteration 1] Processing path 0 of 4
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path on 'Blue Ductwork' has NO rotation override
+[Tue Jan 06 2026 13:32:02 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=0 -> NO connectionPairs available
+[Tue Jan 06 2026 13:32:02 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=2 -> NO connectionPairs available
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path is a BRANCH (no endpoint-to-endpoint connections)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=0 - no T-junction found
+[Tue Jan 06 2026 13:32:02 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=2 - no T-junction found
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Branch orientation: AMBIGUOUS (both=false), defaulting to last=register
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Processing 'Blue Ductwork' - 2 segments (closed: false)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [shouldOrtho] Seg 0/2 | skipAll=false skipFinal=true isBranch=true regEndFirst=false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] Processing - branch segment (not register end)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] Angle: 43.23Â°, dx: 18.61, dy: 17.49, isSteep: true
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] SKIPPED (steep angle)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [shouldOrtho] Seg 1/2 | skipAll=false skipFinal=true isBranch=true regEndFirst=false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 1] SKIPPING - register-end segment
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path changed: false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Iteration 1] Processing path 1 of 4
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path on 'Blue Ductwork' has NO rotation override
+[Tue Jan 06 2026 13:32:02 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=0 -> NO connectionPairs available
+[Tue Jan 06 2026 13:32:02 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=1 -> NO connectionPairs available
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path is a BRANCH (no endpoint-to-endpoint connections)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=0 - no T-junction found
+[Tue Jan 06 2026 13:32:02 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=1 T-junctions onto 'Blue Ductwork' at segment 0
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Branch orientation: LAST endpoint T-junctions, FIRST is register end
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Processing 'Blue Ductwork' - 1 segments (closed: false)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [shouldOrtho] Seg 0/1 | skipAll=false skipFinal=true isBranch=true regEndFirst=true
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] Processing - single-segment branch (still orthogonalizing)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] Angle: 44.30Â°, dx: 27.53, dy: 26.87, isSteep: true
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] SKIPPED (steep angle)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path changed: false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Iteration 1] Processing path 2 of 4
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path on 'Blue Ductwork' has NO rotation override
+[Tue Jan 06 2026 13:32:02 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=0 -> NO connectionPairs available
+[Tue Jan 06 2026 13:32:02 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=4 -> NO connectionPairs available
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path is a BRANCH (no endpoint-to-endpoint connections)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=0 - no T-junction found
+[Tue Jan 06 2026 13:32:02 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=4 - no T-junction found
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Branch orientation: AMBIGUOUS (both=false), defaulting to last=register
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Processing 'Blue Ductwork' - 4 segments (closed: false)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [shouldOrtho] Seg 0/4 | skipAll=false skipFinal=true isBranch=true regEndFirst=false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] Processing - branch segment (not register end)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] Angle: 131.00Â°, dx: -10.33, dy: 11.89, isSteep: true
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] SKIPPED (steep angle)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [shouldOrtho] Seg 1/4 | skipAll=false skipFinal=true isBranch=true regEndFirst=false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 1] Processing - branch segment (not register end)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 1] Angle: 46.08Â°, dx: 5.78, dy: 6.00, isSteep: true
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 1] SKIPPED (steep angle)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [shouldOrtho] Seg 2/4 | skipAll=false skipFinal=true isBranch=true regEndFirst=false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 2] Processing - branch segment (not register end)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 2] Angle: 45.19Â°, dx: 51.00, dy: 51.33, isSteep: true
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 2] SKIPPED (steep angle)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [shouldOrtho] Seg 3/4 | skipAll=false skipFinal=true isBranch=true regEndFirst=false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 3] SKIPPING - register-end segment
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path changed: false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Iteration 1] Processing path 3 of 4
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path on 'Blue Ductwork' has NO rotation override
+[Tue Jan 06 2026 13:32:02 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=0 -> NO connectionPairs available
+[Tue Jan 06 2026 13:32:02 GMT-0500] [EndpointCheck] path 'Blue Ductwork' idx=1 -> NO connectionPairs available
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path is a BRANCH (no endpoint-to-endpoint connections)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=0 - no T-junction found
+[Tue Jan 06 2026 13:32:02 GMT-0500] [T-Junction] path 'Blue Ductwork' idx=1 - no T-junction found
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Branch orientation: AMBIGUOUS (both=false), defaulting to last=register
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Processing 'Blue Ductwork' - 1 segments (closed: false)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [shouldOrtho] Seg 0/1 | skipAll=false skipFinal=true isBranch=true regEndFirst=false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] Processing - single-segment branch (still orthogonalizing)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] Angle: -44.86Â°, dx: 70.78, dy: -70.44, isSteep: true
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize Seg 0] SKIPPED (steep angle)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [Orthogonalize] Path changed: false
+[Tue Jan 06 2026 13:32:02 GMT-0500] [PROGRESS] Step 3/12: Cleaning ignored areas...
+[Tue Jan 06 2026 13:32:02 GMT-0500] [IGNORE-COLLECT] Found ignore anchor at [2060.9,1685.0]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [IGNORE-COLLECT] Found ignore anchor at [2054.9,1691.0]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [PROGRESS] Step 4/12: Creating units...
+[Tue Jan 06 2026 13:32:02 GMT-0500] [PROGRESS] Step 5/12: Creating registers...
+[Tue Jan 06 2026 13:32:02 GMT-0500] === REGISTER/UNIT CREATION ===
+[Tue Jan 06 2026 13:32:02 GMT-0500] Green Ductwork (resolved: Green Ductwork) paths: 0 selected, 38 total
+[Tue Jan 06 2026 13:32:02 GMT-0500] Blue Ductwork (resolved: Blue Ductwork) paths: 4 selected, 221 total
+[Tue Jan 06 2026 13:32:02 GMT-0500] Orange Ductwork (resolved: Orange Ductwork) paths: 0 selected, 76 total
+[Tue Jan 06 2026 13:32:02 GMT-0500] 
+[Tue Jan 06 2026 13:32:02 GMT-0500] [ENDPOINT-ROTATION] Calculated angle 63.6 deg at endpoint [2260.3,1913.6]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [ENDPOINT-ROTATION] Calculated angle 44.3 deg at endpoint [2220.6,1843.8]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [ENDPOINT-ROTATION] Calculated angle 131.0 deg at endpoint [2263.6,1804.0]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [ENDPOINT-ROTATION] Calculated angle 25.1 deg at endpoint [2324.4,1880.0]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [ENDPOINT-ROTATION] Calculated angle -44.9 deg at endpoint [2233.4,1885.2]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [ENDPOINT-ROTATION] Calculated angle -44.9 deg at endpoint [2304.2,1814.8]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [PROGRESS] Step 6/12: Carving register gaps...
+[Tue Jan 06 2026 13:32:02 GMT-0500] 
+=== SQUARE REGISTER CARVE-OUT ===
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Found 19 square register position(s)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking 4 selected blue path(s) (filtered from 4)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Detection threshold: 10pt
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Saved 4 blue paths for restoration
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #0 at [2304.22, 1814.80]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.126, closest=[2237.74,1885.51], dist=97.06pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-3.839 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=1.030 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-1.177 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=4.151 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=0.371, closest=[2277.91,1840.94], dist=37.09pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-1.884 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Path #3 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #1 at [2233.44, 1885.24]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Path #0 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.992 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=5.146 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=4.349 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=0.372, closest=[2277.97,1841.00], dist=62.77pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-4.024 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Path #3 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #2 at [2324.44, 1880.02]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=2.452 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=0.888, closest=[2259.63,1912.15], dist=72.34pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=2.590 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Path #2 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.683, closest=[2281.77,1837.14], dist=60.49pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #3 at [2263.56, 1804.02]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-1.323 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-5.783 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.078, closest=[2222.70,1845.89], dist=58.50pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Path #2 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.787, closest=[2289.18,1829.77], dist=36.33pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #4 at [2220.56, 1843.80]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-1.483 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-4.623 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Path #1 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=3.697 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-0.309 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-0.160 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-5.859 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.201, closest=[2247.69,1871.06], dist=38.47pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #5 at [2260.33, 1913.58]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Path #0 has this register at its endpoint - skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=2.007 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=5.384 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=9.038 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=0.912, closest=[2305.49,1868.71], dist=63.66pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-1.744 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-0.009 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #6 at [2039.00, 1668.91]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-11.352 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-21.264 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-6.553 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=2.878 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-30.551 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-3.643 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-20.816 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.148, closest=[2243.93,1874.81], dist=290.50pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #7 at [2084.22, 1661.80]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-10.253 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-20.302 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-5.840 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.654, closest=[2256.80,1811.79], dist=228.65pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-27.400 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-3.272 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-18.440 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.519, closest=[2270.20,1848.66], dist=263.64pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #8 at [2013.44, 1732.24]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-10.383 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-18.081 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-5.878 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=6.977 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-27.202 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-3.271 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-20.580 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-0.481 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #9 at [2104.44, 1727.02]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-7.927 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-15.575 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-4.280 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=2.937 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-20.076 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-2.436 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-15.556 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.202, closest=[2247.75,1871.00], dist=203.14pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #10 at [2043.56, 1651.02]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-11.702 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-22.246 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-6.793 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=1.831 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-31.719 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-3.774 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-21.034 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=0.307, closest=[2255.16,1863.63], dist=299.97pt (threshold=10)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #11 at [2000.56, 1690.80]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-11.862 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-21.086 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-6.870 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=5.528 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-31.860 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-3.803 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-22.415 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-0.279 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #12 at [2040.33, 1760.58]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-8.856 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-15.463 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-4.864 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=7.215 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-22.513 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-2.731 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-18.300 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-0.490 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #13 at [1482.98, 1422.67]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-33.817 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-54.048 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-21.367 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=14.235 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-98.147 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-11.472 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-58.919 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-2.059 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #14 at [1438.44, 1467.00]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-33.899 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-52.650 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-21.391 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=18.214 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-98.022 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-11.472 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-60.266 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-2.688 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #15 at [1529.44, 1461.78]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-31.443 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-50.145 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-19.792 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=14.174 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-90.896 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-10.637 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-55.242 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-2.005 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT] Checking register #16 at [1468.56, 1385.78]
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-35.219 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-56.816 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-22.305 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=13.068 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 1: t=-102.539 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 2: t=-11.975 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 3: t=-60.720 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:02 GMT-0500] [CARVE-OUT]     Seg 0: t=-1.901 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT] Checking register #17 at [1425.56, 1425.56]
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 0: t=-35.378 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 1: t=-55.655 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 0: t=-22.383 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 0: t=16.765 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 1: t=-102.680 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 2: t=-12.004 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 3: t=-62.101 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 0: t=-2.487 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT] Checking register #18 at [1465.33, 1495.33]
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]   Checking path #0 (3 points)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 0: t=-32.372 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 1: t=-50.033 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]   Checking path #1 (2 points)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 0: t=-20.376 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]   Checking path #2 (5 points)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 0: t=18.452 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 1: t=-93.333 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 2: t=-10.932 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 3: t=-57.986 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]   Checking path #3 (2 points)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT]     Seg 0: t=-2.697 - register at/near segment endpoint (not middle), skipping
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CARVE-OUT] Performed 0 carve-out(s)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [PROGRESS] Step 7/12: Carving intersections...
+[Tue Jan 06 2026 13:32:03 GMT-0500] 
+=== AUTOMATIC BLUE PATH INTERSECTION CARVE-OUT ===
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Checking 4 selected blue path(s) for intersections (filtered from 4)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Found intersection at [2277.9,1841.0] - will carve path B (shorter: 100pt vs 112pt)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Checking for self-intersections...
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Found 1 new intersection(s) to carve out
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Creating carve-out at [2277.9,1841.0] - gap from [2274.9,1844.0] to [2280.9,1838.0]
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Made Ignored layer visible
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Layer state before add: locked=false, visible=true, parent=Document
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Placed ignore anchor at [2274.9,1844.0]
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Placed ignore anchor at [2280.9,1838.0]
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Added carve-out positions to ignoredAnchors array (total: 4)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Compounded split segments into compound path
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] New compound path captured (total: 1, global CARVE_OUT_COMPOUNDS: 1)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Removed deleted path from SELECTED_PATHS
+[Tue Jan 06 2026 13:32:03 GMT-0500] [AUTO-CARVE] Performed 1 automatic carve-out(s), created 1 compound path(s)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [PROGRESS] Step 8/12: Internal anchor registers...
+[Tue Jan 06 2026 13:32:03 GMT-0500] 
+=== INTERNAL ANCHOR REGISTERS (NO DIRECTION CHANGE) ===
+[Tue Jan 06 2026 13:32:03 GMT-0500] [INTERNAL-REGISTERS] Processing 3 blue paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [INTERNAL-REGISTERS] Placing square register at internal anchor [2259.0,1821.9] (path 2, anchor 2)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [INTERNAL-REGISTERS] Applied rotation 46.1 deg to match ductwork
+[Tue Jan 06 2026 13:32:03 GMT-0500] [INTERNAL-REGISTERS] Placed linked Square Register component at [2259.0,1821.9]
+[Tue Jan 06 2026 13:32:03 GMT-0500] [INTERNAL-REGISTERS] Placed 1 square register(s) at internal anchors with no direction change
+[Tue Jan 06 2026 13:32:03 GMT-0500] [INTERNAL-REGISTERS] Skipped 0 internal anchor(s)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [PROGRESS] Step 9/12: Creating thermostats...
+[Tue Jan 06 2026 13:32:03 GMT-0500] [PROGRESS] Step 10/12: Compounding paths...
+[Tue Jan 06 2026 13:32:03 GMT-0500] 
+=== COMPOUNDING CONNECTED PATHS ===
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Processing layer: Green Ductwork
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Green Ductwork has 0 selected paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Green Ductwork after filter: 0 open paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Processing layer: Blue Ductwork
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Blue Ductwork has 3 selected paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Blue Ductwork after filter: 3 open paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [XOVER] 3 paths, found 0 crossover(s)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CONN-DEBUG] Checking 3 paths with maxDist=2
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CONN-DEBUG] Paths 0 <-> 1 closest dist=17.91 (maxDist=2)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CONN-DEBUG] T-junction detected: path 0 point -> path 1 segment, dist=17.91
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CONN-DEBUG] CONNECTED paths 0 <-> 1
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CONN-DEBUG] Paths 0 <-> 2 closest dist=62.41 (maxDist=2)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CONN-DEBUG] T-junction check: best dist=59.15, t=0.725 (needs t in 0-1, dist <= 25)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CONN-DEBUG] Paths 1 <-> 2 closest dist=42.95 (maxDist=2)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CONN-DEBUG] T-junction check: best dist=42.10, t=0.372 (needs t in 0-1, dist <= 25)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [CONN-DEBUG] Total connections found: 1
+[Tue Jan 06 2026 13:32:03 GMT-0500] [XOVER] 1 connections -> 2 components
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Checking 2 paths for stroke width BEFORE normalization
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Path 0: stroked=true, strokeWidth=7.99999931999353
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Path 1: stroked=true, strokeWidth=7.99999931999353
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Captured pre-compound stroke: 8.00pt = 200% scale
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Processing compound path, typename=CompoundPathItem
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Compound path has 2 child paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Compound path note BEFORE rotation copy: (empty)
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Child 0 note: MD:CENTERLINE|MD:CLID=CLmk2vi73j_8lu6|MD:PREORTHO=%7B%22closed%22%3Afalse%2C%22points%22%3A%5B%7B%22anchor%22%3A%5B2235.39254751858%2C1883.30388849341%5D%2C%22left%22%3A%5B2235.39254751858%2C1883.30388849341%5D%2C%22right%22%3A%5B2235.39254751858%2C1883.30388849341%5D%7D%2C%7B%22anchor%22%3A%5B2254%2C1900.79837238334%5D%2C%22left%22%3A%5B2254%2C1900.79837238334%5D%2C%22right%22%3A%5B2254%2C1900.79837238334%5D%7D%2C%7B%22anchor%22%3A%5B2260.33333333333%2C1913.57615016112%5D%2C%22left%22%3A%5B2260.33333333333%2C1913.57615016112%5D%2C%22right%22%3A%5B2260.33333333333%2C1913.57615016112%5D%7D%5D%7D
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Child 0 rotation override: null
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Child 1 note: MD:CENTERLINE|MD:CLID=CLmk2vi73j_8pn|MD:PREORTHO=%7B%22closed%22%3Afalse%2C%22points%22%3A%5B%7B%22anchor%22%3A%5B2220.55555555555%2C1843.79837238334%5D%2C%22left%22%3A%5B2220.55555555555%2C1843.79837238334%5D%2C%22right%22%3A%5B2220.55555555555%2C1843.79837238334%5D%7D%2C%7B%22anchor%22%3A%5B2248.08956692494%2C1870.66666666667%5D%2C%22left%22%3A%5B2248.08956692494%2C1870.66666666667%5D%2C%22right%22%3A%5B2248.08956692494%2C1870.66666666667%5D%7D%5D%7D
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Child 1 rotation override: null
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] No rotation override found in child paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Storing pre-compound scale 200% in metadata
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Writing metadata: {"MDUX_PreCompoundScale":200}
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Metadata written. Compound path note AFTER: MDUX_META:{"MDUX_PreCompoundScale":200}
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Processing layer: Orange Ductwork
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Orange Ductwork has 0 selected paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Orange Ductwork after filter: 0 open paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Processing layer: Light Orange Ductwork
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Light Orange Ductwork has 0 selected paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [COMPOUND] Light Orange Ductwork after filter: 0 open paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [XOVER-POST] EARLY_CROSSOVER_SEGMENTS: 0, ALL_CROSSOVER_SEGMENTS: 0, combined: 0
+[Tue Jan 06 2026 13:32:03 GMT-0500] [PROGRESS] Step 11/12: Placing components...
+[Tue Jan 06 2026 13:32:03 GMT-0500] [SCALE] Overriding legacy 100% scale with new default: 50%
+[Tue Jan 06 2026 13:32:03 GMT-0500] 
+[Tue Jan 06 2026 13:32:03 GMT-0500] === DUCTWORK COMPONENT PLACEMENT ===
+[Tue Jan 06 2026 13:32:03 GMT-0500] Component Files Path: E:/Work/Work/Floorplans/Ductwork Assets/
+[Tue Jan 06 2026 13:32:03 GMT-0500] Default Placement Scale: 50%
+[Tue Jan 06 2026 13:32:03 GMT-0500] Global Scale: 50
+[Tue Jan 06 2026 13:32:03 GMT-0500] Use Emory Assets: false
+[Tue Jan 06 2026 13:32:03 GMT-0500] 
+[Tue Jan 06 2026 13:32:03 GMT-0500] 
+[Tue Jan 06 2026 13:32:03 GMT-0500] ========== Square Register ==========
+[Tue Jan 06 2026 13:32:03 GMT-0500] [Square Register] Collecting anchors from layer: Square Registers
+[Tue Jan 06 2026 13:32:03 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:4 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:32:03 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:03 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2280.94,1837.97
+[Tue Jan 06 2026 13:32:03 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:03 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2274.92,1843.96
+[Tue Jan 06 2026 13:32:03 GMT-0500] [IGNORE PATHITEM #2] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:03 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:32:03 GMT-0500] [IGNORE PATHITEM #3] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:03 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:32:03 GMT-0500] [ANCHOR COLLECTION] Found 4 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:32:03 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 4 selected paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [ANCHOR COLLECTION] Path 3 is CompoundPathItem with 2 sub-paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [ANCHOR COLLECTION] Built 10 endpoints from selected paths
+[Tue Jan 06 2026 13:32:03 GMT-0500] [ANCHOR 2304.22_1814.80] Rotation: 315.135Â° from POINT_METADATA
+[Tue Jan 06 2026 13:32:03 GMT-0500] [ANCHOR 2233.44_1885.24] Rotation: 315.135Â° from POINT_METADATA
+[Tue Jan 06 2026 13:32:03 GMT-0500] [ANCHOR 2324.44_1880.02] Rotation: 25.137Â° from POINT_METADATA
+[Tue Jan 06 2026 13:32:03 GMT-0500] [ANCHOR 2263.56_1804.02] Rotation: 130.996Â° from POINT_METADATA
+[Tue Jan 06 2026 13:32:03 GMT-0500] [ANCHOR 2220.56_1843.80] Rotation: 44.299Â° from POINT_METADATA
+[Tue Jan 06 2026 13:32:03 GMT-0500] [ANCHOR 2260.33_1913.58] Rotation: 63.635Â° from POINT_METADATA
+[Tue Jan 06 2026 13:32:03 GMT-0500] [Square Register] Collected 6 anchor points
+[Tue Jan 06 2026 13:32:03 GMT-0500] [Square Register] Created new item at 2304.22_1814.80
+[Tue Jan 06 2026 13:32:03 GMT-0500] [PLACE Square Register at 2304.22_1814.80]
+[Tue Jan 06 2026 13:32:03 GMT-0500]   rotation (from anchor) = 315.135Â°
+[Tue Jan 06 2026 13:32:03 GMT-0500]   fallbackRotation = null
+[Tue Jan 06 2026 13:32:03 GMT-0500]   baseRotation = 0Â°
+[Tue Jan 06 2026 13:32:03 GMT-0500]   desiredRotation (FINAL) = 315.135Â°
+[Tue Jan 06 2026 13:32:03 GMT-0500]   [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=false, type.layer='Square Registers'
+[Tue Jan 06 2026 13:32:03 GMT-0500]   [SKIP-ROT-CHECK] shouldSkipRotation=false
+[Tue Jan 06 2026 13:32:03 GMT-0500]   APPLYING rotation: 315.135Â° (base: 0Â°)
+[Tue Jan 06 2026 13:32:03 GMT-0500]   APPLIED scale: 50%
+[Tue Jan 06 2026 13:32:03 GMT-0500] [PLACE-META] Storing rotation 315.135Â° for NEW Square Register at 2304.22_1814.80
+[Tue Jan 06 2026 13:32:03 GMT-0500] [PLACE-META] Got existing meta: {}
+[Tue Jan 06 2026 13:32:03 GMT-0500] [PLACE-META] STORED rotation 315.135Â° in MDUX_META.MDUX_RotationOverride
+[Tue Jan 06 2026 13:32:03 GMT-0500] [PLACE-META] VERIFY after save: {"MDUX_RotationOverride":315.135}
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Square Register] Created new item at 2233.44_1885.24
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE Square Register at 2233.44_1885.24]
+[Tue Jan 06 2026 13:32:04 GMT-0500]   rotation (from anchor) = 315.135Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   fallbackRotation = null
+[Tue Jan 06 2026 13:32:04 GMT-0500]   baseRotation = 0Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   desiredRotation (FINAL) = 315.135Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=false, type.layer='Square Registers'
+[Tue Jan 06 2026 13:32:04 GMT-0500]   [SKIP-ROT-CHECK] shouldSkipRotation=false
+[Tue Jan 06 2026 13:32:04 GMT-0500]   APPLYING rotation: 315.135Â° (base: 0Â°)
+[Tue Jan 06 2026 13:32:04 GMT-0500]   APPLIED scale: 50%
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] Storing rotation 315.135Â° for NEW Square Register at 2233.44_1885.24
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] Got existing meta: {}
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] STORED rotation 315.135Â° in MDUX_META.MDUX_RotationOverride
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] VERIFY after save: {"MDUX_RotationOverride":315.135}
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Square Register] Created new item at 2324.44_1880.02
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE Square Register at 2324.44_1880.02]
+[Tue Jan 06 2026 13:32:04 GMT-0500]   rotation (from anchor) = 25.137Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   fallbackRotation = null
+[Tue Jan 06 2026 13:32:04 GMT-0500]   baseRotation = 0Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   desiredRotation (FINAL) = 25.137Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=false, type.layer='Square Registers'
+[Tue Jan 06 2026 13:32:04 GMT-0500]   [SKIP-ROT-CHECK] shouldSkipRotation=false
+[Tue Jan 06 2026 13:32:04 GMT-0500]   APPLYING rotation: 25.137Â° (base: 0Â°)
+[Tue Jan 06 2026 13:32:04 GMT-0500]   APPLIED scale: 50%
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] Storing rotation 25.137Â° for NEW Square Register at 2324.44_1880.02
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] Got existing meta: {}
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] STORED rotation 25.137Â° in MDUX_META.MDUX_RotationOverride
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] VERIFY after save: {"MDUX_RotationOverride":25.137}
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Square Register] Created new item at 2263.56_1804.02
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE Square Register at 2263.56_1804.02]
+[Tue Jan 06 2026 13:32:04 GMT-0500]   rotation (from anchor) = 130.996Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   fallbackRotation = null
+[Tue Jan 06 2026 13:32:04 GMT-0500]   baseRotation = 0Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   desiredRotation (FINAL) = 130.996Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=false, type.layer='Square Registers'
+[Tue Jan 06 2026 13:32:04 GMT-0500]   [SKIP-ROT-CHECK] shouldSkipRotation=false
+[Tue Jan 06 2026 13:32:04 GMT-0500]   APPLYING rotation: 130.996Â° (base: 0Â°)
+[Tue Jan 06 2026 13:32:04 GMT-0500]   APPLIED scale: 50%
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] Storing rotation 130.996Â° for NEW Square Register at 2263.56_1804.02
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] Got existing meta: {}
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] STORED rotation 130.996Â° in MDUX_META.MDUX_RotationOverride
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] VERIFY after save: {"MDUX_RotationOverride":130.996}
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Square Register] Created new item at 2220.56_1843.80
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE Square Register at 2220.56_1843.80]
+[Tue Jan 06 2026 13:32:04 GMT-0500]   rotation (from anchor) = 44.299Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   fallbackRotation = null
+[Tue Jan 06 2026 13:32:04 GMT-0500]   baseRotation = 0Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   desiredRotation (FINAL) = 44.299Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=false, type.layer='Square Registers'
+[Tue Jan 06 2026 13:32:04 GMT-0500]   [SKIP-ROT-CHECK] shouldSkipRotation=false
+[Tue Jan 06 2026 13:32:04 GMT-0500]   APPLYING rotation: 44.299Â° (base: 0Â°)
+[Tue Jan 06 2026 13:32:04 GMT-0500]   APPLIED scale: 50%
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] Storing rotation 44.299Â° for NEW Square Register at 2220.56_1843.80
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] Got existing meta: {}
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] STORED rotation 44.299Â° in MDUX_META.MDUX_RotationOverride
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] VERIFY after save: {"MDUX_RotationOverride":44.299}
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Square Register] Created new item at 2260.33_1913.58
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE Square Register at 2260.33_1913.58]
+[Tue Jan 06 2026 13:32:04 GMT-0500]   rotation (from anchor) = 63.635Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   fallbackRotation = null
+[Tue Jan 06 2026 13:32:04 GMT-0500]   baseRotation = 0Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   desiredRotation (FINAL) = 63.635Â°
+[Tue Jan 06 2026 13:32:04 GMT-0500]   [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=false, type.layer='Square Registers'
+[Tue Jan 06 2026 13:32:04 GMT-0500]   [SKIP-ROT-CHECK] shouldSkipRotation=false
+[Tue Jan 06 2026 13:32:04 GMT-0500]   APPLYING rotation: 63.635Â° (base: 0Â°)
+[Tue Jan 06 2026 13:32:04 GMT-0500]   APPLIED scale: 50%
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] Storing rotation 63.635Â° for NEW Square Register at 2260.33_1913.58
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] Got existing meta: {}
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] STORED rotation 63.635Â° in MDUX_META.MDUX_RotationOverride
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PLACE-META] VERIFY after save: {"MDUX_RotationOverride":63.635}
+[Tue Jan 06 2026 13:32:04 GMT-0500] 
+[Tue Jan 06 2026 13:32:04 GMT-0500] ========== Rectangular Register ==========
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Rectangular Register] Collecting anchors from layer: Rectangular Registers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:4 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2280.94,1837.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2274.92,1843.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #2] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #3] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Found 4 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 4 selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Path 3 is CompoundPathItem with 2 sub-paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Built 10 endpoints from selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Rectangular Register] Collected 0 anchor points
+[Tue Jan 06 2026 13:32:04 GMT-0500] 
+[Tue Jan 06 2026 13:32:04 GMT-0500] ========== Circular Register ==========
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Circular Register] Collecting anchors from layer: Circular Registers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:4 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2280.94,1837.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2274.92,1843.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #2] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #3] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Found 4 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 4 selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Path 3 is CompoundPathItem with 2 sub-paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Built 10 endpoints from selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Circular Register] Collected 0 anchor points
+[Tue Jan 06 2026 13:32:04 GMT-0500] 
+[Tue Jan 06 2026 13:32:04 GMT-0500] ========== Exhaust Register ==========
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Exhaust Register] Collecting anchors from layer: Exhaust Registers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:4 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2280.94,1837.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2274.92,1843.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #2] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #3] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Found 4 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 4 selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Path 3 is CompoundPathItem with 2 sub-paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Built 10 endpoints from selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Exhaust Register] Collected 0 anchor points
+[Tue Jan 06 2026 13:32:04 GMT-0500] 
+[Tue Jan 06 2026 13:32:04 GMT-0500] ========== Secondary Exhaust Register ==========
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Secondary Exhaust Register] Collecting anchors from layer: Secondary Exhaust Registers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:4 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2280.94,1837.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2274.92,1843.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #2] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #3] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Found 4 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 4 selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Path 3 is CompoundPathItem with 2 sub-paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Built 10 endpoints from selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Secondary Exhaust Register] Collected 0 anchor points
+[Tue Jan 06 2026 13:32:04 GMT-0500] 
+[Tue Jan 06 2026 13:32:04 GMT-0500] ========== Orange Register ==========
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Orange Register] Collecting anchors from layer: Orange Register
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:4 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2280.94,1837.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2274.92,1843.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #2] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #3] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Found 4 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 4 selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Path 3 is CompoundPathItem with 2 sub-paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Built 10 endpoints from selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Orange Register] Collected 0 anchor points
+[Tue Jan 06 2026 13:32:04 GMT-0500] 
+[Tue Jan 06 2026 13:32:04 GMT-0500] ========== Thermostat ==========
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Thermostat] Collecting anchors from layer: Thermostats
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:4 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2280.94,1837.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2274.92,1843.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #2] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #3] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Found 4 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 4 selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Path 3 is CompoundPathItem with 2 sub-paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Built 10 endpoints from selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Thermostat] Collected 0 anchor points
+[Tue Jan 06 2026 13:32:04 GMT-0500] 
+[Tue Jan 06 2026 13:32:04 GMT-0500] ========== Unit ==========
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Unit] Collecting anchors from layer: Units
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE WALK] Container: Layer 'Ignored' - pathItems:4 placedItems:0 groupItems:0
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #0] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2280.94,1837.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #1] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2274.92,1843.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #2] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2060.94,1684.97
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE PATHITEM #3] locked:false hidden:false guides:false clipping:false points:1
+[Tue Jan 06 2026 13:32:04 GMT-0500] [IGNORE ANCHOR] PathItem anchor: 2054.92,1690.96
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Found 4 ignored anchors (from paths and placed items) across 1 ignored layers
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Proximity filter active with 4 selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Path 3 is CompoundPathItem with 2 sub-paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ANCHOR COLLECTION] Built 10 endpoints from selected paths
+[Tue Jan 06 2026 13:32:04 GMT-0500] [Unit] Collected 0 anchor points
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PROGRESS] Step 12/12: Applying styles...
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STEP8] About to call applyAllDuctworkStylesRobust
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ROBUST-STYLES] === applyAllDuctworkStylesRobust CALLED ===
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ROBUST-STYLES] selectedItems count: 4
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ROBUST-STYLES] Starting layer loop, 6 mappings
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ROBUST-STYLES] Found layer: Green Ductwork
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ROBUST-STYLES] Found style: Green Ductwork
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Processing 37 items on Green Ductwork
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Pre-normalizing strokes to 3pt, then applying 65% scale
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 0 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 1 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 2 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 3 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 4 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 5 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 6 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 7 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 8 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 9 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 10 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 11 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 12 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 13 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 14 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 15 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 16 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 17 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 18 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 19 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 20 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 21 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 22 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 23 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 24 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 25 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 26 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 27 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 28 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 29 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 30 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 31 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 32 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 33 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 34 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 35 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 36 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ROBUST-STYLES] Found layer: Light Green Ductwork
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ROBUST-STYLES] Style not found: Light Green Ductwork
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ROBUST-STYLES] Found layer: Blue Ductwork
+[Tue Jan 06 2026 13:32:04 GMT-0500] [ROBUST-STYLES] Found style: Blue Ductwork
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Processing 205 items on Blue Ductwork
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Pre-normalizing strokes to 3pt, then applying 65% scale
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 0 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 1 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 2 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 3 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 4 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 5 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 6 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 7 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 8 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 9 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 10 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 11 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 12 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 13 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 14 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 15 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 16 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 17 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 18 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 19 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 20 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 21 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 22 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 23 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 24 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 25 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 26 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 27 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 28 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 29 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 30 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 31 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 32 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 33 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 34 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 35 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 36 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 37 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 38 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 39 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 40 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 41 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 42 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 43 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 44 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 45 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 46 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 47 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 48 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 49 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 50 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 51 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 52 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 53 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 54 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 55 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 56 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 57 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 58 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 59 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 60 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 61 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 62 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 63 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 64 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 65 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 66 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 67 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 68 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 69 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 70 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 71 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 72 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 73 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 74 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 75 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 76 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 77 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 78 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 79 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 80 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 81 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 82 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 83 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 84 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 85 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 86 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 87 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 88 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 89 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 90 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 91 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 92 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 93 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 94 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 95 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 96 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 97 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 98 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 99 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 100 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 101 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 102 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 103 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 104 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 105 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 106 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 107 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 108 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 109 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 110 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 111 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 112 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 113 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 114 (PathItem): shouldProcess=true
+[Tue Jan 06 2026 13:32:04 GMT-0500] [PRE-NORMALIZE] Set stroke to 3pt on item 114
+[Tue Jan 06 2026 13:32:04 GMT-0500] [SCALE-FIXED] Using fixed scale 65% for item 114 (PathItem)
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 115 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 116 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 117 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 118 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 119 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 120 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 121 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 122 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 123 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 124 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 125 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 126 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 127 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 128 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 129 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 130 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 131 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 132 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 133 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 134 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 135 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 136 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 137 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 138 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 139 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 140 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 141 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 142 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 143 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 144 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 145 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 146 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 147 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 148 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 149 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 150 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 151 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 152 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 153 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 154 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 155 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 156 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 157 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 158 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:04 GMT-0500] [STYLE-APPLY] Item 159 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 160 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 161 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 162 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 163 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 164 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 165 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 166 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 167 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 168 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 169 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 170 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 171 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 172 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 173 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 174 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 175 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 176 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 177 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 178 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 179 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 180 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 181 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 182 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 183 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 184 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 185 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 186 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 187 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 188 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 189 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 190 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 191 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 192 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 193 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 194 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 195 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 196 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 197 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 198 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 199 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 200 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 201 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 202 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [COMPOUND-CHECK] Found in CARVE_OUT_COMPOUNDS - processing
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 203 (CompoundPathItem): shouldProcess=true
+[Tue Jan 06 2026 13:32:05 GMT-0500] [PRE-NORMALIZE] Set stroke to 3pt on item 203
+[Tue Jan 06 2026 13:32:05 GMT-0500] [SCALE-FIXED] Using fixed scale 65% for item 203 (CompoundPathItem)
+[Tue Jan 06 2026 13:32:05 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 204 (CompoundPathItem): shouldProcess=true
+[Tue Jan 06 2026 13:32:05 GMT-0500] [PRE-NORMALIZE] Set stroke to 3pt on item 204
+[Tue Jan 06 2026 13:32:05 GMT-0500] [SCALE-FIXED] Using fixed scale 65% for item 204 (CompoundPathItem)
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-SCALE] Applied preserved scale 65% to strokes
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-SCALE] Stored MDUX_CurrentScale=65% in metadata (with Original* fields)
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-SCALE] Applied preserved scale 65% to strokes
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-SCALE] Stored MDUX_CurrentScale=65% in metadata (with Original* fields)
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-SCALE] Applied preserved scale 65% to strokes
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-SCALE] Stored MDUX_CurrentScale=65% in metadata (with Original* fields)
+[Tue Jan 06 2026 13:32:05 GMT-0500] [ROBUST-STYLES] Found layer: Orange Ductwork
+[Tue Jan 06 2026 13:32:05 GMT-0500] [ROBUST-STYLES] Found style: Orange Ductwork
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Processing 75 items on Orange Ductwork
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Pre-normalizing strokes to 3pt, then applying 65% scale
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 0 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 1 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 2 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 3 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 4 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 5 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 6 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 7 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 8 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 9 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 10 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 11 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 12 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 13 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 14 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 15 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 16 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 17 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 18 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 19 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 20 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 21 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 22 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 23 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 24 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 25 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 26 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 27 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 28 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 29 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 30 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 31 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 32 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 33 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 34 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 35 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 36 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 37 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 38 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 39 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 40 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 41 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 42 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 43 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 44 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 45 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 46 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 47 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 48 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 49 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 50 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 51 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 52 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 53 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 54 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 55 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 56 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 57 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 58 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 59 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 60 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 61 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 62 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 63 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 64 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 65 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 66 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 67 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 68 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 69 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 70 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 71 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 72 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 73 (PathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [COMPOUND-CHECK] item.selected = false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Item 74 (CompoundPathItem): shouldProcess=false
+[Tue Jan 06 2026 13:32:05 GMT-0500] [ROBUST-STYLES] Found layer: Light Orange Ductwork
+[Tue Jan 06 2026 13:32:05 GMT-0500] [ROBUST-STYLES] Found style: Light Orange Ductwork
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Processing 0 items on Light Orange Ductwork
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STYLE-APPLY] Pre-normalizing strokes to 3pt, then applying 65% scale
+[Tue Jan 06 2026 13:32:05 GMT-0500] [ROBUST-STYLES] Found layer: Thermostat Lines
+[Tue Jan 06 2026 13:32:05 GMT-0500] [ROBUST-STYLES] Style not found: Thermostat Lines
+[Tue Jan 06 2026 13:32:05 GMT-0500] [STEP8] applyAllDuctworkStylesRobust completed
+[Tue Jan 06 2026 13:32:05 GMT-0500] [Thermostat Style] Style found: true, Layer found: true
+[Tue Jan 06 2026 13:32:05 GMT-0500] [Thermostat Style] Applied to 0 paths and 0 compound paths
+[Tue Jan 06 2026 13:32:05 GMT-0500] === MAGIC DUCTWORK COMPLETE ===
+[Tue Jan 06 2026 13:32:05 GMT-0500] SUCCESS: evalFile completed
+[Tue Jan 06 2026 13:32:05 GMT-0500] [POLL] tick
+[Tue Jan 06 2026 13:32:05 GMT-0500] [JS] scheduleSkipOrthoRefresh called
+[Tue Jan 06 2026 13:32:05 GMT-0500] MDUX_getDebugLog() was called at Tue Jan 06 2026 13:32:05 GMT-0500

@@ -317,11 +317,13 @@
             }
         }
 
+        const skipAutoCarveOption = document.getElementById('skip-auto-carve-option');
         const options = {
             action: 'process',
             skipAllBranchSegments: !!skipAllBranchesOption.checked,
             skipFinalRegisterSegment: !!skipFinalOption.checked,
-            skipRegisterRotation: !(skipRegisterRotationOption && skipRegisterRotationOption.checked)
+            skipRegisterRotation: !(skipRegisterRotationOption && skipRegisterRotationOption.checked),
+            skipAutoCarve: !!(skipAutoCarveOption && skipAutoCarveOption.checked)
         };
 
         if (!skipOrthoOption.indeterminate) {

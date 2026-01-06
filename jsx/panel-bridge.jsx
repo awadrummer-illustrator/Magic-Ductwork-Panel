@@ -791,9 +791,11 @@ function MDUX_prepareProcessBridge(optionsJSON) {
             rotationOverride: (typeof opts.rotationOverride === "number" && isFinite(opts.rotationOverride)) ? opts.rotationOverride : null,
             skipAllBranchSegments: !!opts.skipAllBranchSegments,
             skipFinalRegisterSegment: !!opts.skipFinalRegisterSegment,
-            skipRegisterRotation: !!opts.skipRegisterRotation
+            skipRegisterRotation: !!opts.skipRegisterRotation,
+            skipAutoCarve: !!opts.skipAutoCarve
         };
         MDUX_debugLog("[BRIDGE] skipRegisterRotation option received: " + opts.skipRegisterRotation + " -> forcedOptions.skipRegisterRotation=" + $.global.MDUX.forcedOptions.skipRegisterRotation);
+        MDUX_debugLog("[BRIDGE] skipAutoCarve option received: " + opts.skipAutoCarve);
         return "OK";
     } catch (e) {
         return "ERROR:" + e;
