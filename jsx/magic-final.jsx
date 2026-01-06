@@ -8578,7 +8578,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 progressLabel.text = stepName;
                 progressBar.value = currentStep;
                 progressWin.update();
-                app.redraw(); // Force Illustrator to update
+                // Note: app.redraw() removed to preserve single-undo behavior
             } catch (e) {}
         }
         addDebug("[PROGRESS] Step " + currentStep + "/" + PROGRESS_STEPS + ": " + stepName);
