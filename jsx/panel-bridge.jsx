@@ -793,6 +793,7 @@ function MDUX_prepareProcessBridge(optionsJSON) {
             skipFinalRegisterSegment: !!opts.skipFinalRegisterSegment,
             skipRegisterRotation: !!opts.skipRegisterRotation
         };
+        MDUX_debugLog("[BRIDGE] skipRegisterRotation option received: " + opts.skipRegisterRotation + " -> forcedOptions.skipRegisterRotation=" + $.global.MDUX.forcedOptions.skipRegisterRotation);
         return "OK";
     } catch (e) {
         return "ERROR:" + e;

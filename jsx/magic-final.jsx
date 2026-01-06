@@ -8585,7 +8585,8 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             mode: "normal",
             rotationOverride: (typeof forcedOptions.rotationOverride === "number" && isFinite(forcedOptions.rotationOverride)) ? forcedOptions.rotationOverride : null,
             skipAllBranchSegments: !!forcedOptions.skipAllBranchSegments,
-            skipFinalRegisterSegment: !!forcedOptions.skipFinalRegisterSegment
+            skipFinalRegisterSegment: !!forcedOptions.skipFinalRegisterSegment,
+            skipRegisterRotation: !!forcedOptions.skipRegisterRotation
         };
         if (typeof forcedOptions.skipOrtho === "boolean") {
             var skipValue = !!forcedOptions.skipOrtho;
@@ -14808,7 +14809,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         // Apply rotation and scale ONLY for NEW items to preserve custom transforms on existing items
                         if (createdNew) {
                             // Apply rotation for NEW items
-                            if (type.layer !== "Thermostats" && desiredRotation !== null) {
+                            // Skip rotation for Square Registers if SKIP_REGISTER_ROTATION is enabled
+                            addDebug("  [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=" + SKIP_REGISTER_ROTATION + ", type.layer='" + type.layer + "'");
+                            var shouldSkipRotation = (SKIP_REGISTER_ROTATION && type.layer === "Square Registers");
+                            addDebug("  [SKIP-ROT-CHECK] shouldSkipRotation=" + shouldSkipRotation);
+                            if (type.layer !== "Thermostats" && desiredRotation !== null && !shouldSkipRotation) {
                                 addDebug("  APPLYING rotation: " + desiredRotation + "° (base: " + baseRotation + "°)");
                                 rotatePageItemToAbsolute(targetItem, desiredRotation, baseRotation);
                                 customTransforms[key].absoluteRotation = desiredRotation;
@@ -14818,6 +14823,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                                     var currentFile = targetItem.file;
                                     targetItem.file = currentFile;
                                 } catch (e) {}
+                            } else if (shouldSkipRotation) {
+                                addDebug("  SKIPPING rotation for " + type.name + " (No Register Rotation option enabled)");
+                                desiredRotation = 0; // Set to 0 so metadata stores 0 instead of the ductwork angle
                             }
 
                             // Apply scale for NEW items

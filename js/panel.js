@@ -19,6 +19,7 @@
     const clearRotationBtn = document.getElementById('clear-rotation-btn');
     const skipAllBranchesOption = document.getElementById('skip-all-branches-option');
     const skipFinalOption = document.getElementById('skip-final-option');
+    const skipRegisterRotationOption = document.getElementById('skip-register-rotation-option');
     const createRegisterWiresOption = document.getElementById('create-register-wires-option');
     const rotate90Btn = document.getElementById('rotate-90-btn');
     const rotate45Btn = document.getElementById('rotate-45-btn');
@@ -319,7 +320,8 @@
         const options = {
             action: 'process',
             skipAllBranchSegments: !!skipAllBranchesOption.checked,
-            skipFinalRegisterSegment: !!skipFinalOption.checked
+            skipFinalRegisterSegment: !!skipFinalOption.checked,
+            skipRegisterRotation: !(skipRegisterRotationOption && skipRegisterRotationOption.checked)
         };
 
         if (!skipOrthoOption.indeterminate) {
@@ -1157,6 +1159,17 @@
                 rotationInput.dataset.autoValue = '';
                 rotationInput.dataset.multi = 'false';
             });
+            // Handle Enter key to apply rotation
+            rotationInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const val = parseFloat(rotationInput.value);
+                    if (!isNaN(val)) {
+                        console.log('[ROTATION] Enter pressed, applying rotation: ' + val);
+                        rotateSelection(val);
+                    }
+                }
+            });
         }
 
         // Document Scale listeners (read-only - only refresh button active)
@@ -1249,24 +1262,17 @@
             let val = parseFloat(teRotateInput.value);
             if (isNaN(val)) return;
 
-            teDragStartScale = 100;
-            teDragStartRotate = 0; // Assume start was 0 relative to current
-            // If slider was at 45, and user types 90.
-            // They mean "Rotate to 90".
-            // So start=0, current=90? No.
-            // If slider is at 45, object is rotated 45.
-            // If they type 90, they want 45 more? Or absolute 90?
-            // "Transform Each" usually implies relative transform.
-            // If I type 90, I want to rotate 90 degrees.
-            // So start=0, current=90. Delta=90.
+            // When user types a value in the rotation field, they want ABSOLUTE rotation
+            // (e.g., typing 0 should reset to 0°, not "rotate by 0°")
+            // Use rotateSelection which calls rotateSelectionAbsolute
+            console.log('[TRANSFORM] Rotation input changed to ' + val + '°, applying absolute rotation');
+            rotateSelection(val);
 
+            // Update slider to match
             teRotateSlider.value = val;
 
-            teDragActive = true;
-            teTransformAppliedInDrag = false;
-            handleLiveTransform();
-
-            teDragActive = false;
+            // Reset transform state
+            teDragStartRotate = val;
             teTransformAppliedInDrag = false;
         });
     }
