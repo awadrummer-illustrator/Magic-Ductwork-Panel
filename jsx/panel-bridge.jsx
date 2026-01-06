@@ -149,32 +149,21 @@ function MDUX_isDuctworkPart(item) {
 }
 
 // Metadata storage using item.note (more reliable than tags with undo/redo)
+// PERFORMANCE: Removed verbose logging - these functions are called frequently
 function MDUX_getMetadata(item) {
     try {
         var note = item.note || "";
         if (!note || note.indexOf("MDUX_META:") !== 0) return null;
         var jsonStr = note.substring(10); // Remove "MDUX_META:" prefix
-        MDUX_debugLog("[META GET] Raw note length=" + note.length + ", jsonStr length=" + jsonStr.length);
-        MDUX_debugLog("[META GET] jsonStr=" + jsonStr.substring(0, 500));
 
         // Fix corrupted metadata: strip any trailing chars after the closing brace
         var lastBrace = jsonStr.lastIndexOf("}");
         if (lastBrace !== -1 && lastBrace < jsonStr.length - 1) {
-            var trailing = jsonStr.substring(lastBrace + 1);
-            MDUX_debugLog("[META GET] WARNING: Found trailing chars after JSON: '" + trailing + "' - stripping them");
             jsonStr = jsonStr.substring(0, lastBrace + 1);
         }
 
-        var parsed = JSON.parse(jsonStr);
-        // List keys manually (ExtendScript doesn't have Object.keys)
-        var keyList = [];
-        for (var k in parsed) {
-            if (parsed.hasOwnProperty(k)) keyList.push(k);
-        }
-        MDUX_debugLog("[META GET] Parsed keys: " + keyList.join(", "));
-        return parsed;
+        return JSON.parse(jsonStr);
     } catch (e) {
-        MDUX_debugLog("[META GET] ERROR parsing JSON: " + e + " | jsonStr was: " + (jsonStr || "(undefined)").substring(0, 200));
         return null;
     }
 }
@@ -182,19 +171,9 @@ function MDUX_getMetadata(item) {
 function MDUX_setMetadata(item, metadata) {
     try {
         var jsonStr = JSON.stringify(metadata);
-        var noteStr = "MDUX_META:" + jsonStr;
-        item.note = noteStr;
-
-        // Verify it was actually set
-        var verify = item.note;
-        MDUX_debugLog("[META] Set metadata on " + item.typename + ": " + noteStr.substring(0, 500));
-        MDUX_debugLog("[META] Verified note = " + (verify ? verify.substring(0, 500) : "NULL"));
-
-        if (!verify || verify !== noteStr) {
-            MDUX_debugLog("[META] ERROR: Note was not set correctly!");
-        }
+        item.note = "MDUX_META:" + jsonStr;
     } catch (e) {
-        MDUX_debugLog("[META] ERROR setting metadata: " + e);
+        // Silent fail - logging here would be expensive
     }
 }
 
@@ -221,8 +200,31 @@ function MDUX_removeTag(item, key) {
 // ========================================
 
 /**
+ * Gets the Scale Factor Box if it exists, returns null if not found.
+ * Does NOT create the layer - use MDUX_getOrCreateScaleFactorBox for that.
+ */
+function MDUX_getScaleFactorBox(doc) {
+    var layerName = "Scale Factor Container Layer";
+    var boxName = "ScaleFactorBox";
+
+    try {
+        var container = doc.layers.getByName(layerName);
+        for (var i = 0; i < container.pathItems.length; i++) {
+            var pi = container.pathItems[i];
+            if (pi.name === boxName) {
+                return pi;
+            }
+        }
+    } catch (e) {
+        // Layer doesn't exist - that's fine, return null
+    }
+    return null;
+}
+
+/**
  * Gets or creates the Scale Factor Box used to store the document's scale factor.
- * Logic ported from the user's original script.
+ * Only call this when actually NEEDED (Process Ductwork, Create Layers button).
+ * For reading scale, use MDUX_getDocumentScale() which won't create layers.
  */
 function MDUX_getOrCreateScaleFactorBox(doc) {
     var layerName = "Scale Factor Container Layer";
@@ -276,11 +278,18 @@ function MDUX_getOrCreateScaleFactorBox(doc) {
     return box;
 }
 
+/**
+ * Gets the document scale WITHOUT creating the Scale Factor layer.
+ * Returns "100" if no scale has been set yet.
+ */
 function MDUX_getDocumentScale() {
     try {
         if (app.documents.length === 0) return "100";
-        var box = MDUX_getOrCreateScaleFactorBox(app.activeDocument);
-        return box.note || "100";
+        var box = MDUX_getScaleFactorBox(app.activeDocument);
+        if (box) {
+            return box.note || "100";
+        }
+        return "100"; // Default if layer doesn't exist yet
     } catch (e) {
         return "100";
     }
@@ -958,7 +967,9 @@ function MDUX_importGraphicStylesBridge() {
 
         app.activeDocument = destDoc;
         destDoc.selection = null;
-        var tempLayerName = "__MDUX_STYLE_IMPORT__";
+
+        // Use a specific layer name to hold template lines until Process Ductwork
+        var tempLayerName = "__MDUX_STYLE_TEMPLATE_LINES__";
         var tempLayer = null;
         try {
             tempLayer = destDoc.layers.getByName(tempLayerName);
@@ -969,20 +980,34 @@ function MDUX_importGraphicStylesBridge() {
         try { tempLayer.locked = false; } catch (lockErr) { }
         destDoc.activeLayer = tempLayer;
         app.executeMenuCommand("pasteInPlace");
+
         var pasted = null;
         try { pasted = destDoc.selection; } catch (selErr) { pasted = null; }
         if (pasted) {
             if (pasted.length === undefined) pasted = [pasted];
-            for (var p = pasted.length - 1; p >= 0; p--) {
-                try { pasted[p].remove(); } catch (remErr) { }
+            // Move items far away (-50000, -50000) instead of deleting
+            // They will be cleaned up during Process Ductwork
+            var FAR_AWAY_X = -50000;
+            var FAR_AWAY_Y = -50000;
+            for (var p = 0; p < pasted.length; p++) {
+                try {
+                    var item = pasted[p];
+                    var bounds = item.geometricBounds;
+                    var itemX = bounds[0];
+                    var itemY = bounds[1];
+                    // Translate to far away position
+                    item.translate(FAR_AWAY_X - itemX, FAR_AWAY_Y - itemY);
+                } catch (moveErr) {
+                    try { $.writeln("[MDUX] Error moving template item: " + moveErr); } catch (logMove) { }
+                }
             }
+            try { $.writeln("[MDUX] Moved " + pasted.length + " template line(s) to holding area"); } catch (logMoved) { }
         }
         destDoc.selection = null;
-        try {
-            if (!tempLayer.pageItems.length && !tempLayer.groupItems.length) {
-                tempLayer.remove();
-            }
-        } catch (cleanupErr) { }
+
+        // Lock the template layer to prevent accidental editing
+        try { tempLayer.locked = true; } catch (lockErr) { }
+        try { tempLayer.visible = false; } catch (visErr) { }
         try { app.redraw(); } catch (redErr) { }
         try { $.writeln("[MDUX] Import styles completed successfully"); } catch (logDone) { }
         return "Graphic styles imported.";
@@ -998,42 +1023,60 @@ function MDUX_createLayersBridge() {
             return "ERROR:No Illustrator document is open.";
         }
         var doc = app.activeDocument;
+
+        // Layer definitions with names and colors [R, G, B]
         var desired = [
-            "Scale Factor Container Layer",
-            "Frame",
-            "Ignored",
-            "Thermostats",
-            "Units",
-            "Secondary Exhaust Registers",
-            "Thermostat Lines",
-            "Exhaust Registers",
-            "Rectangular Registers",
-            "Circular Registers",
-            "Orange Register",
-            "Square Registers",
-            "Light Orange Ductwork",
-            "Orange Ductwork",
-            "Blue Ductwork",
-            "Green Ductwork"
+            { name: "Scale Factor Container Layer", color: [128, 128, 128] },
+            { name: "Frame", color: [254, 56, 56] },
+            { name: "Ignored", color: [255, 153, 204] },
+            { name: "Thermostats", color: [48, 254, 116] },
+            { name: "Units", color: [100, 254, 254] },
+            { name: "Secondary Exhaust Registers", color: [255, 79, 255] },
+            { name: "Thermostat Lines", color: [77, 254, 254] },
+            { name: "Exhaust Registers", color: [254, 215, 61] },
+            { name: "Rectangular Registers", color: [0, 0, 0] },
+            { name: "Circular Registers", color: [200, 200, 200] },
+            { name: "Orange Register", color: [128, 128, 128] },
+            { name: "Square Registers", color: [254, 124, 0] },
+            { name: "Light Orange Ductwork", color: [153, 51, 0] },
+            { name: "Orange Ductwork", color: [243, 189, 141] },
+            { name: "Blue Ductwork", color: [0, 199, 209] },
+            { name: "Light Green Ductwork", color: [102, 255, 153] },
+            { name: "Green Ductwork", color: [0, 89, 31] }
         ];
 
+        // First pass: Create missing layers and set colors on ALL layers
         for (var i = 0; i < desired.length; i++) {
-            var name = desired[i];
+            var entry = desired[i];
             var layer = null;
-            try { layer = doc.layers.getByName(name); } catch (eFind) {
+            try { layer = doc.layers.getByName(entry.name); } catch (eFind) {
                 try {
                     layer = doc.layers.add();
-                    layer.name = name;
-                    try { $.writeln("[MDUX] Created missing layer: " + name); } catch (logCreate) { }
+                    layer.name = entry.name;
+                    try { $.writeln("[MDUX] Created missing layer: " + entry.name); } catch (logCreate) { }
                 } catch (eCreate) {
                     layer = null;
                 }
             }
+
+            // Set color on ALL layers (existing or newly created)
+            if (layer) {
+                try {
+                    var col = new RGBColor();
+                    col.red = entry.color[0];
+                    col.green = entry.color[1];
+                    col.blue = entry.color[2];
+                    layer.color = col;
+                } catch (eColor) {
+                    // Ignore color setting errors
+                }
+            }
         }
 
+        // Second pass: Reorder layers to match desired sequence
         for (var idx = desired.length - 1; idx >= 0; idx--) {
             try {
-                var target = doc.layers.getByName(desired[idx]);
+                var target = doc.layers.getByName(desired[idx].name);
                 if (!target) continue;
                 var prevLocked = null;
                 try { prevLocked = target.locked; target.locked = false; } catch (eLock) { }
@@ -1048,8 +1091,8 @@ function MDUX_createLayersBridge() {
         }
 
         try { app.redraw(); } catch (eRedraw) { }
-        try { $.writeln("[MDUX] Ensure standard layers completed"); } catch (logDone) { }
-        return "Standard ductwork layers ensured.";
+        try { $.writeln("[MDUX] Ensure standard layers completed with colors"); } catch (logDone) { }
+        return "Standard ductwork layers ensured with colors.";
     } catch (e) {
         try { $.writeln("[MDUX] Create layers exception: " + e); } catch (logErr) { }
         return "ERROR:Create layers (exception): " + e;
@@ -2184,132 +2227,61 @@ function MDUX_scaleStrokeRecursively(item, scalePercent, stats) {
 }
 
 function MDUX_transformEach(scale, rotation, undoPrevious) {
-    MDUX_debugLog("========================================");
-    MDUX_debugLog("[TRANSFORM] MDUX_transformEach called: scale=" + scale + ", rotation=" + rotation + ", undoPrevious=" + undoPrevious);
-    MDUX_debugLog("========================================");
-
     try {
         if (app.documents.length === 0) return JSON.stringify({ ok: false, message: "No document open." });
 
         var sel = app.selection;
         if (!sel || sel.length === 0) return JSON.stringify({ ok: false, message: "Nothing selected." });
 
-        MDUX_debugLog("[TRANSFORM] Selection has " + sel.length + " items");
-
+        var len = sel.length;
         var s = Number(scale);
         var r = Number(rotation);
+        var anchor = Number(MDUX_getDocumentScale()) || 100;
+        var targetPercent = s * (anchor / 100);
 
-        // Handle Undo AFTER getting selection but BEFORE reading metadata
-        // This ensures metadata is preserved across undo/redo cycles
+        // Handle Undo
         if (undoPrevious === true || undoPrevious === "true") {
-            MDUX_debugLog("[TRANSFORM] Executing undo...");
-
-            // Before undo, check if metadata exists
-            var item0 = sel[0];
-            var beforeUndo = MDUX_getTag(item0, "MDUX_CurrentScale");
-            MDUX_debugLog("[TRANSFORM] Before undo, CurrentScale = " + beforeUndo);
-
             app.executeMenuCommand('undo');
-
-            // After undo, re-fetch selection in case it changed
             sel = app.selection;
             if (!sel || sel.length === 0) return JSON.stringify({ ok: false, message: "Selection lost after undo." });
-
-            // Check if metadata survived
-            item0 = sel[0];
-            var afterUndo = MDUX_getTag(item0, "MDUX_CurrentScale");
-            MDUX_debugLog("[TRANSFORM] After undo, CurrentScale = " + afterUndo);
-
-            if (beforeUndo && !afterUndo) {
-                MDUX_debugLog("[TRANSFORM] WARNING: Metadata was lost during undo!");
-            }
+            len = sel.length;
         }
 
-        var len = sel.length;
         var transformedCount = 0;
-        var stats = {
-            groups: 0,
-            compoundPaths: 0,
-            paths: 0,
-            stroked: 0,
-            filled: 0,
-            unstroked: 0,
-            locked: 0,
-            errors: 0,
-            others: 0,
-            otherTypes: []
-        };
+        var errors = 0;
 
-        var skippedInfo = [];
         for (var i = 0; i < len; i++) {
             var item = sel[i];
             try {
-                // Determine item type for scaling logic
                 var isDuctLine = MDUX_isDuctworkLine(item);
                 var isDuctPart = MDUX_isDuctworkPart(item);
 
-                // Initialize metadata ONLY ONCE when first touched
-                // After undo, metadata should still exist from before the transform
-                var needsInit = MDUX_getTag(item, "MDUX_OriginalWidth") === null;
-                if (needsInit) {
-                    try {
-                        MDUX_debugLog("[TRANSFORM] Item " + i + " typename=" + item.typename + " needs init.");
-                        MDUX_debugLog("[TRANSFORM] Note BEFORE any init: " + (item.note || "(empty)").substring(0, 500));
+                // OPTIMIZATION: Get metadata once, modify, set once (instead of multiple get/set calls)
+                var meta = MDUX_getMetadata(item) || {};
 
-                        // Safely handle strokeWidth (missing on GroupItems)
-                        var sWidth = 1;
-                        try { sWidth = item.strokeWidth || 1; } catch (e) { }
-
-                        // Store the ABSOLUTE original dimensions before any transform
-                        MDUX_setTag(item, "MDUX_OriginalWidth", item.width);
-                        MDUX_debugLog("[TRANSFORM] After OriginalWidth, note: " + (item.note || "(empty)").substring(0, 500));
-
-                        MDUX_setTag(item, "MDUX_OriginalHeight", item.height);
-                        MDUX_setTag(item, "MDUX_OriginalStrokeWidth", sWidth);
-                        MDUX_setTag(item, "MDUX_CumulativeRotation", "0");
-                        MDUX_setTag(item, "MDUX_CurrentScale", "100");
-
-                        MDUX_debugLog("[TRANSFORM] After ALL init tags, note: " + (item.note || "(empty)").substring(0, 500));
-
-                        // Verify tags were actually saved
-                        var verifyWidth = MDUX_getTag(item, "MDUX_OriginalWidth");
-                        var verifyScale = MDUX_getTag(item, "MDUX_CurrentScale");
-                        var verifyRot = MDUX_getTag(item, "MDUX_RotationOverride");
-                        MDUX_debugLog("[TRANSFORM] Init complete. Verified: width=" + verifyWidth + ", scale=" + verifyScale + ", rotOverride=" + verifyRot);
-                    } catch (eInit) {
-                        MDUX_debugLog("[TRANSFORM] ERROR initializing tags: " + eInit +
-                                     " for item type=" + item.typename);
-                    }
-                } else {
-                    // Item already has metadata - log it to verify rotation override is preserved
-                    MDUX_debugLog("[TRANSFORM] Item " + i + " already has metadata, note: " + (item.note || "(empty)").substring(0, 500));
-                    var existingRotOverride = MDUX_getTag(item, "MDUX_RotationOverride");
-                    MDUX_debugLog("[TRANSFORM] Existing MDUX_RotationOverride: " + (existingRotOverride || "null/undefined"));
+                // Initialize metadata if needed
+                if (meta.MDUX_OriginalWidth === undefined) {
+                    var sWidth = 1;
+                    try { sWidth = item.strokeWidth || 1; } catch (e) { }
+                    meta.MDUX_OriginalWidth = item.width;
+                    meta.MDUX_OriginalHeight = item.height;
+                    meta.MDUX_OriginalStrokeWidth = sWidth;
+                    meta.MDUX_CumulativeRotation = "0";
+                    meta.MDUX_CurrentScale = "100";
                 }
 
-                // Get current state from metadata (or defaults if just initialized)
-                var currentScale = parseFloat(MDUX_getTag(item, "MDUX_CurrentScale") || "100");
-                var currentRotation = parseFloat(MDUX_getTag(item, "MDUX_CumulativeRotation") || "0");
-                var anchor = Number(MDUX_getDocumentScale()) || 100;
-                var targetPercent = s * (anchor / 100);
+                var currentScale = parseFloat(meta.MDUX_CurrentScale || "100");
+                var currentRotation = parseFloat(meta.MDUX_CumulativeRotation || "0");
 
                 // --- ROTATION ---
-                // r is the DELTA rotation, not absolute
-                // We apply the delta and update cumulative
                 if (r !== 0 && isDuctPart) {
                     item.rotate(r, true, true, true, true, Transformation.CENTER);
-                    MDUX_setTag(item, "MDUX_CumulativeRotation", currentRotation + r);
+                    meta.MDUX_CumulativeRotation = String(currentRotation + r);
                 }
 
                 // --- SCALING ---
-                // s is the target scale on the UI slider (e.g., 110 for 110%)
-                // We need to transform from currentScale to targetPercent
-                MDUX_debugLog("[TRANSFORM] Item " + i + ": currentScale=" + currentScale +
-                         ", targetPercent=" + targetPercent + ", anchor=" + anchor);
-
                 if (Math.abs(currentScale - targetPercent) > 0.001) {
                     var resizeFactor = (targetPercent / currentScale) * 100;
-                    MDUX_debugLog("[TRANSFORM] Applying resize factor: " + resizeFactor + "% (isDuctLine=" + isDuctLine + ")");
 
                     if (isDuctLine) {
                         // Lines: scale stroke only
@@ -2319,25 +2291,18 @@ function MDUX_transformEach(scale, rotation, undoPrevious) {
                         item.resize(resizeFactor, resizeFactor, true, true, true, true, resizeFactor, Transformation.CENTER);
                     }
 
-                    MDUX_debugLog("[TRANSFORM] Resize complete, setting CurrentScale to " + targetPercent);
-                    MDUX_setTag(item, "MDUX_CurrentScale", targetPercent);
-
-                    // Verify it was set
-                    var verifySet = MDUX_getTag(item, "MDUX_CurrentScale");
-                    MDUX_debugLog("[TRANSFORM] CurrentScale after set: " + verifySet);
-                } else {
-                    MDUX_debugLog("[TRANSFORM] Scale unchanged (already at target)");
+                    meta.MDUX_CurrentScale = String(targetPercent);
                 }
+
+                // OPTIMIZATION: Set metadata once after all changes
+                MDUX_setMetadata(item, meta);
                 transformedCount++;
             } catch (eItem) {
-                stats.errors++;
+                errors++;
             }
         }
 
-        var msg = "Transformed " + transformedCount + "/" + len;
-        if (skippedInfo.length > 0) msg += " [Skipped: " + skippedInfo.join(", ") + "]";
-
-        return JSON.stringify({ ok: true, message: msg });
+        return JSON.stringify({ ok: true, message: "Transformed " + transformedCount + "/" + len });
 
     } catch (e) {
         return JSON.stringify({ ok: false, message: "Error: " + e.message });
@@ -2466,25 +2431,36 @@ function MDUX_clearDebugLog() {
     }
 }
 
+// Performance threshold - skip expensive metadata reads for large selections
+var MDUX_LARGE_SELECTION_THRESHOLD = 50;
+
 function MDUX_getSelectionTransformState() {
-    MDUX_debugLog("[SELECT-STATE] Function called");
     try {
         if (app.documents.length === 0) {
-            MDUX_debugLog("[SELECT-STATE] No documents open");
             return JSON.stringify({ ok: false });
         }
 
         var sel = app.selection;
         if (!sel || sel.length === 0) {
-            MDUX_debugLog("[SELECT-STATE] No selection");
             return JSON.stringify({ ok: false });
         }
-        MDUX_debugLog("[SELECT-STATE] Selection count: " + sel.length);
+
+        // PERFORMANCE: For large selections, return "mixed" immediately without scanning metadata
+        // This prevents Illustrator lockups when many items are selected
+        if (sel.length > MDUX_LARGE_SELECTION_THRESHOLD) {
+            MDUX_debugLog("[SELECT-STATE] Large selection (" + sel.length + " items) - returning mixed to avoid lockup");
+            return JSON.stringify({
+                ok: true,
+                scale: null,
+                rotation: null,
+                mixedScale: true,
+                mixedRotation: true,
+                count: sel.length,
+                largeSelection: true
+            });
+        }
 
         var anchor = parseFloat(MDUX_getDocumentScale()) || 100;
-        MDUX_debugLog("[SELECT-STATE] Anchor (doc scale): " + anchor);
-        var totalScale = 0;
-        var totalRot = 0;
         var count = 0;
 
         var firstScale = null;
@@ -2496,41 +2472,34 @@ function MDUX_getSelectionTransformState() {
             try {
                 var item = sel[i];
 
-                // Skip anchor points (single-point PathItems) - they shouldn't affect rotation calculations
+                // Skip anchor points (single-point PathItems)
                 if (item.typename === "PathItem") {
                     try {
                         if (item.pathPoints && item.pathPoints.length === 1) {
-                            MDUX_debugLog("[SELECT-STATE] Item " + i + ": Skipping anchor (single-point PathItem)");
                             continue;
                         }
                     } catch (eAnchor) {}
                 }
 
-                var tagScale = MDUX_getTag(item, "MDUX_CurrentScale");
-                var tagRot = MDUX_getTag(item, "MDUX_CumulativeRotation");
+                // Get metadata once per item (optimization: single parse instead of multiple)
+                var meta = MDUX_getMetadata(item);
+                var tagScale = meta && meta.MDUX_CurrentScale !== undefined ? String(meta.MDUX_CurrentScale) : null;
+                var tagRot = meta && meta.MDUX_CumulativeRotation !== undefined ? String(meta.MDUX_CumulativeRotation) : null;
 
-                // Fallback: check MDUX_META.MDUX_RotationOverride for placed items
+                // Fallback for rotation on placed items
                 if ((tagRot === null || tagRot === undefined) && item.typename === "PlacedItem") {
-                    try {
-                        var meta = MDUX_getMetadata(item);
-                        if (meta && meta.MDUX_RotationOverride !== undefined && meta.MDUX_RotationOverride !== null) {
-                            tagRot = meta.MDUX_RotationOverride;
-                            MDUX_debugLog("[SELECT-STATE] Item " + i + ": Found MDUX_RotationOverride in metadata: " + tagRot);
-                        }
-                    } catch (eMeta) {}
+                    if (meta && meta.MDUX_RotationOverride !== undefined && meta.MDUX_RotationOverride !== null) {
+                        tagRot = String(meta.MDUX_RotationOverride);
+                    }
                 }
-
-                MDUX_debugLog("[SELECT-STATE] Item " + i + " (" + item.typename + "): tagScale=" + tagScale + ", tagRot=" + tagRot);
 
                 var absScale = tagScale !== null ? parseFloat(tagScale) : anchor;
                 var rot = parseFloat(tagRot || "0");
-                MDUX_debugLog("[SELECT-STATE] Item " + i + ": absScale=" + absScale + ", rot=" + rot);
 
                 // Normalize scale relative to anchor for UI
                 var uiScale = (absScale / (anchor / 100));
                 uiScale = Math.round(uiScale * 100) / 100;
                 rot = Math.round(rot * 100) / 100;
-                MDUX_debugLog("[SELECT-STATE] Item " + i + ": uiScale=" + uiScale + " (after normalization)");
 
                 if (firstScale === null) {
                     firstScale = uiScale;
@@ -2540,24 +2509,23 @@ function MDUX_getSelectionTransformState() {
                     if (Math.abs(rot - firstRot) > 0.1) mixedRot = true;
                 }
                 count++;
+
+                // PERFORMANCE: If we already know it's mixed, no need to keep checking
+                if (mixedScale && mixedRot) break;
             } catch (e) {
-                MDUX_debugLog("[SELECT-STATE] Error processing item " + i + ": " + e);
+                // Silent fail on individual items
             }
         }
 
-        var result = {
+        return JSON.stringify({
             ok: true,
             scale: mixedScale ? null : firstScale,
             rotation: mixedRot ? null : firstRot,
             mixedScale: mixedScale,
             mixedRotation: mixedRot,
             count: count
-        };
-        MDUX_debugLog("[SELECT-STATE] Returning: " + JSON.stringify(result));
-
-        return JSON.stringify(result);
+        });
     } catch (e) {
-        MDUX_debugLog("[SELECT-STATE] ERROR: " + e);
         return JSON.stringify({ ok: false, message: e.message });
     }
 }
