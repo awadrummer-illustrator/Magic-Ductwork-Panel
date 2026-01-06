@@ -1262,6 +1262,33 @@ function getPathsOnLayerSelected(layerName) {
                 }
             }
 
+            // Collect paths from CompoundPathItems
+            if (container.compoundPathItems) {
+                for (var c = 0; c < container.compoundPathItems.length; c++) {
+                    try {
+                        var compound = container.compoundPathItems[c];
+                        if (!compound) continue;
+                        // Check if compound itself is selected
+                        var compoundSelected = false;
+                        if (typeof isPathSelected !== 'undefined') {
+                            try { compoundSelected = compound.selected; } catch (e) {}
+                        }
+                        // Extract child paths from compound
+                        for (var cp = 0; cp < compound.pathItems.length; cp++) {
+                            var childPath = compound.pathItems[cp];
+                            if (!childPath) continue;
+                            if (compoundSelected) {
+                                results.push(childPath);
+                            } else if (typeof isPathSelected !== 'undefined' && isPathSelected(childPath)) {
+                                results.push(childPath);
+                            } else if (typeof shouldProcessPath !== 'undefined' && shouldProcessPath(childPath)) {
+                                results.push(childPath);
+                            }
+                        }
+                    } catch (e) {}
+                }
+            }
+
             // Recursively process groups
             if (container.groupItems) {
                 for (var g = 0; g < container.groupItems.length; g++) {
@@ -1296,6 +1323,20 @@ function getPathsOnLayerAll(layerName) {
                 for (var i = 0; i < container.pathItems.length; i++) {
                     var path = container.pathItems[i];
                     if (path) results.push(path);
+                }
+            }
+
+            // Collect paths from CompoundPathItems
+            if (container.compoundPathItems) {
+                for (var c = 0; c < container.compoundPathItems.length; c++) {
+                    try {
+                        var compound = container.compoundPathItems[c];
+                        if (!compound) continue;
+                        for (var cp = 0; cp < compound.pathItems.length; cp++) {
+                            var childPath = compound.pathItems[cp];
+                            if (childPath) results.push(childPath);
+                        }
+                    } catch (e) {}
                 }
             }
 
@@ -12715,26 +12756,29 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         // Get SELECTED blue ductwork paths only - do not touch unselected paths
         var bluePathsForCarveRaw = getPathsOnLayerSelected(blueSourceLayer) || [];
 
-        // Filter out compound paths and paths that are children of compound paths (already processed)
+        // Extract paths from compound paths and include regular paths
         var bluePathsForCarve = [];
         for (var filterIdx = 0; filterIdx < bluePathsForCarveRaw.length; filterIdx++) {
             var filterPath = bluePathsForCarveRaw[filterIdx];
             if (!filterPath) continue;
 
-            // Skip CompoundPathItems - they're already carved
+            // For CompoundPathItems: extract child paths
             if (filterPath.typename === "CompoundPathItem") {
-                addDebug("[CARVE-OUT] Skipping CompoundPathItem (already processed)");
+                try {
+                    for (var cpIdx = 0; cpIdx < filterPath.pathItems.length; cpIdx++) {
+                        var childPath = filterPath.pathItems[cpIdx];
+                        if (childPath && childPath.pathPoints && childPath.pathPoints.length >= 2) {
+                            bluePathsForCarve.push(childPath);
+                            addDebug("[CARVE-OUT] Including child path from CompoundPathItem");
+                        }
+                    }
+                } catch (e) {
+                    addDebug("[CARVE-OUT] Error extracting compound children: " + e);
+                }
                 continue;
             }
 
-            // Skip paths whose parent is a CompoundPathItem (child paths of carved compounds)
-            try {
-                if (filterPath.parent && filterPath.parent.typename === "CompoundPathItem") {
-                    addDebug("[CARVE-OUT] Skipping child path of CompoundPathItem");
-                    continue;
-                }
-            } catch (e) {}
-
+            // Include regular paths (even if parent is CompoundPathItem - they're valid paths)
             bluePathsForCarve.push(filterPath);
         }
         addDebug("[CARVE-OUT] Checking " + bluePathsForCarve.length + " selected blue path(s) (filtered from " + bluePathsForCarveRaw.length + ")");
@@ -12916,28 +12960,44 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         }
 
                         // Compound the two halves into a single compound path
+                        // BUT skip if the original path was already part of a compound (to avoid "already part of compound" error)
+                        var isAlreadyCompoundChild = false;
                         try {
-                            // Deselect everything
-                            doc.selection = null;
-                            // Select just the two halves
-                            firstHalf.selected = true;
-                            secondHalf.selected = true;
-                            // Create compound path
-                            if (doc.selection.length === 2) {
-                                app.executeMenuCommand("compoundPath");
-                                addDebug("[CARVE-OUT] Compounded split segments into compound path");
-
-                                // The compound path is now selected - capture it for later
-                                if (doc.selection.length === 1) {
-                                    var newCompound = doc.selection[0];
-                                    newCompoundPaths.push(newCompound);
-                                    CARVE_OUT_COMPOUNDS.push(newCompound); // Also add to global tracking for styling
-                                    SELECTED_PATHS.push(newCompound); // Also add to SELECTED_PATHS for component placement
-                                    addDebug("[CARVE-OUT] New compound path captured (total: " + newCompoundPaths.length + ", global: " + CARVE_OUT_COMPOUNDS.length + ", SELECTED_PATHS: " + SELECTED_PATHS.length + ")");
-                                }
+                            if (bluePath.parent && bluePath.parent.typename === "CompoundPathItem") {
+                                isAlreadyCompoundChild = true;
+                                addDebug("[CARVE-OUT] Original path was part of compound - skipping re-compounding");
                             }
-                        } catch (eCompound) {
-                            addDebug("[CARVE-OUT] Warning: Could not compound paths: " + eCompound);
+                        } catch (eCheckParent) {}
+
+                        if (!isAlreadyCompoundChild) {
+                            try {
+                                // Deselect everything
+                                doc.selection = null;
+                                // Select just the two halves
+                                firstHalf.selected = true;
+                                secondHalf.selected = true;
+                                // Create compound path
+                                if (doc.selection.length === 2) {
+                                    app.executeMenuCommand("compoundPath");
+                                    addDebug("[CARVE-OUT] Compounded split segments into compound path");
+
+                                    // The compound path is now selected - capture it for later
+                                    if (doc.selection.length === 1) {
+                                        var newCompound = doc.selection[0];
+                                        newCompoundPaths.push(newCompound);
+                                        CARVE_OUT_COMPOUNDS.push(newCompound); // Also add to global tracking for styling
+                                        SELECTED_PATHS.push(newCompound); // Also add to SELECTED_PATHS for component placement
+                                        addDebug("[CARVE-OUT] New compound path captured (total: " + newCompoundPaths.length + ", global: " + CARVE_OUT_COMPOUNDS.length + ", SELECTED_PATHS: " + SELECTED_PATHS.length + ")");
+                                    }
+                                }
+                            } catch (eCompound) {
+                                addDebug("[CARVE-OUT] Warning: Could not compound paths: " + eCompound);
+                            }
+                        } else {
+                            // Still add the split halves to SELECTED_PATHS for component placement
+                            SELECTED_PATHS.push(firstHalf);
+                            SELECTED_PATHS.push(secondHalf);
+                            addDebug("[CARVE-OUT] Added split halves to SELECTED_PATHS without compounding");
                         }
 
                         pathsToRemove.push(bluePath);
@@ -13009,26 +13069,29 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     var AUTO_CARVE_HALF_WIDTH = 4.25; // 8.5pt total gap, same as small segment crossovers
     var bluePathsForAutoCarveRaw = getPathsOnLayerSelected(blueSourceLayer) || [];
 
-    // Filter out compound paths and paths that are children of compound paths (already processed)
+    // Extract paths from compound paths and include regular paths
     var bluePathsForAutoCarve = [];
     for (var acFilterIdx = 0; acFilterIdx < bluePathsForAutoCarveRaw.length; acFilterIdx++) {
         var acFilterPath = bluePathsForAutoCarveRaw[acFilterIdx];
         if (!acFilterPath) continue;
 
-        // Skip CompoundPathItems - they're already carved
+        // For CompoundPathItems: extract child paths
         if (acFilterPath.typename === "CompoundPathItem") {
-            addDebug("[AUTO-CARVE] Skipping CompoundPathItem (already processed)");
+            try {
+                for (var acCpIdx = 0; acCpIdx < acFilterPath.pathItems.length; acCpIdx++) {
+                    var acChildPath = acFilterPath.pathItems[acCpIdx];
+                    if (acChildPath && acChildPath.pathPoints && acChildPath.pathPoints.length >= 2) {
+                        bluePathsForAutoCarve.push(acChildPath);
+                        addDebug("[AUTO-CARVE] Including child path from CompoundPathItem");
+                    }
+                }
+            } catch (e) {
+                addDebug("[AUTO-CARVE] Error extracting compound children: " + e);
+            }
             continue;
         }
 
-        // Skip paths whose parent is a CompoundPathItem (child paths of carved compounds)
-        try {
-            if (acFilterPath.parent && acFilterPath.parent.typename === "CompoundPathItem") {
-                addDebug("[AUTO-CARVE] Skipping child path of CompoundPathItem");
-                continue;
-            }
-        } catch (e) {}
-
+        // Include regular paths (even if parent is CompoundPathItem - they're valid paths)
         bluePathsForAutoCarve.push(acFilterPath);
     }
     addDebug("[AUTO-CARVE] Checking " + bluePathsForAutoCarve.length + " selected blue path(s) for intersections (filtered from " + bluePathsForAutoCarveRaw.length + ")");
@@ -13339,22 +13402,38 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             }
 
             // Compound the two halves together
+            // BUT skip if the original path was already part of a compound (to avoid "already part of compound" error)
+            var autoIsCompoundChild = false;
             try {
-                doc.selection = null;
-                autoFirstHalf.selected = true;
-                autoSecondHalf.selected = true;
-                app.executeMenuCommand("compoundPath");
-                addDebug("[AUTO-CARVE] Compounded split segments into compound path");
-
-                if (doc.selection.length === 1) {
-                    var autoNewCompound = doc.selection[0];
-                    autoNewCompoundPaths.push(autoNewCompound);
-                    CARVE_OUT_COMPOUNDS.push(autoNewCompound);
-                    SELECTED_PATHS.push(autoNewCompound);
-                    addDebug("[AUTO-CARVE] New compound path captured (total: " + autoNewCompoundPaths.length + ", global CARVE_OUT_COMPOUNDS: " + CARVE_OUT_COMPOUNDS.length + ")");
+                if (carvePath.parent && carvePath.parent.typename === "CompoundPathItem") {
+                    autoIsCompoundChild = true;
+                    addDebug("[AUTO-CARVE] Original path was part of compound - skipping re-compounding");
                 }
-            } catch (eAutoCompound) {
-                addDebug("[AUTO-CARVE] Could not compound: " + eAutoCompound);
+            } catch (eAutoCheckParent) {}
+
+            if (!autoIsCompoundChild) {
+                try {
+                    doc.selection = null;
+                    autoFirstHalf.selected = true;
+                    autoSecondHalf.selected = true;
+                    app.executeMenuCommand("compoundPath");
+                    addDebug("[AUTO-CARVE] Compounded split segments into compound path");
+
+                    if (doc.selection.length === 1) {
+                        var autoNewCompound = doc.selection[0];
+                        autoNewCompoundPaths.push(autoNewCompound);
+                        CARVE_OUT_COMPOUNDS.push(autoNewCompound);
+                        SELECTED_PATHS.push(autoNewCompound);
+                        addDebug("[AUTO-CARVE] New compound path captured (total: " + autoNewCompoundPaths.length + ", global CARVE_OUT_COMPOUNDS: " + CARVE_OUT_COMPOUNDS.length + ")");
+                    }
+                } catch (eAutoCompound) {
+                    addDebug("[AUTO-CARVE] Could not compound: " + eAutoCompound);
+                }
+            } else {
+                // Still add the split halves to SELECTED_PATHS for component placement
+                SELECTED_PATHS.push(autoFirstHalf);
+                SELECTED_PATHS.push(autoSecondHalf);
+                addDebug("[AUTO-CARVE] Added split halves to SELECTED_PATHS without compounding");
             }
 
             // Mark original path for removal (use loop since ExtendScript lacks indexOf)
