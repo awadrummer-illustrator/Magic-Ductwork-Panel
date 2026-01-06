@@ -353,9 +353,11 @@
         revertBtn.disabled = false;
         scheduleSkipOrthoRefresh();
 
-        // Auto-copy debug log to clipboard after processing
+        // Auto-copy debug log to clipboard and write to file after processing
         try {
+            console.log('[PANEL] Calling MDUX_getDebugLog()...');
             const debugLog = await evalScript('MDUX_getDebugLog()');
+            console.log('[PANEL] MDUX_getDebugLog returned ' + (debugLog ? debugLog.length : 0) + ' chars');
             if (debugLog && debugLog.length > 0) {
                 // Use textarea + execCommand for CEP compatibility
                 const ta = document.createElement('textarea');
@@ -364,9 +366,9 @@
                 ta.style.left = '-9999px';
                 document.body.appendChild(ta);
                 ta.select();
-                document.execCommand('copy');
+                const copyResult = document.execCommand('copy');
                 document.body.removeChild(ta);
-                console.log('[PANEL] Debug log copied to clipboard (' + debugLog.length + ' chars)');
+                console.log('[PANEL] Debug log copied to clipboard: ' + copyResult + ' (' + debugLog.length + ' chars)');
             }
         } catch (clipErr) {
             console.log('[PANEL] Failed to copy debug log to clipboard:', clipErr);

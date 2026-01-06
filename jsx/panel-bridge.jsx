@@ -2499,7 +2499,46 @@ function MDUX_getDebugLog() {
             return "DEBUG BUFFER IS EMPTY (but exists)\n" + bufferInfo + "\nThis means no debug messages have been logged yet.";
         }
 
-        return "=== DEBUG LOG ===\n" + $.global.MDUX_debugBuffer.join("\n");
+        // Write to file in Debug folder BEFORE constructing logContent
+        var fileWriteStatus = "";
+        try {
+            var debugFolderPath = "C:/Users/Chris/AppData/Roaming/Adobe/CEP/extensions/Magic-Ductwork-Panel/Debug";
+            var debugFolder = new Folder(debugFolderPath);
+            fileWriteStatus += "Folder exists: " + debugFolder.exists + "; ";
+            if (!debugFolder.exists) {
+                var created = debugFolder.create();
+                fileWriteStatus += "Created: " + created + "; ";
+            }
+            var timestamp = new Date();
+            var dateStr = timestamp.getFullYear() + "-" +
+                         ("0" + (timestamp.getMonth() + 1)).slice(-2) + "-" +
+                         ("0" + timestamp.getDate()).slice(-2) + "_" +
+                         ("0" + timestamp.getHours()).slice(-2) + "-" +
+                         ("0" + timestamp.getMinutes()).slice(-2) + "-" +
+                         ("0" + timestamp.getSeconds()).slice(-2);
+            var debugFilePath = debugFolderPath + "/debug-" + dateStr + ".log";
+            var debugFile = new File(debugFilePath);
+            fileWriteStatus += "File: " + debugFilePath + "; ";
+            var opened = debugFile.open("w");
+            fileWriteStatus += "Opened: " + opened + "; ";
+            if (opened) {
+                debugFile.encoding = "UTF-8";
+                var tempContent = "=== DEBUG LOG ===\n" + $.global.MDUX_debugBuffer.join("\n");
+                debugFile.write(tempContent);
+                debugFile.close();
+                fileWriteStatus += "Wrote " + tempContent.length + " chars";
+            } else {
+                fileWriteStatus += "FAILED - error: " + debugFile.error;
+            }
+        } catch (fileErr) {
+            fileWriteStatus += "EXCEPTION: " + fileErr;
+        }
+
+        // Add file write status to the buffer so it shows in clipboard
+        $.global.MDUX_debugBuffer.push("[DEBUG-FILE] " + fileWriteStatus);
+
+        var logContent = "=== DEBUG LOG ===\n" + $.global.MDUX_debugBuffer.join("\n");
+        return logContent;
     } catch (e) {
         return "ERROR reading debug buffer: " + e;
     }
