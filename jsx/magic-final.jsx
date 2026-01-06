@@ -14002,8 +14002,11 @@ function setStaticTextColor(control, rgbArray) {
         for (var irPathIdx = 0; irPathIdx < bluePathsForRegisters.length; irPathIdx++) {
             var irPath = bluePathsForRegisters[irPathIdx];
             try {
-                var irPts = irPath.pathPoints;
-                if (irPts.length < 3) continue; // Need at least 3 points for internal anchors
+                // Validity check - skip if path was removed during carve-out
+                if (!irPath || !irPath.typename) continue;
+                var irPts = null;
+                try { irPts = irPath.pathPoints; } catch (eGetPts) { continue; }
+                if (!irPts || irPts.length < 3) continue; // Need at least 3 points for internal anchors
 
                 // Get crossover info for this path (check by comparing anchor positions)
                 var pathCrossovers = [];
@@ -14399,17 +14402,24 @@ function setStaticTextColor(control, rgbArray) {
                 // This ensures split halves and any branches that connect to them end up in the same compound
                 if (typeof EARLY_SPLIT_PAIRS !== 'undefined' && EARLY_SPLIT_PAIRS.length > 0) {
                     for (var espIdx = 0; espIdx < EARLY_SPLIT_PAIRS.length; espIdx++) {
-                        var espPair = EARLY_SPLIT_PAIRS[espIdx];
-                        // Only add if both paths are in layerPaths (same layer)
-                        var pathAInLayer = false, pathBInLayer = false;
-                        for (var lpCheck = 0; lpCheck < layerPaths.length; lpCheck++) {
-                            if (layerPaths[lpCheck] === espPair.pathA) pathAInLayer = true;
-                            if (layerPaths[lpCheck] === espPair.pathB) pathBInLayer = true;
-                        }
-                        if (pathAInLayer && pathBInLayer) {
-                            connections.push([espPair.pathA, espPair.pathB]);
-                            addDebug("[XOVER] Added forced connection for EARLY split pair (POST-ORTHO-SPLIT)");
-                        }
+                        try {
+                            var espPair = EARLY_SPLIT_PAIRS[espIdx];
+                            if (!espPair || !espPair.pathA || !espPair.pathB) continue;
+                            // Validity check - skip if paths were removed
+                            try { var testA = espPair.pathA.typename; } catch (eTestA) { continue; }
+                            try { var testB = espPair.pathB.typename; } catch (eTestB) { continue; }
+                            // Only add if both paths are in layerPaths (same layer)
+                            var pathAInLayer = false, pathBInLayer = false;
+                            for (var lpCheck = 0; lpCheck < layerPaths.length; lpCheck++) {
+                                try {
+                                    if (layerPaths[lpCheck] === espPair.pathA) pathAInLayer = true;
+                                    if (layerPaths[lpCheck] === espPair.pathB) pathBInLayer = true;
+                                } catch (eLpCheck) { }
+                            }
+                            if (pathAInLayer && pathBInLayer) {
+                                connections.push([espPair.pathA, espPair.pathB]);
+                            }
+                        } catch (eEspPair) { }
                     }
                 }
 
@@ -14418,24 +14428,33 @@ function setStaticTextColor(control, rgbArray) {
                     var originalConnCount = connections.length;
                     var filteredConnections = [];
                     for (var connIdx = 0; connIdx < connections.length; connIdx++) {
-                        var connPathA = connections[connIdx][0];
-                        var connPathB = connections[connIdx][1];
-                        var isCrossoverConnection = false;
+                        try {
+                            var connPathA = connections[connIdx][0];
+                            var connPathB = connections[connIdx][1];
+                            // Validity check
+                            if (!connPathA || !connPathB) continue;
+                            try { var testCA = connPathA.typename; } catch (eCA) { continue; }
+                            try { var testCB = connPathB.typename; } catch (eCB) { continue; }
 
-                        for (var xoIdx = 0; xoIdx < crossoverInfo.length; xoIdx++) {
-                            var xo = crossoverInfo[xoIdx];
-                            if ((connPathA === xo.pathWithSmallSeg && connPathB === xo.intersectingPath) ||
-                                (connPathB === xo.pathWithSmallSeg && connPathA === xo.intersectingPath)) {
-                                isCrossoverConnection = true;
-                                break;
+                            var isCrossoverConnection = false;
+
+                            for (var xoIdx = 0; xoIdx < crossoverInfo.length; xoIdx++) {
+                                try {
+                                    var xo = crossoverInfo[xoIdx];
+                                    if (!xo || !xo.pathWithSmallSeg || !xo.intersectingPath) continue;
+                                    if ((connPathA === xo.pathWithSmallSeg && connPathB === xo.intersectingPath) ||
+                                        (connPathB === xo.pathWithSmallSeg && connPathA === xo.intersectingPath)) {
+                                        isCrossoverConnection = true;
+                                        break;
+                                    }
+                                } catch (eXo) { }
                             }
-                        }
 
-                        if (!isCrossoverConnection) {
-                            filteredConnections.push(connections[connIdx]);
-                        }
+                            if (!isCrossoverConnection) {
+                                filteredConnections.push(connections[connIdx]);
+                            }
+                        } catch (eConnFilter) { }
                     }
-                    addDebug("[XOVER] Filtered connections: " + originalConnCount + " -> " + filteredConnections.length);
                     connections = filteredConnections;
                 }
 
