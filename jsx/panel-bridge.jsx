@@ -5,6 +5,10 @@ if (typeof MDUX === "undefined") {
     var MDUX = {};
 }
 
+// Session ID to detect stale MDUX namespace from previous Illustrator sessions
+// If MDUX._bridgeSessionId doesn't match, we need to reload magic-final.jsx
+$.global.MDUX_BRIDGE_SESSION_ID = new Date().getTime().toString() + "_" + Math.random().toString(36).substr(2, 9);
+
 function MDUX_debugLog_Early(message) {
     try {
         var f = new File($.fileName);
@@ -559,7 +563,10 @@ function MDUX_runMagicDuctwork() {
 
 function MDUX_requireMagicFinal() {
     try {
-        if (typeof MDUX !== "undefined" && MDUX.rotateSelection) {
+        // Check if MDUX exists AND is from this session (not stale from previous Illustrator run)
+        // Stale MDUX has broken closures that cause "undefined is not an object" errors
+        var currentSessionId = $.global.MDUX_BRIDGE_SESSION_ID || "";
+        if (typeof MDUX !== "undefined" && MDUX.rotateSelection && MDUX._bridgeSessionId === currentSessionId) {
             return true;
         }
         var root = MDUX_extensionRoot();
@@ -783,7 +790,8 @@ function MDUX_prepareProcessBridge(optionsJSON) {
             skipOrtho: (typeof opts.skipOrtho === "boolean") ? opts.skipOrtho : undefined,
             rotationOverride: (typeof opts.rotationOverride === "number" && isFinite(opts.rotationOverride)) ? opts.rotationOverride : null,
             skipAllBranchSegments: !!opts.skipAllBranchSegments,
-            skipFinalRegisterSegment: !!opts.skipFinalRegisterSegment
+            skipFinalRegisterSegment: !!opts.skipFinalRegisterSegment,
+            skipRegisterRotation: !!opts.skipRegisterRotation
         };
         return "OK";
     } catch (e) {
@@ -798,6 +806,13 @@ function MDUX_rotateSelectionBridge(angle) {
         if (!MDUX_requireMagicFinal()) {
             return "ERROR:Rotate function unavailable";
         }
+        // Use absolute rotation so entering 45° sets to 45° (not adds 45°)
+        // Entering 0° resets to original/base orientation
+        if (typeof MDUX !== "undefined" && MDUX.rotateSelectionAbsolute) {
+            var stats = MDUX.rotateSelectionAbsolute(angle);
+            return JSON.stringify(stats);
+        }
+        // Fallback to legacy relative rotation if absolute unavailable
         if (typeof MDUX !== "undefined" && MDUX.rotateSelection) {
             var stats = MDUX.rotateSelection(angle);
             return JSON.stringify(stats);
@@ -1823,6 +1838,50 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             var targetY = nearestAnchor ? nearestAnchor.y : centerY;
                             $.writeln("[MOVE]   Target center (anchor): " + targetX + ", " + targetY);
 
+                            // Read old item's metadata BEFORE deleting it
+                            var oldItemMeta = null;
+                            var oldStoredRotation = 0;
+                            var oldStoredScale = null;
+                            try {
+                                oldItemMeta = MDUX_getMetadata(item);
+                                if (oldItemMeta) {
+                                    // Check for rotation in multiple places
+                                    if (oldItemMeta.tagRotation !== undefined) {
+                                        oldStoredRotation = parseFloat(oldItemMeta.tagRotation) || 0;
+                                    }
+                                    if (oldItemMeta.MDUX_CumulativeRotation !== undefined) {
+                                        var cumRot = parseFloat(oldItemMeta.MDUX_CumulativeRotation);
+                                        if (isFinite(cumRot) && Math.abs(cumRot) > Math.abs(oldStoredRotation)) {
+                                            oldStoredRotation = cumRot;
+                                        }
+                                    }
+                                    // Check for scale
+                                    if (oldItemMeta.tagScale !== undefined) {
+                                        oldStoredScale = parseFloat(oldItemMeta.tagScale);
+                                        if (!isFinite(oldStoredScale)) oldStoredScale = null;
+                                    }
+                                    if (oldStoredScale === null && oldItemMeta.MDUX_CurrentScale !== undefined) {
+                                        oldStoredScale = parseFloat(oldItemMeta.MDUX_CurrentScale);
+                                        if (!isFinite(oldStoredScale)) oldStoredScale = null;
+                                    }
+                                }
+                                $.writeln("[MOVE]   Old item metadata - Rotation: " + oldStoredRotation + ", Scale: " + oldStoredScale);
+                            } catch (eOldMeta) {
+                                $.writeln("[MOVE]   Warning: Could not read old item metadata: " + eOldMeta);
+                            }
+
+                            // Also check MD:PLACED_ROT= in notes using magic-final functions
+                            var oldPlacedRot = null;
+                            try {
+                                if (typeof getPlacedRotation === "function") {
+                                    oldPlacedRot = getPlacedRotation(item);
+                                    if (oldPlacedRot !== null && isFinite(oldPlacedRot) && Math.abs(oldPlacedRot) > 0.1) {
+                                        oldStoredRotation = oldPlacedRot;
+                                        $.writeln("[MOVE]   Found MD:PLACED_ROT=" + oldPlacedRot);
+                                    }
+                                }
+                            } catch (ePlacedRot) {}
+
                             // Delete the old item
                             item.remove();
                             $.writeln("[MOVE]   Old item removed");
@@ -1852,6 +1911,26 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             newItem.position = [targetX - newWidth / 2, targetY + newHeight / 2];
                             $.writeln("[MOVE]   Item centered on anchor at " + targetX + ", " + targetY);
 
+                            // Apply stored rotation from old item (if any)
+                            if (oldStoredRotation !== 0 && Math.abs(oldStoredRotation) > 0.1) {
+                                try {
+                                    newItem.rotate(oldStoredRotation, true, true, true, true, Transformation.CENTER);
+                                    $.writeln("[MOVE]   Applied stored rotation: " + oldStoredRotation + " deg");
+
+                                    // Re-center after rotation
+                                    var rotBounds = newItem.geometricBounds;
+                                    var rotCx = (rotBounds[0] + rotBounds[2]) / 2;
+                                    var rotCy = (rotBounds[1] + rotBounds[3]) / 2;
+                                    var rotDx = targetX - rotCx;
+                                    var rotDy = targetY - rotCy;
+                                    if (Math.abs(rotDx) > 0.01 || Math.abs(rotDy) > 0.01) {
+                                        newItem.translate(rotDx, rotDy);
+                                    }
+                                } catch (eApplyRot) {
+                                    $.writeln("[MOVE]   Warning: Failed to apply rotation: " + eApplyRot);
+                                }
+                            }
+
                             // Record this position to prevent duplicate art placement
                             artPlacedPositions.push({ x: targetX, y: targetY });
 
@@ -1877,14 +1956,18 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                                     }
                                 }
 
+                                // Use old stored values if available, otherwise defaults
+                                var finalRotation = oldStoredRotation || 0;
+                                var finalScale = oldStoredScale || smallestScale;
+
                                 var metadata = {
                                     MDUX_OriginalWidth: actualWidth,
                                     MDUX_OriginalHeight: actualHeight,
                                     MDUX_OriginalStrokeWidth: actualStrokeWidth,
-                                    MDUX_CumulativeRotation: "0",
-                                    MDUX_CurrentScale: String(smallestScale),
-                                    tagScale: smallestScale,
-                                    tagRotation: 0
+                                    MDUX_CumulativeRotation: String(finalRotation),
+                                    MDUX_CurrentScale: String(finalScale),
+                                    tagScale: finalScale,
+                                    tagRotation: finalRotation
                                 };
 
                                 // Store rotation override if available
@@ -1893,7 +1976,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                                 }
 
                                 MDUX_setMetadata(newItem, metadata);
-                                $.writeln("[MOVE]   Wrote complete metadata: scale=" + smallestScale + ", rotation=0" + (rotationOverride !== null ? ", rotOverride=" + rotationOverride : "") + ", width=" + actualWidth);
+                                $.writeln("[MOVE]   Wrote complete metadata: scale=" + finalScale + ", rotation=" + finalRotation + (rotationOverride !== null ? ", rotOverride=" + rotationOverride : "") + ", width=" + actualWidth);
                             } catch (eMetadata) {
                                 $.writeln("[MOVE]   Warning: Failed to write metadata: " + eMetadata);
                             }

@@ -2359,12 +2359,17 @@ function MDUX_getMetadata(item) {
             return null;
         }
         var jsonStr = note.substring(10); // Remove "MDUX_META:" prefix
+        // Extract only the JSON part (up to first | token separator, if present)
+        var pipeIdx = jsonStr.indexOf("|");
+        if (pipeIdx !== -1) {
+            jsonStr = jsonStr.substring(0, pipeIdx);
+        }
         if (typeof MDUX_debugLog === 'function') {
-            MDUX_debugLog("[META GET] JSON string: " + jsonStr.substring(0, 500));
+            MDUX_debugLog("[META GET] JSON string (clean): " + jsonStr.substring(0, 200));
         }
         var result = JSON.parse(jsonStr);
         if (typeof MDUX_debugLog === 'function') {
-            MDUX_debugLog("[META GET] Parsed successfully");
+            MDUX_debugLog("[META GET] Parsed: " + JSON.stringify(result).substring(0, 100));
         }
         return result;
     } catch (e) {
@@ -2379,11 +2384,26 @@ function MDUX_setMetadata(item, metadata) {
     try {
         var jsonStr = JSON.stringify(metadata);
         if (typeof MDUX_debugLog === 'function') {
-            MDUX_debugLog("[META SET] Item typename=" + item.typename + ", metadata=" + jsonStr.substring(0, 500));
+            MDUX_debugLog("[META SET] Item typename=" + item.typename + ", metadata=" + jsonStr.substring(0, 200));
         }
-        item.note = "MDUX_META:" + jsonStr;
+
+        // Preserve existing pipe-separated tokens (MD:PLACED_ROT=, MD:PLACED_BASE_ROT=, etc.)
+        var existingNote = "";
+        try { existingNote = item.note || ""; } catch (e) { existingNote = ""; }
+        var pipeSuffix = "";
+        if (existingNote.indexOf("MDUX_META:") === 0) {
+            var pipeIdx = existingNote.indexOf("|");
+            if (pipeIdx !== -1) {
+                pipeSuffix = existingNote.substring(pipeIdx); // Keep everything from first | onwards
+                if (typeof MDUX_debugLog === 'function') {
+                    MDUX_debugLog("[META SET] Preserving pipe tokens: " + pipeSuffix.substring(0, 100));
+                }
+            }
+        }
+
+        item.note = "MDUX_META:" + jsonStr + pipeSuffix;
         if (typeof MDUX_debugLog === 'function') {
-            MDUX_debugLog("[META SET] Written. Item note is now: " + (item.note || "(empty)").substring(0, 500));
+            MDUX_debugLog("[META SET] Written. Item note is now: " + (item.note || "(empty)").substring(0, 200));
         }
     } catch (e) {
         if (typeof MDUX_debugLog === 'function') {
@@ -2660,6 +2680,64 @@ function setStaticTextColor(control, rgbArray) {
     var LIMIT_BRANCH_PROCESS_MAP = null; // optional map of centerline ids to limit processing scope
     var SKIP_ALL_BRANCH_ORTHO = false; // controls whether all branch segments stay freeform
     var SKIP_FINAL_REGISTER_ORTHO = false; // controls whether only final register segments stay freeform
+    var SKIP_REGISTER_ROTATION = false; // controls whether square registers are rotated to match ductwork angle
+
+    // MDUX_getMetadata and MDUX_setMetadata must be defined early so they're available to all functions in this IIFE
+    // Note: Use MDUX_debugLog from panel-bridge.jsx which is always available, NOT addDebug which may have uninitialized dependencies
+    function MDUX_getMetadata_inner(item) {
+        // Use MDUX_debugLog if available (defined in panel-bridge.jsx), otherwise silent
+        var dbg = (typeof MDUX_debugLog === 'function') ? MDUX_debugLog : function() {};
+        try {
+            if (!item) {
+                return null;
+            }
+            var note = "";
+            try {
+                note = item.note || "";
+            } catch (eNote) {
+                return null;
+            }
+            if (!note || note.indexOf("MDUX_META:") !== 0) {
+                return null;
+            }
+            var jsonStr = note.substring(10); // Remove "MDUX_META:" prefix
+            // Extract only the JSON part (up to first | token separator, if present)
+            var pipeIdx = jsonStr.indexOf("|");
+            if (pipeIdx !== -1) {
+                jsonStr = jsonStr.substring(0, pipeIdx);
+            }
+            var result = JSON.parse(jsonStr);
+            return result;
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function MDUX_setMetadata_inner(item, metadata) {
+        // Use MDUX_debugLog if available (defined in panel-bridge.jsx), otherwise silent
+        var dbg = (typeof MDUX_debugLog === 'function') ? MDUX_debugLog : function() {};
+        try {
+            if (!item) {
+                return;
+            }
+            var jsonStr = JSON.stringify(metadata);
+
+            // Preserve existing pipe-separated tokens (MD:PLACED_ROT=, MD:PLACED_BASE_ROT=, etc.)
+            var existingNote = "";
+            try { existingNote = item.note || ""; } catch (e) { existingNote = ""; }
+            var pipeSuffix = "";
+            if (existingNote.indexOf("MDUX_META:") === 0) {
+                var pipeIdx = existingNote.indexOf("|");
+                if (pipeIdx !== -1) {
+                    pipeSuffix = existingNote.substring(pipeIdx); // Keep everything from first | onwards
+                }
+            }
+
+            item.note = "MDUX_META:" + jsonStr + pipeSuffix;
+        } catch (e) {
+            // Silent fail
+        }
+    }
 
     function resetBranchCustomStartWidths() {
         BRANCH_CUSTOM_START_WIDTHS = {};
@@ -4384,6 +4462,190 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         return stats;
     }
 
+    /**
+     * Rotate selection to an ABSOLUTE angle (not cumulative/relative).
+     * If the current rotation is 45° and you pass 65°, the item rotates to 65° (not to 110°).
+     * Entering 0° resets the item to its base/original orientation.
+     */
+    function rotateSelectionAbsolute(targetAngle, selectionItems) {
+        // Use safe debug logging - MDUX_debugLog is always available from panel-bridge.jsx
+        // but addDebug depends on GLOBAL_DEBUG_LOG which isn't initialized until later
+        var safeDebug = (typeof MDUX_debugLog === 'function') ? MDUX_debugLog : function() {};
+        safeDebug("[ROT-ABS] === rotateSelectionAbsolute called with targetAngle=" + targetAngle + " ===");
+        var stats = {
+            total: 0,
+            rotated: 0,
+            skipped: 0
+        };
+        if (!app.documents.length) return stats;
+        var doc = app.activeDocument;
+        if (!selectionItems) {
+            try { selectionItems = doc.selection; } catch (eSel) { selectionItems = null; }
+        }
+        if (!selectionItems || (selectionItems.length === 0 && !selectionItems.typename)) {
+            safeDebug("[ROT-ABS] No selection items");
+            return stats;
+        }
+
+        // Collect rotation targets (ductwork pieces only)
+        var targets = [];
+        function collect(item) {
+            if (!item) return;
+            var layerName = "";
+            try { layerName = item.layer ? item.layer.name : ""; } catch (e) { layerName = ""; }
+            if (layerNameInList(layerName, DUCTWORK_PIECES)) {
+                if (arrayIndexOf(targets, item) === -1) targets.push(item);
+                return;
+            }
+            var typeName = item.typename;
+            if (typeName === "GroupItem") {
+                try {
+                    for (var gi = 0; gi < item.pageItems.length; gi++) {
+                        collect(item.pageItems[gi]);
+                    }
+                } catch (eGroup) {}
+            } else if (typeName === "CompoundPathItem") {
+                try {
+                    for (var ci = 0; ci < item.pathItems.length; ci++) {
+                        collect(item.pathItems[ci]);
+                    }
+                } catch (eComp) {}
+            }
+        }
+
+        if (selectionItems.length === undefined && selectionItems.typename) {
+            collect(selectionItems);
+        } else {
+            for (var i = 0; i < selectionItems.length; i++) {
+                collect(selectionItems[i]);
+            }
+        }
+
+        stats.total = targets.length;
+        safeDebug("[ROT-ABS] Found " + targets.length + " rotation targets");
+
+        for (var t = 0; t < targets.length; t++) {
+            var target = targets[t];
+            if (!target) {
+                stats.skipped++;
+                continue;
+            }
+            try {
+                var currentAngle = 0;
+                var typeName = target.typename;
+                safeDebug("[ROT-ABS] Target " + t + ": typename=" + typeName);
+
+                if (typeName === "PlacedItem") {
+                    // First check MDUX_RotationOverride - this is set by Process Ductwork
+                    // and is the authoritative source for the intended rotation angle
+                    var meta = MDUX_getMetadata_inner(target);
+                    if (meta && meta.MDUX_RotationOverride !== undefined && meta.MDUX_RotationOverride !== null) {
+                        currentAngle = parseFloat(meta.MDUX_RotationOverride);
+                        safeDebug("[ROT-ABS] Using MDUX_RotationOverride: " + currentAngle);
+                    } else {
+                        // Fallback: try MD:PLACED_ROT token (for items rotated via panel)
+                        var rotDelta = getPlacedRotationDelta(target);
+                        safeDebug("[ROT-ABS] getPlacedRotationDelta returned: " + rotDelta);
+
+                        if (rotDelta !== null && isFinite(rotDelta)) {
+                            // Has MD:PLACED_ROT - calculate full rotation
+                            var baseRot = ensurePlacedBaseRotation(target);
+                            currentAngle = normalizeAngle(baseRot + rotDelta);
+                            safeDebug("[ROT-ABS] Calculated from base(" + baseRot + ") + delta(" + rotDelta + ") = " + currentAngle);
+                        } else {
+                            // BACKWARDS COMPATIBILITY: No metadata at all
+                            // Use the visual rotation directly from the transformation matrix
+                            var matrixAngle = computePlacedPrimaryAngle(target);
+                            currentAngle = normalizeAngle(matrixAngle);
+                            safeDebug("[ROT-ABS] LEGACY: Using matrix angle: " + matrixAngle + " -> normalized: " + currentAngle);
+                        }
+                    }
+                    safeDebug("[ROT-ABS] currentAngle = " + currentAngle);
+                } else {
+                    // For other items, try to read from metadata or assume 0
+                    var storedRot2 = getPlacedRotation(target);
+                    if (storedRot2 !== null && isFinite(storedRot2)) {
+                        currentAngle = storedRot2;
+                    }
+                }
+
+                // Normalize angles for comparison
+                currentAngle = normalizeAngle(currentAngle);
+                var normalizedTarget = normalizeAngle(targetAngle);
+                safeDebug("[ROT-ABS] normalized: current=" + currentAngle.toFixed(2) + ", target=" + normalizedTarget.toFixed(2));
+
+                // Calculate the delta needed to reach target angle
+                var deltaAngle = normalizedTarget - currentAngle;
+
+                // Optimize rotation direction (take shortest path)
+                if (deltaAngle > 180) deltaAngle -= 360;
+                if (deltaAngle < -180) deltaAngle += 360;
+                safeDebug("[ROT-ABS] deltaAngle = " + deltaAngle.toFixed(2));
+
+                // Skip if already at target angle (within tolerance)
+                if (Math.abs(deltaAngle) < 0.01) {
+                    safeDebug("[ROT-ABS] Already at target angle, skipping rotation");
+                    // Already at target, but update metadata to be consistent
+                    if (typeName === "PlacedItem") {
+                        setPlacedRotation(target, normalizedTarget);
+                    }
+                    stats.rotated++;
+                    continue;
+                }
+
+                // Apply the delta rotation
+                safeDebug("[ROT-ABS] Applying rotation delta: " + deltaAngle.toFixed(2));
+                target.rotate(deltaAngle, true, true, true, true, Transformation.CENTER);
+                stats.rotated++;
+
+                // Update rotation metadata
+                if (typeName === "PlacedItem") {
+                    setPlacedRotation(target, normalizedTarget);
+                    safeDebug("[ROT-ABS] Stored MD:PLACED_ROT: " + normalizedTarget);
+
+                    // Also update MDUX_RotationOverride so the display shows the correct angle
+                    var updateMeta = MDUX_getMetadata_inner(target) || {};
+                    updateMeta.MDUX_RotationOverride = normalizedTarget;
+                    MDUX_setMetadata_inner(target, updateMeta);
+                    safeDebug("[ROT-ABS] Updated MDUX_RotationOverride: " + normalizedTarget);
+
+                    // Refresh the link to fix the bounding box after rotation
+                    // IMPORTANT: Save note before relink - relink wipes metadata!
+                    try {
+                        var linkedFile = target.file;
+                        if (linkedFile && linkedFile.exists) {
+                            var savedNote = target.note || "";
+                            safeDebug("[ROT-ABS] Saved note before relink: " + savedNote.substring(0, 100));
+                            target.file = linkedFile;
+                            try { target.relink(linkedFile); } catch (eRl) {}
+                            try { target.update(); } catch (eUp) {}
+                            // Restore the note after relink
+                            if (savedNote) {
+                                target.note = savedNote;
+                                safeDebug("[ROT-ABS] Restored note after relink");
+                            }
+                            safeDebug("[ROT-ABS] Refreshed link (file+relink+update) to fix bounding box");
+                        }
+                    } catch (eRelink) {
+                        safeDebug("[ROT-ABS] Could not refresh link: " + eRelink);
+                    }
+
+                    // Verify what was stored
+                    var verifyRot = getPlacedRotation(target);
+                    safeDebug("[ROT-ABS] Verify after store: " + verifyRot);
+                }
+            } catch (eRotate) {
+                safeDebug("[ROT-ABS] ERROR: " + eRotate);
+                stats.skipped++;
+            }
+        }
+
+        try { doc.selection = targets; } catch (eSelReset) {}
+        try { app.redraw(); } catch (eRedraw) {}
+        safeDebug("[ROT-ABS] Complete. Stats: " + JSON.stringify(stats));
+        return stats;
+    }
+
     function setLayerLockRecursive(layer, locked) {
         if (!layer) return;
         try { layer.locked = locked; } catch (e) {}
@@ -4691,7 +4953,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 // Only check for stored rotation override in metadata - do NOT fall back to transform matrix
                 // The rotation override box should only show explicitly set rotation overrides
                 try {
-                    var meta = MDUX_getMetadata(selectionItem);
+                    var meta = MDUX_getMetadata_inner(selectionItem);
                     MDUX_debugLog("[ROT-SUMMARY] PlacedItem meta: " + (meta ? JSON.stringify(meta).substring(0, 200) : "null"));
                     if (meta && meta.MDUX_RotationOverride !== undefined && meta.MDUX_RotationOverride !== null) {
                         var storedRotOverride = parseFloat(meta.MDUX_RotationOverride);
@@ -4721,7 +4983,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var foundCompoundRot = false;
                 // First check compound path's MDUX_META for rotation override
                 try {
-                    var compMeta = MDUX_getMetadata(selectionItem);
+                    var compMeta = MDUX_getMetadata_inner(selectionItem);
                     MDUX_debugLog("[ROT-SUMMARY] Compound MDUX_META: " + (compMeta ? JSON.stringify(compMeta).substring(0, 200) : "null"));
                     if (compMeta && compMeta.MDUX_RotationOverride !== undefined && compMeta.MDUX_RotationOverride !== null) {
                         var compRot = parseFloat(compMeta.MDUX_RotationOverride);
@@ -4801,6 +5063,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             } catch (eAssign) {
                 // ignore assignment issues
             }
+            // Store session ID to detect stale MDUX from previous Illustrator sessions
+            // Panel-bridge checks this to know if closures are still valid
+            mdNamespace._bridgeSessionId = $.global.MDUX_BRIDGE_SESSION_ID || "";
             mdNamespace.revertSelectionToPreOrtho = function (selectionItems) {
                 var items = selectionItems;
                 if (!items && app.documents.length) {
@@ -4810,6 +5075,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             };
             mdNamespace.rotateSelection = function (angle, selectionItems) {
                 return rotateSelection(angle, selectionItems);
+            };
+            mdNamespace.rotateSelectionAbsolute = function (targetAngle, selectionItems) {
+                return rotateSelectionAbsolute(targetAngle, selectionItems);
             };
             mdNamespace.scaleSelectionAbsolute = function (percent, selectionItems) {
                 return scaleSelectionAbsolute(percent, selectionItems);
@@ -8229,6 +8497,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // --- RESET GLOBAL OPTIONS ---
     SKIP_ALL_BRANCH_ORTHO = false;
     SKIP_FINAL_REGISTER_ORTHO = false;
+    SKIP_REGISTER_ROTATION = false;
 
     // --- COLLECT PATHS ---
     addDebug("=== MAGIC DUCTWORK STARTING ===");
@@ -8335,6 +8604,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     if (startupChoice && typeof startupChoice.skipFinalRegisterSegment !== "undefined") {
         SKIP_FINAL_REGISTER_ORTHO = !!startupChoice.skipFinalRegisterSegment;
     }
+    if (startupChoice && typeof startupChoice.skipRegisterRotation !== "undefined") {
+        SKIP_REGISTER_ROTATION = !!startupChoice.skipRegisterRotation;
+    }
+    addDebug("[Register Rotation] SKIP_REGISTER_ROTATION=" + SKIP_REGISTER_ROTATION);
     // Enforce mutual exclusivity: skipFinal takes precedence over skipAll
     if (SKIP_FINAL_REGISTER_ORTHO && SKIP_ALL_BRANCH_ORTHO) {
         addDebug("[Skip Ortho] WARNING: Both skip options were true! Setting SKIP_ALL_BRANCH_ORTHO=false");
@@ -8644,34 +8917,13 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         writeNoteTokens(item, filtered);
     }
 
+    // MDUX_getMetadata and MDUX_setMetadata - redirect to early-defined _inner versions
     function MDUX_getMetadata(item) {
-        try {
-            var note = item.note || "";
-            addDebug("[META GET INNER] Item typename=" + item.typename + ", note=" + (note ? note.substring(0, 500) : "(empty)"));
-            if (!note || note.indexOf("MDUX_META:") !== 0) {
-                addDebug("[META GET INNER] No MDUX_META prefix, returning null");
-                return null;
-            }
-            var jsonStr = note.substring(10); // Remove "MDUX_META:" prefix
-            addDebug("[META GET INNER] JSON string: " + jsonStr.substring(0, 500));
-            var result = JSON.parse(jsonStr);
-            addDebug("[META GET INNER] Parsed successfully");
-            return result;
-        } catch (e) {
-            addDebug("[META GET INNER] ERROR: " + e);
-            return null;
-        }
+        return MDUX_getMetadata_inner(item);
     }
 
     function MDUX_setMetadata(item, metadata) {
-        try {
-            var jsonStr = JSON.stringify(metadata);
-            addDebug("[META SET INNER] Item typename=" + item.typename + ", metadata=" + jsonStr.substring(0, 500));
-            item.note = "MDUX_META:" + jsonStr;
-            addDebug("[META SET INNER] Written. Item note is now: " + (item.note || "(empty)").substring(0, 500));
-        } catch (e) {
-            addDebug("[META SET INNER] ERROR: " + e);
-        }
+        return MDUX_setMetadata_inner(item, metadata);
     }
 
     function getPlacedBaseRotation(item) {
@@ -10922,7 +11174,36 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 continue;
             }
 
-            createAnchorPoint(destLayer, currentEndpoint.pos, currentEndpoint.rotationOverride);
+            // Calculate ductwork angle at endpoint for rotation (if not disabled)
+            var endpointRotation = currentEndpoint.rotationOverride;
+            if (!SKIP_REGISTER_ROTATION && destLayerName === "Square Registers") {
+                try {
+                    var epPath = currentEndpoint.path;
+                    var epIdx = currentEndpoint.index;
+                    if (epPath && epPath.pathPoints && epPath.pathPoints.length >= 2) {
+                        var pt1, pt2;
+                        if (epIdx === 0) {
+                            // First point - angle from point 0 to point 1
+                            pt1 = epPath.pathPoints[0].anchor;
+                            pt2 = epPath.pathPoints[1].anchor;
+                        } else {
+                            // Last point - angle from second-to-last to last
+                            var lastIdx = epPath.pathPoints.length - 1;
+                            pt1 = epPath.pathPoints[lastIdx - 1].anchor;
+                            pt2 = epPath.pathPoints[lastIdx].anchor;
+                        }
+                        var dxEp = pt2[0] - pt1[0];
+                        var dyEp = pt2[1] - pt1[1];
+                        var ductAngleEp = Math.atan2(dyEp, dxEp) * (180 / Math.PI);
+                        endpointRotation = normalizeAngle(ductAngleEp);
+                        addDebug("[ENDPOINT-ROTATION] Calculated angle " + ductAngleEp.toFixed(1) + " deg at endpoint [" + currentEndpoint.pos[0].toFixed(1) + "," + currentEndpoint.pos[1].toFixed(1) + "]");
+                    }
+                } catch (eAngle) {
+                    addDebug("[ENDPOINT-ROTATION] Error calculating angle: " + eAngle);
+                }
+            }
+
+            createAnchorPoint(destLayer, currentEndpoint.pos, endpointRotation);
             try { DIAG.createdRegisters++; } catch (e) {}
         }
     }
@@ -13266,6 +13547,17 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         // Apply default 50% scale
                         var DEFAULT_SCALE = 50;
                         placed.resize(DEFAULT_SCALE, DEFAULT_SCALE, true, true, true, true, DEFAULT_SCALE, Transformation.CENTER);
+
+                        // Apply rotation to match ductwork angle (if not disabled)
+                        if (!SKIP_REGISTER_ROTATION) {
+                            var dxAngle = anchorPt[0] - prevPt[0];
+                            var dyAngle = anchorPt[1] - prevPt[1];
+                            var ductAngle = Math.atan2(dyAngle, dxAngle) * (180 / Math.PI);
+                            placed.rotate(ductAngle, true, true, true, true, Transformation.CENTER);
+                            // Store rotation metadata (same format as rotation slider)
+                            setPlacedRotation(placed, normalizeAngle(ductAngle));
+                            addDebug("[INTERNAL-REGISTERS] Applied rotation " + ductAngle.toFixed(1) + " deg to match ductwork");
+                        }
 
                         // Re-center after scaling
                         bounds = placed.geometricBounds;
