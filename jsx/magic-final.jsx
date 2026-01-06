@@ -8540,6 +8540,59 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     SKIP_FINAL_REGISTER_ORTHO = false;
     SKIP_REGISTER_ROTATION = false;
 
+    // --- PROGRESS DIALOG HELPER ---
+    // Creates a progress dialog for large selections to prevent perceived lockup
+    var progressWin = null;
+    var progressBar = null;
+    var progressLabel = null;
+    var PROGRESS_STEPS = 12; // Total number of major steps
+    var currentStep = 0;
+
+    function initProgress(pathCount) {
+        // Only show progress for larger selections
+        if (pathCount < 15) return;
+        try {
+            progressWin = new Window('palette', 'Processing Ductwork...', undefined, {closeButton: false});
+            progressWin.orientation = 'column';
+            progressWin.alignChildren = ['fill', 'top'];
+
+            progressLabel = progressWin.add('statictext', undefined, 'Initializing...');
+            progressLabel.preferredSize = [300, 20];
+
+            progressBar = progressWin.add('progressbar', undefined, 0, PROGRESS_STEPS);
+            progressBar.preferredSize = [300, 20];
+
+            var pathInfo = progressWin.add('statictext', undefined, 'Processing ' + pathCount + ' paths');
+            pathInfo.preferredSize = [300, 20];
+
+            progressWin.show();
+        } catch (e) {
+            progressWin = null; // If window creation fails, continue without progress
+        }
+    }
+
+    function updateProgress(stepName) {
+        currentStep++;
+        if (progressWin && progressLabel && progressBar) {
+            try {
+                progressLabel.text = stepName;
+                progressBar.value = currentStep;
+                progressWin.update();
+                app.redraw(); // Force Illustrator to update
+            } catch (e) {}
+        }
+        addDebug("[PROGRESS] Step " + currentStep + "/" + PROGRESS_STEPS + ": " + stepName);
+    }
+
+    function closeProgress() {
+        if (progressWin) {
+            try {
+                progressWin.close();
+            } catch (e) {}
+            progressWin = null;
+        }
+    }
+
     // --- COLLECT PATHS ---
     addDebug("=== MAGIC DUCTWORK STARTING ===");
     addDebug("Selection has " + sel.length + " items");
@@ -8601,6 +8654,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         alert("No valid path items.");
         return;
     }
+
+    // Initialize progress dialog for larger selections
+    initProgress(allPaths.length);
+    updateProgress("Normalizing strokes...");
 
     // *** EARLY STROKE NORMALIZATION ***
     // Normalize all selected paths to the smallest stroke width in the selection
@@ -11970,6 +12027,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     try { snapThermostatEndpointsToJunctions(); } catch (e) {}
 
     // STEP 1: Process selected paths (snap, orthogonalize)
+    updateProgress("Orthogonalizing paths...");
     var geometryPaths = allPaths.slice();
     BLUE_BRANCH_CONNECTIONS = [];
     for (var gpClear = 0; gpClear < geometryPaths.length; gpClear++) {
@@ -12550,6 +12608,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
 
     // STEP 2: Remove any art on target layers that conflicts with the 'Ignore' layer
+    updateProgress("Cleaning ignored areas...");
     doc.selection = null;
     var ignoredAnchors = getIgnoredAnchorPoints();
 
@@ -12643,6 +12702,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     try { mergeAnchorsOnLayer("Units", UNIT_MERGE_DIST); } catch (e) {}
 
     // STEP 3: Create Units FIRST from close endpoints between ductwork layers
+    updateProgress("Creating units...");
     // *** Get existing anchor points from all target layers before Units creation ***
     var existingAnchorsForUnits = getExistingAnchorPoints(["Units", "Square Registers", "Exhaust Registers", "Thermostats"]);
     
@@ -12698,6 +12758,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     }
 
     // STEP 4: Create Registers, but skip endpoints that are close to existing Units, Ignored points, or existing points
+    updateProgress("Creating registers...");
     // *** REFACTORED: Create a single, comprehensive list of all existing points to check against ***
     var allExistingRegisterPoints = getExistingAnchorPoints([
         "Units", 
@@ -12732,6 +12793,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // *** CARVE OUT BLUE DUCTWORK LINES THAT PASS THROUGH SQUARE REGISTERS ***
     // After placing square registers, check if OTHER blue lines pass through register areas
     // and carve out those segments to prevent overlap
+    updateProgress("Carving register gaps...");
     addDebug("\n=== SQUARE REGISTER CARVE-OUT ===");
 
     var REGISTER_CARVE_HALF_WIDTH = 13.5; // 27pt total gap centered on register
@@ -13064,6 +13126,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // *** AUTOMATIC BLUE PATH INTERSECTION CARVE-OUT ***
     // Detect where blue ductwork paths cross each other (without requiring small segments)
     // and create carve-outs at those intersection points
+    updateProgress("Carving intersections...");
     addDebug("\n=== AUTOMATIC BLUE PATH INTERSECTION CARVE-OUT ===");
 
     var AUTO_CARVE_HALF_WIDTH = 4.25; // 8.5pt total gap, same as small segment crossovers
@@ -13478,6 +13541,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // *** PLACE SQUARE REGISTERS AT INTERNAL ANCHORS WITH NO DIRECTION CHANGE ***
     // For internal anchors on blue paths that are NOT crossovers and have no direction change
     // (incoming/outgoing segments are collinear), place a square register
+    updateProgress("Internal anchor registers...");
     addDebug("\n=== INTERNAL ANCHOR REGISTERS (NO DIRECTION CHANGE) ===");
 
     // Helper: Check if three points are collinear (no direction change at middle point)
@@ -13671,6 +13735,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     addDebug("[INTERNAL-REGISTERS] Skipped " + internalRegistersSkipped + " internal anchor(s)");
 
     // STEP 5: Create Thermostats from endpoints not near units, ignored points, or existing points
+    updateProgress("Creating thermostats...");
     // *** Refresh existing anchor points after Registers creation ***
     var existingAnchorsForThermostats = getExistingAnchorPoints(["Units", "Square Registers", "Exhaust Registers", "Thermostats"]);
     
@@ -13680,6 +13745,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // STEP 6: Compound connected paths PER LAYER within selection
     // Both Normal AND Emory mode use compounding to create proper centerlines
     // The Double Ductwork (rectangles/connectors) are generated separately AFTER compounding
+    updateProgress("Compounding paths...");
     addDebug("\n=== COMPOUNDING CONNECTED PATHS ===");
     var baseCompoundLayers = ["Green Ductwork", "Blue Ductwork", "Orange Ductwork", "Light Orange Ductwork"];
     var layersToProcess = [];
@@ -14174,6 +14240,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     doc.selection = null;
 
     // STEP 7: Call the next script in the workflow (embedded version of 03 - Place Ductwork at Points.jsx)
+    updateProgress("Placing components...");
     try {
         // Embedded to avoid external file dependency. Runs the Place Ductwork routine using the current document.
         (function placeDuctworkAtPoints_embedded(doc) {
@@ -15277,6 +15344,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
     // STEP 8: Apply graphic styles AFTER everything else is completely done
     // *** USING ENHANCED ROBUST VERSION ***
+    updateProgress("Applying styles...");
     addDebug("[STEP8] About to call applyAllDuctworkStylesRobust");
     try {
         applyAllDuctworkStylesRobust(originalSelectionItems);
@@ -15391,6 +15459,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
     doc.selection = null;
     // alert("Processing complete!");
+
+    // Close progress dialog
+    closeProgress();
 
     // Write debug log
     writeDebugLog();
