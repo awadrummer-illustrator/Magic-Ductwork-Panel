@@ -9374,11 +9374,7 @@ function setStaticTextColor(control, rgbArray) {
 
             var rotationOverride = getRotationOverride(pathItem);
             var hasRotationOverride = rotationOverride !== null;
-            if (hasRotationOverride) {
-                addDebug("[Orthogonalize] Path on '" + layerName + "' has rotation override: " + rotationOverride + "°");
-            } else {
-                addDebug("[Orthogonalize] Path on '" + layerName + "' has NO rotation override");
-            }
+            // PERFORMANCE: Removed per-path logging
             if (!hasRotationOverride && branchData && branchData.mainPath) {
                 try {
                     var mainPathItem = branchData.mainPath;
@@ -9399,7 +9395,6 @@ function setStaticTextColor(control, rgbArray) {
             // Skip ORTHO_LOCK check when skip-final is enabled (paths may need re-processing
             // after shared endpoints are moved by other paths)
             if (!hasRotationOverride && !SKIP_FINAL_REGISTER_ORTHO && hasOrthoLock(pathItem)) {
-                addDebug("[Orthogonalize] Path on '" + layerName + "' has ORTHO_LOCK, skipping");
                 return false;
             }
 
@@ -9524,7 +9519,6 @@ function setStaticTextColor(control, rgbArray) {
                 // (it T-junctions onto trunk or goes to registers at both ends)
                 if (!firstEndpointConnected && !lastEndpointConnected) {
                     pathIsBranch = true;
-                    addDebug("[Orthogonalize] Path is a BRANCH (no endpoint-to-endpoint connections)");
 
                     // For skip-final, we need to know which end is the register end
                     // Check which endpoint T-junctions onto another path (that's the trunk connection)
@@ -9532,59 +9526,29 @@ function setStaticTextColor(control, rgbArray) {
                     var lastTJunctions = endpointTJunctionsOntoPath(pathItem, pts.length - 1);
 
                     if (firstTJunctions && !lastTJunctions) {
-                        // First point T-junctions onto trunk, so last point is register end
                         registerEndIsFirst = false;
-                        addDebug("[Orthogonalize] Branch orientation: FIRST endpoint T-junctions, LAST is register end");
                     } else if (!firstTJunctions && lastTJunctions) {
-                        // Last point T-junctions onto trunk, so first point is register end
                         registerEndIsFirst = true;
-                        addDebug("[Orthogonalize] Branch orientation: LAST endpoint T-junctions, FIRST is register end");
                     } else {
-                        // Both or neither T-junction - default to assuming last index is register end
                         registerEndIsFirst = false;
-                        addDebug("[Orthogonalize] Branch orientation: AMBIGUOUS (both=" + firstTJunctions + "), defaulting to last=register");
                     }
-                } else {
-                    addDebug("[Orthogonalize] Path is TRUNK (has endpoint connections: first=" + firstEndpointConnected + ", last=" + lastEndpointConnected + ")");
                 }
             }
 
+            // PERFORMANCE: Removed all addDebug calls from this hot function
             var shouldOrthogonalizeSegment = function (segmentIndex, totalSegments) {
-                addDebug("[shouldOrtho] Seg " + segmentIndex + "/" + totalSegments + " | skipAll=" + skipAllBranchOrtho + " skipFinal=" + skipFinalBranchOrtho + " isBranch=" + pathIsBranch + " regEndFirst=" + registerEndIsFirst);
-                // Skip ALL branch segments option
                 if (skipAllBranchOrtho) {
-                    if (pathIsBranch) {
-                        addDebug("[Orthogonalize Seg " + segmentIndex + "] SKIPPING - path is a branch (skip all branches mode)");
-                        return false;
-                    }
-                    addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - path is trunk");
+                    if (pathIsBranch) return false;
                     return true;
                 }
 
-                // Skip only final branch segment option
                 if (skipFinalBranchOrtho) {
-                    // TRUNK paths: orthogonalize ALL segments (including register ends)
-                    if (!pathIsBranch) {
-                        addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - path is trunk");
-                        return true;
-                    }
-
-                    // BRANCH paths: only skip the register-end segment
-                    // For single-segment branches, still orthogonalize them
-                    if (totalSegments === 1) {
-                        addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - single-segment branch (still orthogonalizing)");
-                        return true;
-                    }
-
-                    // Determine which segment is the register-end segment based on branch orientation
+                    if (!pathIsBranch) return true;
+                    if (totalSegments === 1) return true;
                     var registerSegmentIndex = registerEndIsFirst ? 0 : (totalSegments - 1);
-
                     if (segmentIndex === registerSegmentIndex) {
-                        addDebug("[Orthogonalize Seg " + segmentIndex + "] SKIPPING - register-end segment");
                         return false;
                     }
-
-                    addDebug("[Orthogonalize Seg " + segmentIndex + "] Processing - branch segment (not register end)");
                     return true;
                 }
 
@@ -9592,7 +9556,6 @@ function setStaticTextColor(control, rgbArray) {
             };
 
             var totalSegments = pathItem.closed ? pts.length : pts.length - 1;
-            addDebug("[Orthogonalize] Processing '" + layerName + "' - " + totalSegments + " segments (closed: " + pathItem.closed + ")");
 
             for (var i = 0; i < pts.length; i++) {
                 try {
@@ -12325,29 +12288,8 @@ function setStaticTextColor(control, rgbArray) {
 
         var preOrthoConnections = collectEndpointConnections(geometryPaths, RECONNECT_CAPTURE_DIST);
 
-        // Verify rotation override is on paths before orthogonalization
-        addDebug("[Pre-Orthogonalize Check] Checking " + geometryPaths.length + " paths for rotation override");
-        var pathsWithOverride = 0;
-        for (var checkIdx = 0; checkIdx < geometryPaths.length; checkIdx++) {
-            var checkOverride = getRotationOverride(geometryPaths[checkIdx]);
-            if (checkOverride !== null) {
-                pathsWithOverride++;
-                addDebug("[Pre-Orthogonalize Check] Path " + checkIdx + " has override: " + checkOverride + "°");
-            }
-        }
-        addDebug("[Pre-Orthogonalize Check] " + pathsWithOverride + " of " + geometryPaths.length + " paths have rotation override");
-
-        // Debug: list all paths in geometryPaths
-        addDebug("[Orthogonalize] === PATH LIST (" + geometryPaths.length + " paths) ===");
-        for (var listIdx = 0; listIdx < geometryPaths.length; listIdx++) {
-            var listPath = geometryPaths[listIdx];
-            var listLayerName = "";
-            var listPtCount = 0;
-            try { listLayerName = listPath.layer ? listPath.layer.name : "unknown"; } catch (e) { listLayerName = "unknown"; }
-            try { listPtCount = listPath.pathPoints ? listPath.pathPoints.length : 0; } catch (e) { listPtCount = 0; }
-            addDebug("[Orthogonalize] Path " + listIdx + ": layer='" + listLayerName + "', points=" + listPtCount);
-        }
-        addDebug("[Orthogonalize] === END PATH LIST ===");
+        // PERFORMANCE: Skip per-path logging - just log summary
+        addDebug("[Orthogonalize] Processing " + geometryPaths.length + " paths");
 
         // *** EARLY CROSSOVER DETECTION AND SPLITTING ***
         // Must happen BEFORE orthogonalization so split paths get orthogonalized together at same Y level
