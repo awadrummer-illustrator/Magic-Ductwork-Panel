@@ -480,8 +480,8 @@ function MDUX_debugLog(message) {
         var logEntry = "[" + timestamp + "] " + message;
         $.global.MDUX_debugBuffer.push(logEntry);
 
-        // Keep only last 200 entries to prevent memory issues
-        if ($.global.MDUX_debugBuffer.length > 200) {
+        // Keep only last 2000 entries to prevent memory issues
+        if ($.global.MDUX_debugBuffer.length > 2000) {
             $.global.MDUX_debugBuffer.shift();
         }
     } catch (e) {
