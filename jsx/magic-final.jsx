@@ -10263,6 +10263,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                             try {
                                 var anchor = path.pathPoints[j].anchor;
                                 ignoredAnchors.push([anchor[0], anchor[1]]);
+                                addDebug("[IGNORE-COLLECT] Found ignore anchor at [" + anchor[0].toFixed(1) + "," + anchor[1].toFixed(1) + "]");
                             } catch (e) {
                                 // Skip this anchor point
                             }
@@ -11864,15 +11865,22 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // If an internal anchor on a blue ductwork path is within 4pt of an endpoint,
     // remove the internal anchor and mark that endpoint to be ignored (no part placed there)
     // Also mark the OPPOSITE endpoint for unit placement
+    addDebug("\n=== INTERNAL ANCHOR CLEANUP (near endpoints) ===");
     var ENDPOINT_INTERNAL_THRESHOLD = 4;
     var endpointsToIgnore = []; // Store endpoints that should be added to ignore layer
     var oppositeEndpointsForUnits = []; // Store opposite endpoints where units should be created
+
+    addDebug("[CLEANUP] Checking " + bluePaths.length + " blue path(s) for internal anchors within " + ENDPOINT_INTERNAL_THRESHOLD + "pt of endpoints");
 
     for (var cleanIdx = 0; cleanIdx < bluePaths.length; cleanIdx++) {
         try {
             var cleanPath = bluePaths[cleanIdx];
             var cleanPts = cleanPath.pathPoints;
-            if (cleanPts.length < 3) continue; // Need at least 3 points to have internal anchors
+            addDebug("[CLEANUP] Path " + cleanIdx + ": " + cleanPts.length + " points");
+            if (cleanPts.length < 3) {
+                addDebug("[CLEANUP] Path " + cleanIdx + ": Skipping - less than 3 points (no internal anchors)");
+                continue; // Need at least 3 points to have internal anchors
+            }
 
             var startPt = cleanPts[0].anchor;
             var endPt = cleanPts[cleanPts.length - 1].anchor;
@@ -11889,6 +11897,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     Math.pow(intAnchor[0] - endPt[0], 2) +
                     Math.pow(intAnchor[1] - endPt[1], 2)
                 );
+                addDebug("[CLEANUP] Path " + cleanIdx + " internal #" + intIdx + " at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "]: distToStart=" + distToStart.toFixed(1) + "pt, distToEnd=" + distToEnd.toFixed(1) + "pt");
 
                 if (distToStart <= ENDPOINT_INTERNAL_THRESHOLD) {
                     addDebug("[CLEANUP] Path " + cleanIdx + ": Internal anchor at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "] is " + distToStart.toFixed(1) + "pt from start - REMOVING and marking start endpoint to ignore");
@@ -11911,9 +11920,43 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         }
     }
 
-    // Add the identified endpoints to the ignore layer (will be done later after layer setup)
+    // PERSIST IGNORE ANCHORS IMMEDIATELY - create physical PathItems on Ignored layer
     if (endpointsToIgnore.length > 0) {
-        addDebug("[CLEANUP] Marked " + endpointsToIgnore.length + " endpoint(s) to be added to Ignored layer");
+        addDebug("[CLEANUP] Persisting " + endpointsToIgnore.length + " endpoint(s) to Ignored layer NOW");
+        var cleanupIgnLayer = null;
+        try {
+            cleanupIgnLayer = doc.layers.getByName("Ignored");
+        } catch (eNoLayer) {
+            addDebug("[CLEANUP] Creating Ignored layer");
+            cleanupIgnLayer = doc.layers.add();
+            cleanupIgnLayer.name = "Ignored";
+        }
+        if (cleanupIgnLayer) {
+            // Unlock and make visible
+            if (cleanupIgnLayer.locked) cleanupIgnLayer.locked = false;
+            if (!cleanupIgnLayer.visible) cleanupIgnLayer.visible = true;
+            // Unlock parents too
+            var pContainer = cleanupIgnLayer.parent;
+            while (pContainer && (pContainer.typename === "Layer" || pContainer.typename === "GroupItem")) {
+                try { if (pContainer.locked) pContainer.locked = false; } catch(e){}
+                try { if (!pContainer.visible) pContainer.visible = true; } catch(e){}
+                pContainer = pContainer.parent;
+            }
+            // Create physical PathItems for each endpoint
+            for (var epIdx = 0; epIdx < endpointsToIgnore.length; epIdx++) {
+                var epPt = endpointsToIgnore[epIdx];
+                try {
+                    var epIgnAnchor = cleanupIgnLayer.pathItems.add();
+                    epIgnAnchor.setEntirePath([[epPt[0], epPt[1]]]);
+                    epIgnAnchor.filled = false;
+                    epIgnAnchor.stroked = false;
+                    addDebug("[CLEANUP] Created physical ignore anchor at [" + epPt[0].toFixed(1) + "," + epPt[1].toFixed(1) + "]");
+                } catch (eAdd) {
+                    addDebug("[CLEANUP] ERROR creating ignore anchor: " + eAdd);
+                }
+            }
+            addDebug("[CLEANUP] Persisted " + endpointsToIgnore.length + " ignore anchor(s) to layer");
+        }
     }
     if (oppositeEndpointsForUnits.length > 0) {
         addDebug("[CLEANUP] Marked " + oppositeEndpointsForUnits.length + " opposite endpoint(s) for unit placement");
@@ -12188,11 +12231,85 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     var ignoredAnchors = getIgnoredAnchorPoints();
 
     // Add endpoints that were identified during cleanup (internal anchors within 4pt of endpoints)
+    // IMPORTANT: Also create physical PathItems on Ignored layer so they persist for re-runs
     if (endpointsToIgnore && endpointsToIgnore.length > 0) {
-        for (var epIdx = 0; epIdx < endpointsToIgnore.length; epIdx++) {
-            ignoredAnchors.push(endpointsToIgnore[epIdx]);
+        addDebug("\n=== PERSISTING ENDPOINT IGNORE ANCHORS ===");
+        addDebug("[CLEANUP-PERSIST] Need to persist " + endpointsToIgnore.length + " endpoint(s) to Ignored layer");
+
+        // Get the Ignored layer and unlock it if needed
+        var cleanupIgnLayer = null;
+        try {
+            cleanupIgnLayer = doc.layers.getByName("Ignored");
+        } catch (eNoLayer) {
+            addDebug("[CLEANUP-PERSIST] No 'Ignored' layer found, creating one");
+            try {
+                cleanupIgnLayer = doc.layers.add();
+                cleanupIgnLayer.name = "Ignored";
+            } catch (eCreate) {
+                addDebug("[CLEANUP-PERSIST] Could not create Ignored layer: " + eCreate);
+            }
         }
-        addDebug("[CLEANUP] Added " + endpointsToIgnore.length + " endpoint(s) to ignored anchors (total: " + ignoredAnchors.length + ")");
+
+        if (cleanupIgnLayer) {
+            // Unlock the layer AND make it visible if needed
+            try {
+                if (cleanupIgnLayer.locked) {
+                    cleanupIgnLayer.locked = false;
+                    addDebug("[CLEANUP-PERSIST] Unlocked Ignored layer");
+                }
+                if (!cleanupIgnLayer.visible) {
+                    cleanupIgnLayer.visible = true;
+                    addDebug("[CLEANUP-PERSIST] Made Ignored layer visible");
+                }
+                // Also check parent containers - unlock them too if locked
+                var parentContainer = cleanupIgnLayer.parent;
+                while (parentContainer) {
+                    var pType = parentContainer.typename;
+                    if (pType === "Layer" || pType === "GroupItem") {
+                        try {
+                            if (parentContainer.locked) {
+                                parentContainer.locked = false;
+                                addDebug("[CLEANUP-PERSIST] Unlocked parent " + pType + ": " + (parentContainer.name || "(unnamed)"));
+                            }
+                        } catch (ePLock) {}
+                        try {
+                            if (!parentContainer.visible) {
+                                parentContainer.visible = true;
+                                addDebug("[CLEANUP-PERSIST] Made parent " + pType + " visible: " + (parentContainer.name || "(unnamed)"));
+                            }
+                        } catch (ePVis) {}
+                    }
+                    if (pType !== "Layer" && pType !== "GroupItem") break;
+                    parentContainer = parentContainer.parent;
+                }
+            } catch (eUnlock) {
+                addDebug("[CLEANUP-PERSIST] Could not unlock/show layer: " + eUnlock);
+            }
+
+            // Now create physical PathItems for each endpoint
+            for (var epIdx = 0; epIdx < endpointsToIgnore.length; epIdx++) {
+                var epPt = endpointsToIgnore[epIdx];
+                ignoredAnchors.push(epPt);
+
+                try {
+                    var epIgnAnchor = cleanupIgnLayer.pathItems.add();
+                    epIgnAnchor.setEntirePath([[epPt[0], epPt[1]]]);
+                    epIgnAnchor.filled = false;
+                    epIgnAnchor.stroked = false;
+                    addDebug("[CLEANUP-PERSIST] Created ignore anchor at [" + epPt[0].toFixed(1) + "," + epPt[1].toFixed(1) + "]");
+                } catch (eAddAnchor) {
+                    addDebug("[CLEANUP-PERSIST] ERROR creating anchor at [" + epPt[0].toFixed(1) + "," + epPt[1].toFixed(1) + "]: " + eAddAnchor);
+                }
+            }
+            addDebug("[CLEANUP-PERSIST] Persisted " + endpointsToIgnore.length + " endpoint(s) to Ignored layer");
+        } else {
+            // Fallback: just add to in-memory array if we couldn't get the layer
+            for (var epIdx = 0; epIdx < endpointsToIgnore.length; epIdx++) {
+                ignoredAnchors.push(endpointsToIgnore[epIdx]);
+            }
+            addDebug("[CLEANUP] Added " + endpointsToIgnore.length + " endpoint(s) to ignored anchors (in-memory only - layer unavailable)");
+        }
+        addDebug("[CLEANUP-PERSIST] Total ignored anchors: " + ignoredAnchors.length);
     }
 
     if (ignoredAnchors.length > 0) {
@@ -12314,8 +12431,31 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         addDebug("[CARVE-OUT] Found " + registerCenters.length + " square register position(s)");
 
         // Get SELECTED blue ductwork paths only - do not touch unselected paths
-        var bluePathsForCarve = getPathsOnLayerSelected(blueSourceLayer) || [];
-        addDebug("[CARVE-OUT] Checking " + bluePathsForCarve.length + " selected blue path(s)");
+        var bluePathsForCarveRaw = getPathsOnLayerSelected(blueSourceLayer) || [];
+
+        // Filter out compound paths and paths that are children of compound paths (already processed)
+        var bluePathsForCarve = [];
+        for (var filterIdx = 0; filterIdx < bluePathsForCarveRaw.length; filterIdx++) {
+            var filterPath = bluePathsForCarveRaw[filterIdx];
+            if (!filterPath) continue;
+
+            // Skip CompoundPathItems - they're already carved
+            if (filterPath.typename === "CompoundPathItem") {
+                addDebug("[CARVE-OUT] Skipping CompoundPathItem (already processed)");
+                continue;
+            }
+
+            // Skip paths whose parent is a CompoundPathItem (child paths of carved compounds)
+            try {
+                if (filterPath.parent && filterPath.parent.typename === "CompoundPathItem") {
+                    addDebug("[CARVE-OUT] Skipping child path of CompoundPathItem");
+                    continue;
+                }
+            } catch (e) {}
+
+            bluePathsForCarve.push(filterPath);
+        }
+        addDebug("[CARVE-OUT] Checking " + bluePathsForCarve.length + " selected blue path(s) (filtered from " + bluePathsForCarveRaw.length + ")");
         var carveOutsPerformed = 0;
         var pathsToRemove = [];
 
@@ -12431,13 +12571,52 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                                 ignoredLayer = doc.layers.add();
                                 ignoredLayer.name = "Ignored";
                             }
-                            if (ignoredLayer && !ignoredLayer.locked) {
+                            // Unlock the layer AND make it visible if needed
+                            if (ignoredLayer) {
+                                try {
+                                    if (ignoredLayer.locked) {
+                                        ignoredLayer.locked = false;
+                                        addDebug("[CARVE-OUT] Unlocked Ignored layer");
+                                    }
+                                    if (!ignoredLayer.visible) {
+                                        ignoredLayer.visible = true;
+                                        addDebug("[CARVE-OUT] Made Ignored layer visible");
+                                    }
+                                    // Also check parent containers - unlock them too if locked (Layers or GroupItems)
+                                    var parentContainer = ignoredLayer.parent;
+                                    while (parentContainer) {
+                                        var pType = parentContainer.typename;
+                                        if (pType === "Layer" || pType === "GroupItem") {
+                                            try {
+                                                if (parentContainer.locked) {
+                                                    parentContainer.locked = false;
+                                                    addDebug("[CARVE-OUT] Unlocked parent " + pType + ": " + (parentContainer.name || "(unnamed)"));
+                                                }
+                                            } catch (ePLock) {}
+                                            try {
+                                                if (!parentContainer.visible) {
+                                                    parentContainer.visible = true;
+                                                    addDebug("[CARVE-OUT] Made parent " + pType + " visible: " + (parentContainer.name || "(unnamed)"));
+                                                }
+                                            } catch (ePVis) {}
+                                        }
+                                        if (pType !== "Layer" && pType !== "GroupItem") break;
+                                        parentContainer = parentContainer.parent;
+                                    }
+                                } catch (eUnlock) {
+                                    addDebug("[CARVE-OUT] Could not unlock/show layer: " + eUnlock);
+                                }
+                            }
+                            if (ignoredLayer) {
+                                addDebug("[CARVE-OUT] Layer state before add: locked=" + ignoredLayer.locked + ", visible=" + ignoredLayer.visible + ", parent=" + (ignoredLayer.parent ? ignoredLayer.parent.typename : "none"));
                                 // Create ignore anchor at cutBefore
                                 var ignoreAnchor1 = ignoredLayer.pathItems.add();
                                 ignoreAnchor1.setEntirePath([[cutBefore[0], cutBefore[1]]]);
                                 ignoreAnchor1.filled = false;
                                 ignoreAnchor1.stroked = false;
                                 addDebug("[CARVE-OUT] Placed ignore anchor at [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "]");
+                                // Add to ignoredAnchors array so component placement skips this position
+                                ignoredAnchors.push([cutBefore[0], cutBefore[1]]);
 
                                 // Create ignore anchor at cutAfter
                                 var ignoreAnchor2 = ignoredLayer.pathItems.add();
@@ -12445,9 +12624,13 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                                 ignoreAnchor2.filled = false;
                                 ignoreAnchor2.stroked = false;
                                 addDebug("[CARVE-OUT] Placed ignore anchor at [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
+                                // Add to ignoredAnchors array so component placement skips this position
+                                ignoredAnchors.push([cutAfter[0], cutAfter[1]]);
+
+                                addDebug("[CARVE-OUT] Added carve-out positions to ignoredAnchors array (total: " + ignoredAnchors.length + ")");
                             }
                         } catch (eIgnore) {
-                            addDebug("[CARVE-OUT] Warning: Could not create ignore anchors: " + eIgnore);
+                            addDebug("[CARVE-OUT] Warning: Could not create ignore anchors: " + eIgnore + " (layer locked=" + (ignoredLayer ? ignoredLayer.locked : "null") + ", visible=" + (ignoredLayer ? ignoredLayer.visible : "null") + ")");
                         }
 
                         // Compound the two halves into a single compound path
@@ -12534,6 +12717,401 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
             addDebug("[CARVE-OUT] Restored selection: " + restoredCount + " items (including " + newCompoundPaths.length + " new compound path(s))");
         }
+    }
+
+    // *** AUTOMATIC BLUE PATH INTERSECTION CARVE-OUT ***
+    // Detect where blue ductwork paths cross each other (without requiring small segments)
+    // and create carve-outs at those intersection points
+    addDebug("\n=== AUTOMATIC BLUE PATH INTERSECTION CARVE-OUT ===");
+
+    var AUTO_CARVE_HALF_WIDTH = 4.25; // 8.5pt total gap, same as small segment crossovers
+    var bluePathsForAutoCarveRaw = getPathsOnLayerSelected(blueSourceLayer) || [];
+
+    // Filter out compound paths and paths that are children of compound paths (already processed)
+    var bluePathsForAutoCarve = [];
+    for (var acFilterIdx = 0; acFilterIdx < bluePathsForAutoCarveRaw.length; acFilterIdx++) {
+        var acFilterPath = bluePathsForAutoCarveRaw[acFilterIdx];
+        if (!acFilterPath) continue;
+
+        // Skip CompoundPathItems - they're already carved
+        if (acFilterPath.typename === "CompoundPathItem") {
+            addDebug("[AUTO-CARVE] Skipping CompoundPathItem (already processed)");
+            continue;
+        }
+
+        // Skip paths whose parent is a CompoundPathItem (child paths of carved compounds)
+        try {
+            if (acFilterPath.parent && acFilterPath.parent.typename === "CompoundPathItem") {
+                addDebug("[AUTO-CARVE] Skipping child path of CompoundPathItem");
+                continue;
+            }
+        } catch (e) {}
+
+        bluePathsForAutoCarve.push(acFilterPath);
+    }
+    addDebug("[AUTO-CARVE] Checking " + bluePathsForAutoCarve.length + " selected blue path(s) for intersections (filtered from " + bluePathsForAutoCarveRaw.length + ")");
+
+    // Collect all intersection points between different blue paths
+    var autoIntersections = [];
+
+    // Build a list of already-handled crossover locations from EARLY_CROSSOVER_SEGMENTS
+    var handledCrossoverPoints = [];
+    if (typeof EARLY_CROSSOVER_SEGMENTS !== 'undefined' && EARLY_CROSSOVER_SEGMENTS.length > 0) {
+        for (var hcIdx = 0; hcIdx < EARLY_CROSSOVER_SEGMENTS.length; hcIdx++) {
+            var hcSeg = EARLY_CROSSOVER_SEGMENTS[hcIdx];
+            // Store the midpoint of the small segment as a handled crossover location
+            var hcMidX = (hcSeg.segStart[0] + hcSeg.segEnd[0]) / 2;
+            var hcMidY = (hcSeg.segStart[1] + hcSeg.segEnd[1]) / 2;
+            handledCrossoverPoints.push([hcMidX, hcMidY]);
+        }
+        addDebug("[AUTO-CARVE] Found " + handledCrossoverPoints.length + " already-handled crossover point(s) from small segments");
+    }
+
+    // Check each pair of paths for intersections
+    for (var autoPathA = 0; autoPathA < bluePathsForAutoCarve.length; autoPathA++) {
+        var pathA = bluePathsForAutoCarve[autoPathA];
+        if (!pathA || !pathA.pathPoints || pathA.pathPoints.length < 2) continue;
+        var ptsA = pathA.pathPoints;
+
+        for (var autoPathB = autoPathA + 1; autoPathB < bluePathsForAutoCarve.length; autoPathB++) {
+            var pathB = bluePathsForAutoCarve[autoPathB];
+            if (!pathB || !pathB.pathPoints || pathB.pathPoints.length < 2) continue;
+            var ptsB = pathB.pathPoints;
+
+            // Check each segment of path A against each segment of path B
+            for (var segA = 0; segA < ptsA.length - 1; segA++) {
+                var aStart = ptsA[segA].anchor;
+                var aEnd = ptsA[segA + 1].anchor;
+
+                for (var segB = 0; segB < ptsB.length - 1; segB++) {
+                    var bStart = ptsB[segB].anchor;
+                    var bEnd = ptsB[segB + 1].anchor;
+
+                    // Use computeSegmentIntersection for precise intersection point
+                    var intersection = computeSegmentIntersection(aStart, aEnd, bStart, bEnd, 1e-6);
+                    if (!intersection) continue;
+
+                    // Skip if intersection is at endpoints (t near 0 or 1)
+                    if (intersection.t1 < 0.05 || intersection.t1 > 0.95 ||
+                        intersection.t2 < 0.05 || intersection.t2 > 0.95) continue;
+
+                    var intPt = [intersection.point.x, intersection.point.y];
+
+                    // Check if this intersection is already handled by small segment detection
+                    var alreadyHandled = false;
+                    for (var ahIdx = 0; ahIdx < handledCrossoverPoints.length; ahIdx++) {
+                        var ahPt = handledCrossoverPoints[ahIdx];
+                        var ahDist = Math.sqrt(Math.pow(intPt[0] - ahPt[0], 2) + Math.pow(intPt[1] - ahPt[1], 2));
+                        if (ahDist < 15) { // Within 15pt of a handled crossover
+                            alreadyHandled = true;
+                            break;
+                        }
+                    }
+                    if (alreadyHandled) {
+                        addDebug("[AUTO-CARVE] Intersection at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] already handled by small segment");
+                        continue;
+                    }
+
+                    // Determine which path should get the carve-out
+                    // Use path length as heuristic: shorter path (likely a branch) gets carved
+                    var pathALen = 0, pathBLen = 0;
+                    for (var lenA = 0; lenA < ptsA.length - 1; lenA++) {
+                        var lenDxA = ptsA[lenA + 1].anchor[0] - ptsA[lenA].anchor[0];
+                        var lenDyA = ptsA[lenA + 1].anchor[1] - ptsA[lenA].anchor[1];
+                        pathALen += Math.sqrt(lenDxA * lenDxA + lenDyA * lenDyA);
+                    }
+                    for (var lenB = 0; lenB < ptsB.length - 1; lenB++) {
+                        var lenDxB = ptsB[lenB + 1].anchor[0] - ptsB[lenB].anchor[0];
+                        var lenDyB = ptsB[lenB + 1].anchor[1] - ptsB[lenB].anchor[1];
+                        pathBLen += Math.sqrt(lenDxB * lenDxB + lenDyB * lenDyB);
+                    }
+
+                    // Record intersection - carve out the SHORTER path
+                    autoIntersections.push({
+                        intPoint: intPt,
+                        pathToCarve: pathALen <= pathBLen ? pathA : pathB,
+                        pathToCarveIdx: pathALen <= pathBLen ? autoPathA : autoPathB,
+                        carveSegIdx: pathALen <= pathBLen ? segA : segB,
+                        carveT: pathALen <= pathBLen ? intersection.t1 : intersection.t2,
+                        otherPath: pathALen <= pathBLen ? pathB : pathA,
+                        carvedPathLen: pathALen <= pathBLen ? pathALen : pathBLen,
+                        otherPathLen: pathALen <= pathBLen ? pathBLen : pathALen
+                    });
+                    addDebug("[AUTO-CARVE] Found intersection at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - will carve " + (pathALen <= pathBLen ? "path A" : "path B") + " (shorter: " + (pathALen <= pathBLen ? pathALen : pathBLen).toFixed(0) + "pt vs " + (pathALen <= pathBLen ? pathBLen : pathALen).toFixed(0) + "pt)");
+                }
+            }
+        }
+    }
+
+    // *** SELF-INTERSECTION DETECTION ***
+    // Check each path for self-intersections (where it crosses over itself)
+    addDebug("[AUTO-CARVE] Checking for self-intersections...");
+    for (var selfPathIdx = 0; selfPathIdx < bluePathsForAutoCarve.length; selfPathIdx++) {
+        var selfPath = bluePathsForAutoCarve[selfPathIdx];
+        if (!selfPath || !selfPath.pathPoints || selfPath.pathPoints.length < 4) continue; // Need at least 4 points for self-intersection
+        var selfPts = selfPath.pathPoints;
+
+        // Check each segment against non-adjacent segments of the same path
+        for (var selfSegA = 0; selfSegA < selfPts.length - 1; selfSegA++) {
+            var selfAStart = selfPts[selfSegA].anchor;
+            var selfAEnd = selfPts[selfSegA + 1].anchor;
+
+            // Start from selfSegA + 2 to skip adjacent segment (which shares an anchor)
+            for (var selfSegB = selfSegA + 2; selfSegB < selfPts.length - 1; selfSegB++) {
+                // Skip if segments share an endpoint (adjacent in a closed path or wrap-around)
+                if (selfSegB === selfSegA + 1) continue;
+
+                var selfBStart = selfPts[selfSegB].anchor;
+                var selfBEnd = selfPts[selfSegB + 1].anchor;
+
+                // Use computeSegmentIntersection for precise intersection point
+                var selfInt = computeSegmentIntersection(selfAStart, selfAEnd, selfBStart, selfBEnd, 1e-6);
+                if (!selfInt) continue;
+
+                // Skip if intersection is at endpoints (t near 0 or 1)
+                if (selfInt.t1 < 0.05 || selfInt.t1 > 0.95 ||
+                    selfInt.t2 < 0.05 || selfInt.t2 > 0.95) continue;
+
+                var selfIntPt = [selfInt.point.x, selfInt.point.y];
+
+                // Check if this intersection is already handled by small segment detection
+                var selfAlreadyHandled = false;
+                for (var sahIdx = 0; sahIdx < handledCrossoverPoints.length; sahIdx++) {
+                    var sahPt = handledCrossoverPoints[sahIdx];
+                    var sahDist = Math.sqrt(Math.pow(selfIntPt[0] - sahPt[0], 2) + Math.pow(selfIntPt[1] - sahPt[1], 2));
+                    if (sahDist < 15) { // Within 15pt of a handled crossover
+                        selfAlreadyHandled = true;
+                        break;
+                    }
+                }
+                if (selfAlreadyHandled) {
+                    addDebug("[AUTO-CARVE] Self-intersection at [" + selfIntPt[0].toFixed(1) + "," + selfIntPt[1].toFixed(1) + "] already handled by small segment");
+                    continue;
+                }
+
+                // Check if we already have an intersection at this point
+                var selfDuplicate = false;
+                for (var sdIdx = 0; sdIdx < autoIntersections.length; sdIdx++) {
+                    var sdPt = autoIntersections[sdIdx].intPoint;
+                    var sdDist = Math.sqrt(Math.pow(selfIntPt[0] - sdPt[0], 2) + Math.pow(selfIntPt[1] - sdPt[1], 2));
+                    if (sdDist < 5) {
+                        selfDuplicate = true;
+                        break;
+                    }
+                }
+                if (selfDuplicate) continue;
+
+                // For self-intersections, we carve the LATER segment (higher index)
+                // This ensures we carve the "branch" that crosses over the main run
+                autoIntersections.push({
+                    intPoint: selfIntPt,
+                    pathToCarve: selfPath,
+                    pathToCarveIdx: selfPathIdx,
+                    carveSegIdx: selfSegB, // Carve the later segment
+                    carveT: selfInt.t2,
+                    otherPath: selfPath, // Same path (self-intersection)
+                    isSelfIntersection: true
+                });
+                addDebug("[AUTO-CARVE] Found SELF-intersection at [" + selfIntPt[0].toFixed(1) + "," + selfIntPt[1].toFixed(1) + "] - will carve segment " + selfSegB + " of path " + selfPathIdx);
+            }
+        }
+    }
+
+    addDebug("[AUTO-CARVE] Found " + autoIntersections.length + " new intersection(s) to carve out");
+
+    // Process carve-outs (work backwards to avoid index issues)
+    var autoPathsToRemove = [];
+    var autoNewCompoundPaths = [];
+
+    for (var acIdx = autoIntersections.length - 1; acIdx >= 0; acIdx--) {
+        var autoInt = autoIntersections[acIdx];
+        var carvePath = autoInt.pathToCarve;
+        var carveSegIdx = autoInt.carveSegIdx;
+        var intPt = autoInt.intPoint;
+
+        try {
+            if (!carvePath || !carvePath.pathPoints || carvePath.pathPoints.length < 2) continue;
+
+            // Check if this path was already carved (for self-intersections with multiple crossings)
+            var alreadyCarved = false;
+            for (var acCheckIdx = 0; acCheckIdx < autoPathsToRemove.length; acCheckIdx++) {
+                if (autoPathsToRemove[acCheckIdx] === carvePath) {
+                    alreadyCarved = true;
+                    break;
+                }
+            }
+            if (alreadyCarved) {
+                addDebug("[AUTO-CARVE] Path already carved, skipping intersection at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "]");
+                continue;
+            }
+            var carvePts = carvePath.pathPoints;
+
+            // Make sure segment index is still valid
+            if (carveSegIdx >= carvePts.length - 1) continue;
+
+            var cSegStart = carvePts[carveSegIdx].anchor;
+            var cSegEnd = carvePts[carveSegIdx + 1].anchor;
+            var cDx = cSegEnd[0] - cSegStart[0];
+            var cDy = cSegEnd[1] - cSegStart[1];
+            var cLen = Math.sqrt(cDx * cDx + cDy * cDy);
+            if (cLen < 0.01) continue;
+
+            // Calculate cut points centered on intersection
+            var cDirX = cDx / cLen;
+            var cDirY = cDy / cLen;
+            var cutBefore = [intPt[0] - AUTO_CARVE_HALF_WIDTH * cDirX, intPt[1] - AUTO_CARVE_HALF_WIDTH * cDirY];
+            var cutAfter = [intPt[0] + AUTO_CARVE_HALF_WIDTH * cDirX, intPt[1] + AUTO_CARVE_HALF_WIDTH * cDirY];
+
+            addDebug("[AUTO-CARVE] Creating carve-out at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - gap from [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "] to [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
+
+            // Create first half (start of path to cutBefore)
+            var autoFirstHalf = carvePath.duplicate();
+            var autoFirstPts = autoFirstHalf.pathPoints;
+            for (var afDelIdx = autoFirstPts.length - 1; afDelIdx > carveSegIdx; afDelIdx--) {
+                autoFirstPts[afDelIdx].remove();
+            }
+            var autoNewEnd = autoFirstHalf.pathPoints.add();
+            autoNewEnd.anchor = cutBefore;
+            autoNewEnd.leftDirection = cutBefore;
+            autoNewEnd.rightDirection = cutBefore;
+
+            // Create second half (cutAfter to end of path)
+            var autoSecondHalf = carvePath.duplicate();
+            var autoSecondPts = autoSecondHalf.pathPoints;
+            autoSecondPts[carveSegIdx].anchor = cutAfter;
+            autoSecondPts[carveSegIdx].leftDirection = cutAfter;
+            autoSecondPts[carveSegIdx].rightDirection = cutAfter;
+            for (var asDelIdx = carveSegIdx - 1; asDelIdx >= 0; asDelIdx--) {
+                autoSecondPts[asDelIdx].remove();
+            }
+
+            autoFirstHalf.selected = true;
+            autoSecondHalf.selected = true;
+
+            // Create ignore anchors at cut points
+            try {
+                var autoIgnLayer = null;
+                try { autoIgnLayer = doc.layers.getByName("Ignored"); } catch (eNoIgn) {}
+                if (!autoIgnLayer) {
+                    autoIgnLayer = doc.layers.add();
+                    autoIgnLayer.name = "Ignored";
+                }
+                // Unlock the layer AND make it visible if needed
+                if (autoIgnLayer) {
+                    try {
+                        if (autoIgnLayer.locked) {
+                            autoIgnLayer.locked = false;
+                            addDebug("[AUTO-CARVE] Unlocked Ignored layer");
+                        }
+                        if (!autoIgnLayer.visible) {
+                            autoIgnLayer.visible = true;
+                            addDebug("[AUTO-CARVE] Made Ignored layer visible");
+                        }
+                        // Also check parent containers - unlock them too if locked (Layers or GroupItems)
+                        var parentContainer = autoIgnLayer.parent;
+                        while (parentContainer) {
+                            var pType = parentContainer.typename;
+                            if (pType === "Layer" || pType === "GroupItem") {
+                                try {
+                                    if (parentContainer.locked) {
+                                        parentContainer.locked = false;
+                                        addDebug("[AUTO-CARVE] Unlocked parent " + pType + ": " + (parentContainer.name || "(unnamed)"));
+                                    }
+                                } catch (ePLock) {}
+                                try {
+                                    if (!parentContainer.visible) {
+                                        parentContainer.visible = true;
+                                        addDebug("[AUTO-CARVE] Made parent " + pType + " visible: " + (parentContainer.name || "(unnamed)"));
+                                    }
+                                } catch (ePVis) {}
+                            }
+                            if (pType !== "Layer" && pType !== "GroupItem") break;
+                            parentContainer = parentContainer.parent;
+                        }
+                    } catch (eUnlock) {
+                        addDebug("[AUTO-CARVE] Could not unlock/show layer: " + eUnlock);
+                    }
+                }
+                if (autoIgnLayer) {
+                    addDebug("[AUTO-CARVE] Layer state before add: locked=" + autoIgnLayer.locked + ", visible=" + autoIgnLayer.visible + ", parent=" + (autoIgnLayer.parent ? autoIgnLayer.parent.typename : "none"));
+                    var autoIgn1 = autoIgnLayer.pathItems.add();
+                    autoIgn1.setEntirePath([[cutBefore[0], cutBefore[1]]]);
+                    autoIgn1.filled = false;
+                    autoIgn1.stroked = false;
+                    addDebug("[AUTO-CARVE] Placed ignore anchor at [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "]");
+                    // Add to ignoredAnchors array so component placement skips this position
+                    ignoredAnchors.push([cutBefore[0], cutBefore[1]]);
+
+                    var autoIgn2 = autoIgnLayer.pathItems.add();
+                    autoIgn2.setEntirePath([[cutAfter[0], cutAfter[1]]]);
+                    autoIgn2.filled = false;
+                    autoIgn2.stroked = false;
+                    addDebug("[AUTO-CARVE] Placed ignore anchor at [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
+                    // Add to ignoredAnchors array so component placement skips this position
+                    ignoredAnchors.push([cutAfter[0], cutAfter[1]]);
+
+                    addDebug("[AUTO-CARVE] Added carve-out positions to ignoredAnchors array (total: " + ignoredAnchors.length + ")");
+                }
+            } catch (eAutoIgnore) {
+                addDebug("[AUTO-CARVE] Warning: Could not create ignore anchors: " + eAutoIgnore + " (layer locked=" + (autoIgnLayer ? autoIgnLayer.locked : "null") + ", visible=" + (autoIgnLayer ? autoIgnLayer.visible : "null") + ")");
+            }
+
+            // Compound the two halves together
+            try {
+                doc.selection = null;
+                autoFirstHalf.selected = true;
+                autoSecondHalf.selected = true;
+                app.executeMenuCommand("compoundPath");
+                addDebug("[AUTO-CARVE] Compounded split segments into compound path");
+
+                if (doc.selection.length === 1) {
+                    var autoNewCompound = doc.selection[0];
+                    autoNewCompoundPaths.push(autoNewCompound);
+                    CARVE_OUT_COMPOUNDS.push(autoNewCompound);
+                    SELECTED_PATHS.push(autoNewCompound);
+                    addDebug("[AUTO-CARVE] New compound path captured (total: " + autoNewCompoundPaths.length + ", global CARVE_OUT_COMPOUNDS: " + CARVE_OUT_COMPOUNDS.length + ")");
+                }
+            } catch (eAutoCompound) {
+                addDebug("[AUTO-CARVE] Could not compound: " + eAutoCompound);
+            }
+
+            // Mark original path for removal (use loop since ExtendScript lacks indexOf)
+            var alreadyMarked = false;
+            for (var amIdx = 0; amIdx < autoPathsToRemove.length; amIdx++) {
+                if (autoPathsToRemove[amIdx] === carvePath) {
+                    alreadyMarked = true;
+                    break;
+                }
+            }
+            if (!alreadyMarked) {
+                autoPathsToRemove.push(carvePath);
+            }
+        } catch (eAutoCarve) {
+            addDebug("[AUTO-CARVE] Error processing intersection: " + eAutoCarve);
+        }
+    }
+
+    // Remove original paths that were carved
+    for (var arIdx = 0; arIdx < autoPathsToRemove.length; arIdx++) {
+        try {
+            var autoPathToRemove = autoPathsToRemove[arIdx];
+            // Remove from SELECTED_PATHS before deleting
+            for (var aspIdx = SELECTED_PATHS.length - 1; aspIdx >= 0; aspIdx--) {
+                try {
+                    if (SELECTED_PATHS[aspIdx] === autoPathToRemove) {
+                        SELECTED_PATHS.splice(aspIdx, 1);
+                        addDebug("[AUTO-CARVE] Removed deleted path from SELECTED_PATHS");
+                    }
+                } catch (eSpCheck) {}
+            }
+            autoPathToRemove.remove();
+        } catch (eAutoRem) {}
+    }
+
+    if (autoIntersections.length > 0) {
+        addDebug("[AUTO-CARVE] Performed " + autoIntersections.length + " automatic carve-out(s), created " + autoNewCompoundPaths.length + " compound path(s)");
+    } else {
+        addDebug("[AUTO-CARVE] No new intersections found (all may already be handled by small segments or registers)");
     }
 
     // *** PLACE SQUARE REGISTERS AT INTERNAL ANCHORS WITH NO DIRECTION CHANGE ***
@@ -13186,6 +13764,8 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 ignoreAnchor1.filled = false;
                 ignoreAnchor1.stroked = false;
                 addDebug("[XOVER-POST] Placed ignore anchor at [" + xoSeg.segStart[0].toFixed(1) + "," + xoSeg.segStart[1].toFixed(1) + "]");
+                // Add to ignoredAnchors array so component placement skips this position
+                ignoredAnchors.push([xoSeg.segStart[0], xoSeg.segStart[1]]);
 
                 // Create single-point path at segEnd as ignore anchor
                 var ignoreAnchor2 = ignoredLayer.pathItems.add();
@@ -13193,6 +13773,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 ignoreAnchor2.filled = false;
                 ignoreAnchor2.stroked = false;
                 addDebug("[XOVER-POST] Placed ignore anchor at [" + xoSeg.segEnd[0].toFixed(1) + "," + xoSeg.segEnd[1].toFixed(1) + "]");
+                // Add to ignoredAnchors array so component placement skips this position
+                ignoredAnchors.push([xoSeg.segEnd[0], xoSeg.segEnd[1]]);
+
+                addDebug("[XOVER-POST] Added crossover positions to ignoredAnchors array (total: " + ignoredAnchors.length + ")");
             } catch (eIgnore) {
                 addDebug("[XOVER-POST] ERROR placing ignore anchors: " + eIgnore);
             }
