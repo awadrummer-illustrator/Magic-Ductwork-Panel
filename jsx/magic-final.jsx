@@ -8578,10 +8578,20 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 progressLabel.text = stepName;
                 progressBar.value = currentStep;
                 progressWin.update();
-                $.sleep(1); // Brief pause to allow UI thread to update
+                app.redraw(); // Force Illustrator UI refresh
+                $.sleep(50); // Longer pause to allow UI thread to update
             } catch (e) {}
         }
         addDebug("[PROGRESS] Step " + currentStep + "/" + PROGRESS_STEPS + ": " + stepName);
+    }
+
+    // Helper function to yield to UI during heavy loops
+    function yieldToUI() {
+        try {
+            if (progressWin) progressWin.update();
+            app.redraw();
+            $.sleep(30);
+        } catch (e) {}
     }
 
     function closeProgress() {
@@ -9729,18 +9739,93 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         var ANGLE_THRESHOLD_DEG = 20;
         var MIN_DIST = 0.5; // Minimum distance - paths closer than this are likely duplicates
         var T_JUNCTION_DIST = 25; // Larger tolerance for T-junction detection (point-to-segment)
-        var DEBUG_CONNECTIONS = true; // Enable detailed connection debugging
+        var DEBUG_CONNECTIONS = false; // Disabled for performance - enable for debugging only
 
         if (DEBUG_CONNECTIONS && pathItems.length > 0) {
             addDebug("[CONN-DEBUG] Checking " + pathItems.length + " paths with maxDist=" + maxDist);
         }
 
+        // === SPATIAL HASHING FOR O(n) PERFORMANCE ===
+        // Build a grid where each cell is T_JUNCTION_DIST sized
+        // Only check paths in same or adjacent cells
+        var CELL_SIZE = T_JUNCTION_DIST * 2; // Cell size covers max connection distance
+        var spatialGrid = {};
+        var pathToCells = []; // For each path, which cells it occupies
+
+        // Phase 1: Build spatial index - put each path into grid cells based on its bounding box
+        for (var si = 0; si < pathItems.length; si++) {
+            var spath = pathItems[si];
+            var spts = spath.pathPoints;
+            if (!spts || spts.length === 0) {
+                pathToCells.push([]);
+                continue;
+            }
+
+            // Get bounding box of path
+            var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+            for (var sp = 0; sp < spts.length; sp++) {
+                var anchor = spts[sp].anchor;
+                if (anchor[0] < minX) minX = anchor[0];
+                if (anchor[0] > maxX) maxX = anchor[0];
+                if (anchor[1] < minY) minY = anchor[1];
+                if (anchor[1] > maxY) maxY = anchor[1];
+            }
+
+            // Expand by T_JUNCTION_DIST to catch nearby paths
+            minX -= T_JUNCTION_DIST; minY -= T_JUNCTION_DIST;
+            maxX += T_JUNCTION_DIST; maxY += T_JUNCTION_DIST;
+
+            // Find all cells this path occupies
+            var cellMinX = Math.floor(minX / CELL_SIZE);
+            var cellMaxX = Math.floor(maxX / CELL_SIZE);
+            var cellMinY = Math.floor(minY / CELL_SIZE);
+            var cellMaxY = Math.floor(maxY / CELL_SIZE);
+
+            var cells = [];
+            for (var cx = cellMinX; cx <= cellMaxX; cx++) {
+                for (var cy = cellMinY; cy <= cellMaxY; cy++) {
+                    var cellKey = cx + "," + cy;
+                    cells.push(cellKey);
+                    if (!spatialGrid[cellKey]) spatialGrid[cellKey] = [];
+                    spatialGrid[cellKey].push(si);
+                }
+            }
+            pathToCells.push(cells);
+        }
+
+        // Phase 2: Check only paths that share cells (spatial proximity)
+        var checkedPairs = {};
         for (var i = 0; i < pathItems.length; i++) {
             var pathA = pathItems[i];
             var ptsA = pathA.pathPoints;
-            for (var j = i + 1; j < pathItems.length; j++) {
+            if (!ptsA || ptsA.length === 0) continue;
+
+            // Get candidate paths from shared cells
+            var candidates = {};
+            var myCells = pathToCells[i];
+            for (var mc = 0; mc < myCells.length; mc++) {
+                var cellPaths = spatialGrid[myCells[mc]];
+                if (cellPaths) {
+                    for (var cp = 0; cp < cellPaths.length; cp++) {
+                        var candidateIdx = cellPaths[cp];
+                        if (candidateIdx > i) { // Only check each pair once
+                            candidates[candidateIdx] = true;
+                        }
+                    }
+                }
+            }
+
+            // Check only candidate paths (nearby in spatial grid)
+            for (var j in candidates) {
+                if (!candidates.hasOwnProperty(j)) continue;
+                j = parseInt(j);
+                var checkKey = i + "_" + j;
+                if (checkedPairs[checkKey]) continue;
+                checkedPairs[checkKey] = true;
+
                 var pathB = pathItems[j];
                 var ptsB = pathB.pathPoints;
+                if (!ptsB || ptsB.length === 0) continue;
                 var connected = false;
 
                 // DUPLICATE CHECK: Skip paths that are likely duplicates (same geometry at same location)
@@ -12274,9 +12359,61 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
         var crossoversToSplit = [];
 
+        // === SPATIAL HASHING FOR EARLY CROSSOVER DETECTION O(n) PERFORMANCE ===
+        var EX_CELL_SIZE = 100;
+        var exSpatialGrid = {};
+        var exPathToCells = [];
+
+        // Build spatial index
+        for (var exBuildIdx = 0; exBuildIdx < bluePaths.length; exBuildIdx++) {
+            var exBuildPath = bluePaths[exBuildIdx];
+            var exBuildPts = exBuildPath ? exBuildPath.pathPoints : null;
+            if (!exBuildPts || exBuildPts.length === 0) {
+                exPathToCells.push([]);
+                continue;
+            }
+            var exMinX = Infinity, exMinY = Infinity, exMaxX = -Infinity, exMaxY = -Infinity;
+            for (var exBp = 0; exBp < exBuildPts.length; exBp++) {
+                var exAnchor = exBuildPts[exBp].anchor;
+                if (exAnchor[0] < exMinX) exMinX = exAnchor[0];
+                if (exAnchor[0] > exMaxX) exMaxX = exAnchor[0];
+                if (exAnchor[1] < exMinY) exMinY = exAnchor[1];
+                if (exAnchor[1] > exMaxY) exMaxY = exAnchor[1];
+            }
+            var exCellMinX = Math.floor(exMinX / EX_CELL_SIZE);
+            var exCellMaxX = Math.floor(exMaxX / EX_CELL_SIZE);
+            var exCellMinY = Math.floor(exMinY / EX_CELL_SIZE);
+            var exCellMaxY = Math.floor(exMaxY / EX_CELL_SIZE);
+            var exCells = [];
+            for (var exCx = exCellMinX; exCx <= exCellMaxX; exCx++) {
+                for (var exCy = exCellMinY; exCy <= exCellMaxY; exCy++) {
+                    var exCellKey = exCx + "," + exCy;
+                    exCells.push(exCellKey);
+                    if (!exSpatialGrid[exCellKey]) exSpatialGrid[exCellKey] = [];
+                    exSpatialGrid[exCellKey].push(exBuildIdx);
+                }
+            }
+            exPathToCells.push(exCells);
+        }
+
         for (var xpIdx = 0; xpIdx < bluePaths.length; xpIdx++) {
             var xPath = bluePaths[xpIdx];
             var xPts = xPath.pathPoints;
+
+            // Get candidate paths from shared cells
+            var exCandidates = {};
+            var exMyCells = exPathToCells[xpIdx];
+            for (var exMc = 0; exMc < exMyCells.length; exMc++) {
+                var exCellPaths = exSpatialGrid[exMyCells[exMc]];
+                if (exCellPaths) {
+                    for (var exCp = 0; exCp < exCellPaths.length; exCp++) {
+                        var exCandIdx = exCellPaths[exCp];
+                        if (exCandIdx !== xpIdx) {
+                            exCandidates[exCandIdx] = true;
+                        }
+                    }
+                }
+            }
 
             // Check each internal segment (not first or last segment)
             for (var xSegIdx = 1; xSegIdx < xPts.length - 2; xSegIdx++) {
@@ -12287,9 +12424,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var xSegLen = Math.sqrt(xDx * xDx + xDy * xDy);
 
                 if (xSegLen >= SMALL_SEG_MIN && xSegLen <= SMALL_SEG_MAX) {
-                    // Found a small internal segment - check if another path's segment intersects it
-                    for (var xOtherIdx = 0; xOtherIdx < bluePaths.length; xOtherIdx++) {
-                        if (xOtherIdx === xpIdx) continue;
+                    // Found a small internal segment - check only candidate paths
+                    for (var xOtherIdx in exCandidates) {
+                        if (!exCandidates.hasOwnProperty(xOtherIdx)) continue;
+                        xOtherIdx = parseInt(xOtherIdx);
                         var xOtherPath = bluePaths[xOtherIdx];
                         var xOtherPts = xOtherPath.pathPoints;
                         var xFoundIntersection = false;
@@ -12441,8 +12579,11 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         var allSegments = buildSegmentsForPaths(geometryPaths);
         if (snapAnchors(geometryPaths, allSegments)) changed = true;
         for (var i = 0; i < geometryPaths.length; i++) {
-            addDebug("[Orthogonalize Iteration " + iteration + "] Processing path " + i + " of " + geometryPaths.length);
             if (orthogonalizePath(geometryPaths[i], preOrthoConnections.pairs)) changed = true;
+            // UI yield with app.redraw
+            if (i % 5 === 0) {
+                yieldToUI();
+            }
         }
         if (restoreEndpointConnections(preOrthoConnections)) changed = true;
     }
@@ -12949,32 +13090,88 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         // Track new compound paths created during carve-out
         var newCompoundPaths = [];
 
-        // For each register, check each blue path for segments passing through
+        // === SPATIAL HASHING FOR REGISTER CARVE-OUT O(n) PERFORMANCE ===
+        var RC_CELL_SIZE = 50; // Grid cell size for register carve-out
+        var rcSpatialGrid = {};
+        var rcPathToCells = [];
+
+        // Build spatial index for paths
+        for (var rcBuildIdx = 0; rcBuildIdx < bluePathsForCarve.length; rcBuildIdx++) {
+            var rcBuildPath = bluePathsForCarve[rcBuildIdx];
+            var rcBuildPts = rcBuildPath ? rcBuildPath.pathPoints : null;
+            if (!rcBuildPts || rcBuildPts.length === 0) {
+                rcPathToCells.push([]);
+                continue;
+            }
+            var rcMinX = Infinity, rcMinY = Infinity, rcMaxX = -Infinity, rcMaxY = -Infinity;
+            for (var rcBp = 0; rcBp < rcBuildPts.length; rcBp++) {
+                var rcAnchor = rcBuildPts[rcBp].anchor;
+                if (rcAnchor[0] < rcMinX) rcMinX = rcAnchor[0];
+                if (rcAnchor[0] > rcMaxX) rcMaxX = rcAnchor[0];
+                if (rcAnchor[1] < rcMinY) rcMinY = rcAnchor[1];
+                if (rcAnchor[1] > rcMaxY) rcMaxY = rcAnchor[1];
+            }
+            // Expand by detection threshold
+            rcMinX -= REGISTER_DETECTION_THRESHOLD; rcMinY -= REGISTER_DETECTION_THRESHOLD;
+            rcMaxX += REGISTER_DETECTION_THRESHOLD; rcMaxY += REGISTER_DETECTION_THRESHOLD;
+            var rcCellMinX = Math.floor(rcMinX / RC_CELL_SIZE);
+            var rcCellMaxX = Math.floor(rcMaxX / RC_CELL_SIZE);
+            var rcCellMinY = Math.floor(rcMinY / RC_CELL_SIZE);
+            var rcCellMaxY = Math.floor(rcMaxY / RC_CELL_SIZE);
+            var rcCells = [];
+            for (var rcCx = rcCellMinX; rcCx <= rcCellMaxX; rcCx++) {
+                for (var rcCy = rcCellMinY; rcCy <= rcCellMaxY; rcCy++) {
+                    var rcCellKey = rcCx + "," + rcCy;
+                    rcCells.push(rcCellKey);
+                    if (!rcSpatialGrid[rcCellKey]) rcSpatialGrid[rcCellKey] = [];
+                    rcSpatialGrid[rcCellKey].push(rcBuildIdx);
+                }
+            }
+            rcPathToCells.push(rcCells);
+        }
+
+        // For each register, check only nearby paths (spatial hash lookup)
         for (var rcIdx = 0; rcIdx < registerCenters.length; rcIdx++) {
             var regCenter = registerCenters[rcIdx];
-            addDebug("[CARVE-OUT] Checking register #" + rcIdx + " at [" + regCenter[0].toFixed(2) + ", " + regCenter[1].toFixed(2) + "]");
+            if (rcIdx % 10 === 0) yieldToUI();
 
-            for (var bpIdx = 0; bpIdx < bluePathsForCarve.length; bpIdx++) {
+            // Find which cell this register is in
+            var regCellX = Math.floor(regCenter[0] / RC_CELL_SIZE);
+            var regCellY = Math.floor(regCenter[1] / RC_CELL_SIZE);
+
+            // Get candidate paths from this cell and adjacent cells
+            var rcCandidates = {};
+            for (var adjX = regCellX - 1; adjX <= regCellX + 1; adjX++) {
+                for (var adjY = regCellY - 1; adjY <= regCellY + 1; adjY++) {
+                    var adjKey = adjX + "," + adjY;
+                    var adjPaths = rcSpatialGrid[adjKey];
+                    if (adjPaths) {
+                        for (var adjP = 0; adjP < adjPaths.length; adjP++) {
+                            rcCandidates[adjPaths[adjP]] = true;
+                        }
+                    }
+                }
+            }
+
+            // Check only candidate paths (PERF: removed per-path logging)
+            for (var bpIdx in rcCandidates) {
+                if (!rcCandidates.hasOwnProperty(bpIdx)) continue;
+                bpIdx = parseInt(bpIdx);
                 var bluePath = bluePathsForCarve[bpIdx];
                 if (!bluePath || !bluePath.pathPoints || bluePath.pathPoints.length < 2) continue;
 
                 var pts = bluePath.pathPoints;
 
-                // Skip if the register is at an endpoint of THIS path - that's expected
+                // Skip if the register is at an endpoint of THIS path
                 var firstPt = pts[0].anchor;
                 var lastPt = pts[pts.length - 1].anchor;
                 var isRegisterOnThisPathEndpoint =
                     (Math.abs(firstPt[0] - regCenter[0]) < 5 && Math.abs(firstPt[1] - regCenter[1]) < 5) ||
                     (Math.abs(lastPt[0] - regCenter[0]) < 5 && Math.abs(lastPt[1] - regCenter[1]) < 5);
 
-                if (isRegisterOnThisPathEndpoint) {
-                    addDebug("[CARVE-OUT]   Path #" + bpIdx + " has this register at its endpoint - skipping");
-                    continue;
-                }
+                if (isRegisterOnThisPathEndpoint) continue;
 
-                addDebug("[CARVE-OUT]   Checking path #" + bpIdx + " (" + pts.length + " points)");
-
-                // Check each segment for intersection with register area
+                // Check each segment for intersection with register area (PERF: removed per-segment logging)
                 for (var segIdx = 0; segIdx < pts.length - 1; segIdx++) {
                     var segStart = pts[segIdx].anchor;
                     var segEnd = pts[segIdx + 1].anchor;
@@ -12985,20 +13182,12 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
                     // Project register center onto the line
                     var t = ((regCenter[0] - segStart[0]) * segDx + (regCenter[1] - segStart[1]) * segDy) / (segLen * segLen);
-                    // Exclude t values at or very close to 0.0 or 1.0 - these are anchor points, not segment middles
-                    // t=0.0 means register is at segment start anchor, t=1.0 means register is at segment end anchor
-                    // We only want to carve out when a line passes THROUGH a register in the MIDDLE of a segment
-                    if (t < 0.02 || t > 0.98) {
-                        addDebug("[CARVE-OUT]     Seg " + segIdx + ": t=" + t.toFixed(3) + " - register at/near segment endpoint (not middle), skipping");
-                        continue;
-                    }
+                    if (t < 0.02 || t > 0.98) continue;
 
                     // Calculate closest point on segment to register center
                     var closestX = segStart[0] + t * segDx;
                     var closestY = segStart[1] + t * segDy;
                     var distToSeg = Math.sqrt(Math.pow(regCenter[0] - closestX, 2) + Math.pow(regCenter[1] - closestY, 2));
-
-                    addDebug("[CARVE-OUT]     Seg " + segIdx + ": t=" + t.toFixed(3) + ", closest=[" + closestX.toFixed(2) + "," + closestY.toFixed(2) + "], dist=" + distToSeg.toFixed(2) + "pt (threshold=" + REGISTER_DETECTION_THRESHOLD + ")");
 
                     if (distToSeg > REGISTER_DETECTION_THRESHOLD) continue;
 
@@ -13251,26 +13440,139 @@ function collectScaleTargetsFromItem(item, targets, visited) {
     // Collect all intersection points between different blue paths
     var autoIntersections = [];
 
-    // Build a list of already-handled crossover locations from EARLY_CROSSOVER_SEGMENTS
+    // Build a spatial hash of already-handled crossover locations for O(1) lookup
     var handledCrossoverPoints = [];
+    var handledCrossoverGrid = {};
+    var HC_CELL_SIZE = 20; // Cell size for handled crossover spatial hash
     if (typeof EARLY_CROSSOVER_SEGMENTS !== 'undefined' && EARLY_CROSSOVER_SEGMENTS.length > 0) {
         for (var hcIdx = 0; hcIdx < EARLY_CROSSOVER_SEGMENTS.length; hcIdx++) {
             var hcSeg = EARLY_CROSSOVER_SEGMENTS[hcIdx];
-            // Store the midpoint of the small segment as a handled crossover location
             var hcMidX = (hcSeg.segStart[0] + hcSeg.segEnd[0]) / 2;
             var hcMidY = (hcSeg.segStart[1] + hcSeg.segEnd[1]) / 2;
             handledCrossoverPoints.push([hcMidX, hcMidY]);
+            // Add to spatial grid
+            var hcCellKey = Math.floor(hcMidX / HC_CELL_SIZE) + "," + Math.floor(hcMidY / HC_CELL_SIZE);
+            if (!handledCrossoverGrid[hcCellKey]) handledCrossoverGrid[hcCellKey] = [];
+            handledCrossoverGrid[hcCellKey].push([hcMidX, hcMidY]);
         }
-        addDebug("[AUTO-CARVE] Found " + handledCrossoverPoints.length + " already-handled crossover point(s) from small segments");
+        addDebug("[AUTO-CARVE] Found " + handledCrossoverPoints.length + " already-handled crossover point(s)");
     }
 
-    // Check each pair of paths for intersections
+    // Helper function for O(1) handled crossover check
+    function isHandledCrossover(pt) {
+        var cellX = Math.floor(pt[0] / HC_CELL_SIZE);
+        var cellY = Math.floor(pt[1] / HC_CELL_SIZE);
+        for (var dx = -1; dx <= 1; dx++) {
+            for (var dy = -1; dy <= 1; dy++) {
+                var checkKey = (cellX + dx) + "," + (cellY + dy);
+                var cellPoints = handledCrossoverGrid[checkKey];
+                if (cellPoints) {
+                    for (var cp = 0; cp < cellPoints.length; cp++) {
+                        var dist = Math.sqrt(Math.pow(pt[0] - cellPoints[cp][0], 2) + Math.pow(pt[1] - cellPoints[cp][1], 2));
+                        if (dist < 15) return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    // Pre-compute path lengths for optimization (avoid recalculating in inner loops)
+    var pathLengths = [];
+    for (var plIdx = 0; plIdx < bluePathsForAutoCarve.length; plIdx++) {
+        var plPath = bluePathsForAutoCarve[plIdx];
+        var plLen = 0;
+        if (plPath && plPath.pathPoints) {
+            var plPts = plPath.pathPoints;
+            for (var plSeg = 0; plSeg < plPts.length - 1; plSeg++) {
+                var plDx = plPts[plSeg + 1].anchor[0] - plPts[plSeg].anchor[0];
+                var plDy = plPts[plSeg + 1].anchor[1] - plPts[plSeg].anchor[1];
+                plLen += Math.sqrt(plDx * plDx + plDy * plDy);
+            }
+        }
+        pathLengths.push(plLen);
+    }
+
+    // === SPATIAL HASHING FOR AUTO-CARVE O(n) PERFORMANCE ===
+    // Build spatial grid to avoid O(n²) path comparisons
+    var AC_CELL_SIZE = 100; // Grid cell size - 100pt covers typical ductwork widths
+    var acSpatialGrid = {};
+    var acPathToCells = [];
+
+    // Phase 1: Build spatial index for each path
+    addDebug("[AUTO-CARVE] Building spatial index for " + bluePathsForAutoCarve.length + " paths...");
+    for (var acBuildIdx = 0; acBuildIdx < bluePathsForAutoCarve.length; acBuildIdx++) {
+        var acBuildPath = bluePathsForAutoCarve[acBuildIdx];
+        var acBuildPts = acBuildPath ? acBuildPath.pathPoints : null;
+        if (!acBuildPts || acBuildPts.length === 0) {
+            acPathToCells.push([]);
+            continue;
+        }
+
+        // Get bounding box of path
+        var acMinX = Infinity, acMinY = Infinity, acMaxX = -Infinity, acMaxY = -Infinity;
+        for (var acBp = 0; acBp < acBuildPts.length; acBp++) {
+            var acAnchor = acBuildPts[acBp].anchor;
+            if (acAnchor[0] < acMinX) acMinX = acAnchor[0];
+            if (acAnchor[0] > acMaxX) acMaxX = acAnchor[0];
+            if (acAnchor[1] < acMinY) acMinY = acAnchor[1];
+            if (acAnchor[1] > acMaxY) acMaxY = acAnchor[1];
+        }
+
+        // Find all cells this path occupies
+        var acCellMinX = Math.floor(acMinX / AC_CELL_SIZE);
+        var acCellMaxX = Math.floor(acMaxX / AC_CELL_SIZE);
+        var acCellMinY = Math.floor(acMinY / AC_CELL_SIZE);
+        var acCellMaxY = Math.floor(acMaxY / AC_CELL_SIZE);
+
+        var acCells = [];
+        for (var acCx = acCellMinX; acCx <= acCellMaxX; acCx++) {
+            for (var acCy = acCellMinY; acCy <= acCellMaxY; acCy++) {
+                var acCellKey = acCx + "," + acCy;
+                acCells.push(acCellKey);
+                if (!acSpatialGrid[acCellKey]) acSpatialGrid[acCellKey] = [];
+                acSpatialGrid[acCellKey].push(acBuildIdx);
+            }
+        }
+        acPathToCells.push(acCells);
+    }
+
+    // Phase 2: Check only paths that share cells (spatial proximity)
+    var acCheckedPairs = {};
+    var autoCarveIterCount = 0;
     for (var autoPathA = 0; autoPathA < bluePathsForAutoCarve.length; autoPathA++) {
         var pathA = bluePathsForAutoCarve[autoPathA];
         if (!pathA || !pathA.pathPoints || pathA.pathPoints.length < 2) continue;
         var ptsA = pathA.pathPoints;
 
-        for (var autoPathB = autoPathA + 1; autoPathB < bluePathsForAutoCarve.length; autoPathB++) {
+        // UI yield every 10 paths
+        if (autoPathA % 10 === 0) {
+            yieldToUI();
+        }
+
+        // Get candidate paths from shared cells
+        var acCandidates = {};
+        var acMyCells = acPathToCells[autoPathA];
+        for (var acMc = 0; acMc < acMyCells.length; acMc++) {
+            var acCellPaths = acSpatialGrid[acMyCells[acMc]];
+            if (acCellPaths) {
+                for (var acCp = 0; acCp < acCellPaths.length; acCp++) {
+                    var acCandIdx = acCellPaths[acCp];
+                    if (acCandIdx > autoPathA) { // Only check each pair once
+                        acCandidates[acCandIdx] = true;
+                    }
+                }
+            }
+        }
+
+        // Check only candidate paths (nearby in spatial grid)
+        for (var autoPathB in acCandidates) {
+            if (!acCandidates.hasOwnProperty(autoPathB)) continue;
+            autoPathB = parseInt(autoPathB);
+            var acPairKey = autoPathA + "_" + autoPathB;
+            if (acCheckedPairs[acPairKey]) continue;
+            acCheckedPairs[acPairKey] = true;
+
             var pathB = bluePathsForAutoCarve[autoPathB];
             if (!pathB || !pathB.pathPoints || pathB.pathPoints.length < 2) continue;
             var ptsB = pathB.pathPoints;
@@ -13294,34 +13596,13 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
                     var intPt = [intersection.point.x, intersection.point.y];
 
-                    // Check if this intersection is already handled by small segment detection
-                    var alreadyHandled = false;
-                    for (var ahIdx = 0; ahIdx < handledCrossoverPoints.length; ahIdx++) {
-                        var ahPt = handledCrossoverPoints[ahIdx];
-                        var ahDist = Math.sqrt(Math.pow(intPt[0] - ahPt[0], 2) + Math.pow(intPt[1] - ahPt[1], 2));
-                        if (ahDist < 15) { // Within 15pt of a handled crossover
-                            alreadyHandled = true;
-                            break;
-                        }
-                    }
-                    if (alreadyHandled) {
-                        addDebug("[AUTO-CARVE] Intersection at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] already handled by small segment");
-                        continue;
-                    }
+                    // PERF: Use spatial hash for O(1) handled crossover check
+                    if (isHandledCrossover(intPt)) continue;
 
                     // Determine which path should get the carve-out
-                    // Use path length as heuristic: shorter path (likely a branch) gets carved
-                    var pathALen = 0, pathBLen = 0;
-                    for (var lenA = 0; lenA < ptsA.length - 1; lenA++) {
-                        var lenDxA = ptsA[lenA + 1].anchor[0] - ptsA[lenA].anchor[0];
-                        var lenDyA = ptsA[lenA + 1].anchor[1] - ptsA[lenA].anchor[1];
-                        pathALen += Math.sqrt(lenDxA * lenDxA + lenDyA * lenDyA);
-                    }
-                    for (var lenB = 0; lenB < ptsB.length - 1; lenB++) {
-                        var lenDxB = ptsB[lenB + 1].anchor[0] - ptsB[lenB].anchor[0];
-                        var lenDyB = ptsB[lenB + 1].anchor[1] - ptsB[lenB].anchor[1];
-                        pathBLen += Math.sqrt(lenDxB * lenDxB + lenDyB * lenDyB);
-                    }
+                    // Use pre-computed path lengths: shorter path (likely a branch) gets carved
+                    var pathALen = pathLengths[autoPathA];
+                    var pathBLen = pathLengths[autoPathB];
 
                     // Record intersection - carve out the SHORTER path
                     autoIntersections.push({
@@ -13334,7 +13615,7 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                         carvedPathLen: pathALen <= pathBLen ? pathALen : pathBLen,
                         otherPathLen: pathALen <= pathBLen ? pathBLen : pathALen
                     });
-                    addDebug("[AUTO-CARVE] Found intersection at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - will carve " + (pathALen <= pathBLen ? "path A" : "path B") + " (shorter: " + (pathALen <= pathBLen ? pathALen : pathBLen).toFixed(0) + "pt vs " + (pathALen <= pathBLen ? pathBLen : pathALen).toFixed(0) + "pt)");
+                    // PERF: Removed per-intersection logging
                 }
             }
         }
@@ -13347,6 +13628,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
         var selfPath = bluePathsForAutoCarve[selfPathIdx];
         if (!selfPath || !selfPath.pathPoints || selfPath.pathPoints.length < 4) continue; // Need at least 4 points for self-intersection
         var selfPts = selfPath.pathPoints;
+        // UI yield with app.redraw
+        if (selfPathIdx % 5 === 0) {
+            yieldToUI();
+        }
 
         // Check each segment against non-adjacent segments of the same path
         for (var selfSegA = 0; selfSegA < selfPts.length - 1; selfSegA++) {
@@ -13371,20 +13656,8 @@ function collectScaleTargetsFromItem(item, targets, visited) {
 
                 var selfIntPt = [selfInt.point.x, selfInt.point.y];
 
-                // Check if this intersection is already handled by small segment detection
-                var selfAlreadyHandled = false;
-                for (var sahIdx = 0; sahIdx < handledCrossoverPoints.length; sahIdx++) {
-                    var sahPt = handledCrossoverPoints[sahIdx];
-                    var sahDist = Math.sqrt(Math.pow(selfIntPt[0] - sahPt[0], 2) + Math.pow(selfIntPt[1] - sahPt[1], 2));
-                    if (sahDist < 15) { // Within 15pt of a handled crossover
-                        selfAlreadyHandled = true;
-                        break;
-                    }
-                }
-                if (selfAlreadyHandled) {
-                    addDebug("[AUTO-CARVE] Self-intersection at [" + selfIntPt[0].toFixed(1) + "," + selfIntPt[1].toFixed(1) + "] already handled by small segment");
-                    continue;
-                }
+                // PERF: Use spatial hash for O(1) handled crossover check
+                if (isHandledCrossover(selfIntPt)) continue;
 
                 // Check if we already have an intersection at this point
                 var selfDuplicate = false;
@@ -13404,12 +13677,12 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     intPoint: selfIntPt,
                     pathToCarve: selfPath,
                     pathToCarveIdx: selfPathIdx,
-                    carveSegIdx: selfSegB, // Carve the later segment
+                    carveSegIdx: selfSegB,
                     carveT: selfInt.t2,
-                    otherPath: selfPath, // Same path (self-intersection)
+                    otherPath: selfPath,
                     isSelfIntersection: true
                 });
-                addDebug("[AUTO-CARVE] Found SELF-intersection at [" + selfIntPt[0].toFixed(1) + "," + selfIntPt[1].toFixed(1) + "] - will carve segment " + selfSegB + " of path " + selfPathIdx);
+                // PERF: Removed per-self-intersection logging
             }
         }
     }
@@ -13877,9 +14150,65 @@ function collectScaleTargetsFromItem(item, targets, visited) {
             var SMALL_SEG_MAX = 17;
             var INTERSECT_DIST = 5; // Max distance to consider an intersection
 
+            // === SPATIAL HASHING FOR CROSSOVER DETECTION O(n) PERFORMANCE ===
+            var XO_CELL_SIZE = 100;
+            var xoSpatialGrid = {};
+            var xoPathToCells = [];
+
+            // Build spatial index
+            for (var xoBuildIdx = 0; xoBuildIdx < layerPaths.length; xoBuildIdx++) {
+                var xoBuildPath = layerPaths[xoBuildIdx];
+                var xoBuildPts = xoBuildPath ? xoBuildPath.pathPoints : null;
+                if (!xoBuildPts || xoBuildPts.length === 0) {
+                    xoPathToCells.push([]);
+                    continue;
+                }
+                var xoMinX = Infinity, xoMinY = Infinity, xoMaxX = -Infinity, xoMaxY = -Infinity;
+                for (var xoBp = 0; xoBp < xoBuildPts.length; xoBp++) {
+                    var xoAnchor = xoBuildPts[xoBp].anchor;
+                    if (xoAnchor[0] < xoMinX) xoMinX = xoAnchor[0];
+                    if (xoAnchor[0] > xoMaxX) xoMaxX = xoAnchor[0];
+                    if (xoAnchor[1] < xoMinY) xoMinY = xoAnchor[1];
+                    if (xoAnchor[1] > xoMaxY) xoMaxY = xoAnchor[1];
+                }
+                var xoCellMinX = Math.floor(xoMinX / XO_CELL_SIZE);
+                var xoCellMaxX = Math.floor(xoMaxX / XO_CELL_SIZE);
+                var xoCellMinY = Math.floor(xoMinY / XO_CELL_SIZE);
+                var xoCellMaxY = Math.floor(xoMaxY / XO_CELL_SIZE);
+                var xoCells = [];
+                for (var xoCx = xoCellMinX; xoCx <= xoCellMaxX; xoCx++) {
+                    for (var xoCy = xoCellMinY; xoCy <= xoCellMaxY; xoCy++) {
+                        var xoCellKey = xoCx + "," + xoCy;
+                        xoCells.push(xoCellKey);
+                        if (!xoSpatialGrid[xoCellKey]) xoSpatialGrid[xoCellKey] = [];
+                        xoSpatialGrid[xoCellKey].push(xoBuildIdx);
+                    }
+                }
+                xoPathToCells.push(xoCells);
+            }
+
             for (var pathIdx = 0; pathIdx < layerPaths.length; pathIdx++) {
                 var path = layerPaths[pathIdx];
                 var pts = path.pathPoints;
+                // UI yield with app.redraw
+                if (pathIdx % 10 === 0) {
+                    yieldToUI();
+                }
+
+                // Get candidate paths from shared cells
+                var xoCandidates = {};
+                var xoMyCells = xoPathToCells[pathIdx];
+                for (var xoMc = 0; xoMc < xoMyCells.length; xoMc++) {
+                    var xoCellPaths = xoSpatialGrid[xoMyCells[xoMc]];
+                    if (xoCellPaths) {
+                        for (var xoCp = 0; xoCp < xoCellPaths.length; xoCp++) {
+                            var xoCandIdx = xoCellPaths[xoCp];
+                            if (xoCandIdx !== pathIdx) {
+                                xoCandidates[xoCandIdx] = true;
+                            }
+                        }
+                    }
+                }
 
                 // Check each internal segment (not first or last segment)
                 for (var segIdx = 1; segIdx < pts.length - 2; segIdx++) {
@@ -13890,9 +14219,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     var segLen = Math.sqrt(dx * dx + dy * dy);
 
                     if (segLen >= SMALL_SEG_MIN && segLen <= SMALL_SEG_MAX) {
-                        // Found a small internal segment - check if another path's segment intersects it
-                        for (var otherIdx = 0; otherIdx < layerPaths.length; otherIdx++) {
-                            if (otherIdx === pathIdx) continue;
+                        // Found a small internal segment - check only candidate paths
+                        for (var otherIdx in xoCandidates) {
+                            if (!xoCandidates.hasOwnProperty(otherIdx)) continue;
+                            otherIdx = parseInt(otherIdx);
                             var otherPath = layerPaths[otherIdx];
                             var otherPts = otherPath.pathPoints;
                             var foundIntersection = false;
@@ -14572,12 +14902,62 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 addDebug("Use Emory Assets: " + USE_EMORY_ASSETS);
                 addDebug("");
 
+                // PERF: Cache ignored anchors ONCE before processing all component types (Gemini optimization)
+                var CACHED_IGNORED_ANCHORS = [];
+                var possibleLayerNames = ["Ignore", "Ignored", "ignore", "ignored"];
+                var ignoredLayers = [];
+                for (var layerIdx = 0; layerIdx < docParam.layers.length; layerIdx++) {
+                    var checkLayer = docParam.layers[layerIdx];
+                    for (var nameIdx = 0; nameIdx < possibleLayerNames.length; nameIdx++) {
+                        if (checkLayer.name === possibleLayerNames[nameIdx]) {
+                            ignoredLayers.push(checkLayer);
+                            break;
+                        }
+                    }
+                }
+                if (ignoredLayers.length > 0) {
+                    function collectIgnoredAnchors_cached(container) {
+                        try {
+                            for (var i = 0; i < container.pathItems.length; i++) {
+                                try {
+                                    var path = container.pathItems[i];
+                                    for (var j = 0; j < path.pathPoints.length; j++) {
+                                        try {
+                                            var anchor = path.pathPoints[j].anchor;
+                                            CACHED_IGNORED_ANCHORS.push([anchor[0], anchor[1]]);
+                                        } catch (e) {}
+                                    }
+                                } catch (e) {}
+                            }
+                            for (var p = 0; p < container.placedItems.length; p++) {
+                                try {
+                                    var placed = container.placedItems[p];
+                                    var gb = placed.geometricBounds;
+                                    CACHED_IGNORED_ANCHORS.push([(gb[0] + gb[2]) / 2, (gb[1] + gb[3]) / 2]);
+                                } catch (e) {}
+                            }
+                            for (var k = 0; k < container.groupItems.length; k++) {
+                                try { collectIgnoredAnchors_cached(container.groupItems[k]); } catch (e) {}
+                            }
+                            if (container.layers) {
+                                for (var s = 0; s < container.layers.length; s++) {
+                                    try { collectIgnoredAnchors_cached(container.layers[s]); } catch (e) {}
+                                }
+                            }
+                        } catch (e) {}
+                    }
+                    for (var igIdx = 0; igIdx < ignoredLayers.length; igIdx++) {
+                        collectIgnoredAnchors_cached(ignoredLayers[igIdx]);
+                    }
+                    addDebug("[PERF] Cached " + CACHED_IGNORED_ANCHORS.length + " ignored anchors (collected once, reused 8x)");
+                }
+
                 for (var i = 0; i < COMPONENT_TYPES.length; i++) {
-                    placeComponentAtAnchorPoints_local(docParam, COMPONENT_TYPES[i], globalScale, selectedPaths);
+                    placeComponentAtAnchorPoints_local(docParam, COMPONENT_TYPES[i], globalScale, selectedPaths, CACHED_IGNORED_ANCHORS);
                 }
             }
 
-            function placeComponentAtAnchorPoints_local(docParam, type, globalScale, selectedPaths) {
+            function placeComponentAtAnchorPoints_local(docParam, type, globalScale, selectedPaths, cachedIgnoredAnchors) {
                 var layer = getLayerByName_local(docParam, type.layer);
                 if (!layer || layer.locked) {
                     addDebug("[" + type.name + "] Layer '" + type.layer + "' not found or locked");
@@ -14595,63 +14975,9 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 var anchorPts = collectAnchorPoints_local(docParam, layer, selectedPaths);
                 addDebug("[" + type.name + "] Collected " + anchorPts.length + " anchor points");
 
-                // Get ignored anchors for removal check
-                var ignoredAnchors = [];
+                // PERF: Use cached ignored anchors instead of re-collecting (Gemini optimization)
+                var ignoredAnchors = cachedIgnoredAnchors || [];
                 var IGNORED_DIST_LOCAL = 4;
-                var possibleLayerNames = ["Ignore", "Ignored", "ignore", "ignored"];
-                var ignoredLayers = [];
-
-                // Collect ALL layers that match any of the possible names
-                for (var layerIdx = 0; layerIdx < docParam.layers.length; layerIdx++) {
-                    var checkLayer = docParam.layers[layerIdx];
-                    for (var nameIdx = 0; nameIdx < possibleLayerNames.length; nameIdx++) {
-                        if (checkLayer.name === possibleLayerNames[nameIdx]) {
-                            ignoredLayers.push(checkLayer);
-                            break;
-                        }
-                    }
-                }
-                if (ignoredLayers.length > 0) {
-                    function collectIgnoredAnchors_removal(container) {
-                        try {
-                            // Collect anchor points from PathItems
-                            for (var i = 0; i < container.pathItems.length; i++) {
-                                try {
-                                    var path = container.pathItems[i];
-                                    for (var j = 0; j < path.pathPoints.length; j++) {
-                                        try {
-                                            var anchor = path.pathPoints[j].anchor;
-                                            ignoredAnchors.push([anchor[0], anchor[1]]);
-                                        } catch (e) {}
-                                    }
-                                } catch (e) {}
-                            }
-                            // Collect center points from PlacedItems (registers/units placed on Ignore layer)
-                            for (var p = 0; p < container.placedItems.length; p++) {
-                                try {
-                                    var placed = container.placedItems[p];
-                                    var gb = placed.geometricBounds;
-                                    var centerX = (gb[0] + gb[2]) / 2;
-                                    var centerY = (gb[1] + gb[3]) / 2;
-                                    ignoredAnchors.push([centerX, centerY]);
-                                } catch (e) {}
-                            }
-                            for (var k = 0; k < container.groupItems.length; k++) {
-                                try { collectIgnoredAnchors_removal(container.groupItems[k]); } catch (e) {}
-                            }
-                            // Also walk sublayers
-                            if (container.layers) {
-                                for (var s = 0; s < container.layers.length; s++) {
-                                    try { collectIgnoredAnchors_removal(container.layers[s]); } catch (e) {}
-                                }
-                            }
-                        } catch (e) {}
-                    }
-                    // Walk through ALL matching ignored layers
-                    for (var igIdx = 0; igIdx < ignoredLayers.length; igIdx++) {
-                        collectIgnoredAnchors_removal(ignoredLayers[igIdx]);
-                    }
-                }
 
                 var keySet = {};
                 for (var aIdx = 0; aIdx < anchorPts.length; aIdx++) {
@@ -14918,6 +15244,10 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                     var a = info.pos;
                     var rotation = info.rotation;
                     var key = a[0].toFixed(2) + "_" + a[1].toFixed(2);
+                    // UI yield with app.redraw
+                    if (j % 5 === 0) {
+                        yieldToUI();
+                    }
 
                     // Check if this location has custom transforms
                     var customScale = null;
@@ -15082,27 +15412,19 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                             addDebug("  EXISTING item - preserving custom transforms");
                         }
 
-                        try { targetItem.update(); } catch (e) {}
-                        
-                        // Store rotation metadata AFTER all item operations (file, scale, center, update)
+                        // PERF: Removed targetItem.update() - may cause per-item redraws (Gemini optimization)
+
+                        // Store rotation metadata AFTER all item operations (file, scale, center)
                         // to prevent operations from wiping the .note property
                         // Write metadata for BOTH new and existing items if a rotation override was specified
                         if (type.layer !== "Thermostats" && desiredRotation !== null) {
                             try {
-                                var safeLog2 = (typeof MDUX_debugLog === "function") ? MDUX_debugLog : function(m) { addDebug("[PLACE-META] " + m); };
-                                var itemStatus = createdNew ? "NEW" : "EXISTING";
-                                safeLog2("[PLACE-META] Storing rotation " + desiredRotation + "° for " + itemStatus + " " + type.name + " at " + key);
+                                // PERF: Removed verbose logging and verification read (Gemini optimization)
                                 var placedMeta2 = MDUX_getMetadata(targetItem) || {};
-                                safeLog2("[PLACE-META] Got existing meta: " + JSON.stringify(placedMeta2).substring(0, 200));
                                 placedMeta2.MDUX_RotationOverride = desiredRotation;
                                 MDUX_setMetadata(targetItem, placedMeta2);
-                                safeLog2("[PLACE-META] STORED rotation " + desiredRotation + "° in MDUX_META.MDUX_RotationOverride");
-                                // Verify it was saved
-                                var verifyMeta = MDUX_getMetadata(targetItem);
-                                safeLog2("[PLACE-META] VERIFY after save: " + (verifyMeta ? JSON.stringify(verifyMeta).substring(0, 200) : "null"));
                             } catch (eStoreMeta) {
                                 addDebug("  ERROR storing rotation metadata: " + eStoreMeta);
-                                try { if (typeof MDUX_debugLog === "function") MDUX_debugLog("[PLACE-META] ERROR: " + eStoreMeta); } catch(e2) {}
                             }
                         }
                     }
@@ -15131,30 +15453,22 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                 }
 
                 if (ignoredLayers.length > 0) {
+                    // PERF: Removed per-item logging (Gemini optimization)
                     function collectIgnoredAnchors(container) {
                         try {
-                            var containerName = container.name || "(unnamed)";
-                            var containerType = container.typename || "unknown";
-                            addDebug("[IGNORE WALK] Container: " + containerType + " '" + containerName + "' - pathItems:" + container.pathItems.length + " placedItems:" + container.placedItems.length + " groupItems:" + container.groupItems.length);
-
-                            // Collect anchor points from PathItems
+                            // Collect anchor points from PathItems (no logging)
                             for (var i = 0; i < container.pathItems.length; i++) {
                                 try {
                                     var path = container.pathItems[i];
-                                    var pathInfo = "locked:" + path.locked + " hidden:" + path.hidden + " guides:" + path.guides + " clipping:" + path.clipping + " points:" + path.pathPoints.length;
-                                    addDebug("[IGNORE PATHITEM #" + i + "] " + pathInfo);
                                     for (var j = 0; j < path.pathPoints.length; j++) {
                                         try {
                                             var anchor = path.pathPoints[j].anchor;
                                             ignoredAnchors.push([anchor[0], anchor[1]]);
-                                            addDebug("[IGNORE ANCHOR] PathItem anchor: " + anchor[0].toFixed(2) + "," + anchor[1].toFixed(2));
                                         } catch (e) {}
                                     }
-                                } catch (e) {
-                                    addDebug("[IGNORE PATHITEM #" + i + "] ERROR: " + e.message);
-                                }
+                                } catch (e) {}
                             }
-                            // Collect center points from PlacedItems (registers/units placed on Ignore layer)
+                            // Collect center points from PlacedItems
                             for (var p = 0; p < container.placedItems.length; p++) {
                                 try {
                                     var placed = container.placedItems[p];
@@ -15162,27 +15476,22 @@ function collectScaleTargetsFromItem(item, targets, visited) {
                                     var centerX = (gb[0] + gb[2]) / 2;
                                     var centerY = (gb[1] + gb[3]) / 2;
                                     ignoredAnchors.push([centerX, centerY]);
-                                    addDebug("[IGNORE ANCHOR] PlacedItem center: " + centerX.toFixed(2) + "," + centerY.toFixed(2));
                                 } catch (e) {}
                             }
                             for (var k = 0; k < container.groupItems.length; k++) {
                                 try { collectIgnoredAnchors(container.groupItems[k]); } catch (e) {}
                             }
-                            // Also walk sublayers
                             if (container.layers) {
                                 for (var s = 0; s < container.layers.length; s++) {
                                     try { collectIgnoredAnchors(container.layers[s]); } catch (e) {}
                                 }
                             }
-                        } catch (e) {
-                            addDebug("[IGNORE WALK] ERROR: " + e.message);
-                        }
+                        } catch (e) {}
                     }
-                    // Walk through ALL matching ignored layers
                     for (var igIdx = 0; igIdx < ignoredLayers.length; igIdx++) {
                         collectIgnoredAnchors(ignoredLayers[igIdx]);
                     }
-                    addDebug("[ANCHOR COLLECTION] Found " + ignoredAnchors.length + " ignored anchors (from paths and placed items) across " + ignoredLayers.length + " ignored layers");
+                    addDebug("[ANCHOR COLLECTION] Found " + ignoredAnchors.length + " ignored anchors across " + ignoredLayers.length + " layers");
                 }
 
                 // Helper to check if point is ignored (within IGNORED_DIST of any ignored anchor)
