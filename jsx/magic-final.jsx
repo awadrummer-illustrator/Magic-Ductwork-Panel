@@ -14249,6 +14249,35 @@ function setStaticTextColor(control, rgbArray) {
                 if (!layerPaths[fp].closed) filteredPaths.push(layerPaths[fp]);
             }
             addDebug("[COMPOUND] " + layerName + " after filter: " + filteredPaths.length + " open paths");
+
+            // Exclude paths that are children of carve-out compounds
+            // These were already compounded during carve-out and should not be re-processed
+            if (typeof CARVE_OUT_COMPOUNDS !== 'undefined' && CARVE_OUT_COMPOUNDS.length > 0) {
+                var preCarveFilterCount = filteredPaths.length;
+                var pathsNotInCarveCompounds = [];
+                for (var cfp = 0; cfp < filteredPaths.length; cfp++) {
+                    var cfPath = filteredPaths[cfp];
+                    var isInCarveCompound = false;
+                    try {
+                        if (cfPath && cfPath.parent && cfPath.parent.typename === 'CompoundPathItem') {
+                            for (var cocIdx = 0; cocIdx < CARVE_OUT_COMPOUNDS.length; cocIdx++) {
+                                if (cfPath.parent === CARVE_OUT_COMPOUNDS[cocIdx]) {
+                                    isInCarveCompound = true;
+                                    break;
+                                }
+                            }
+                        }
+                    } catch (eCfCheck) { }
+                    if (!isInCarveCompound) {
+                        pathsNotInCarveCompounds.push(cfPath);
+                    }
+                }
+                filteredPaths = pathsNotInCarveCompounds;
+                if (preCarveFilterCount !== filteredPaths.length) {
+                    addDebug("[COMPOUND] Excluded " + (preCarveFilterCount - filteredPaths.length) + " paths from carve-out compounds");
+                }
+            }
+
             layerPaths = filteredPaths;
 
             // CROSSOVER DETECTION: Find small internal segments (5-17pt) where another path intersects
