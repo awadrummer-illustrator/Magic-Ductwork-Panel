@@ -798,10 +798,11 @@ function MDUX_prepareProcessBridge(optionsJSON) {
             skipAllBranchSegments: !!opts.skipAllBranchSegments,
             skipFinalRegisterSegment: !!opts.skipFinalRegisterSegment,
             skipRegisterRotation: !!opts.skipRegisterRotation,
-            skipAutoCarve: !!opts.skipAutoCarve
+            enableRegisterCarve: !!opts.enableRegisterCarve,
+            enableOverlapCarve: !!opts.enableOverlapCarve
         };
         MDUX_debugLog("[BRIDGE] skipRegisterRotation option received: " + opts.skipRegisterRotation + " -> forcedOptions.skipRegisterRotation=" + $.global.MDUX.forcedOptions.skipRegisterRotation);
-        MDUX_debugLog("[BRIDGE] skipAutoCarve option received: " + opts.skipAutoCarve);
+        MDUX_debugLog("[BRIDGE] enableRegisterCarve=" + opts.enableRegisterCarve + ", enableOverlapCarve=" + opts.enableOverlapCarve);
         return "OK";
     } catch (e) {
         return "ERROR:" + e;

@@ -8705,7 +8705,8 @@ function setStaticTextColor(control, rgbArray) {
                 skipAllBranchSegments: !!forcedOptions.skipAllBranchSegments,
                 skipFinalRegisterSegment: !!forcedOptions.skipFinalRegisterSegment,
                 skipRegisterRotation: !!forcedOptions.skipRegisterRotation,
-                skipAutoCarve: !!forcedOptions.skipAutoCarve
+                enableRegisterCarve: !!forcedOptions.enableRegisterCarve,
+                enableOverlapCarve: !!forcedOptions.enableOverlapCarve
             };
             if (typeof forcedOptions.skipOrtho === "boolean") {
                 var skipValue = !!forcedOptions.skipOrtho;
@@ -8728,11 +8729,17 @@ function setStaticTextColor(control, rgbArray) {
             SKIP_REGISTER_ROTATION = !!startupChoice.skipRegisterRotation;
         }
         addDebug("[Register Rotation] SKIP_REGISTER_ROTATION=" + SKIP_REGISTER_ROTATION);
-        var SKIP_AUTO_CARVE = false;
-        if (startupChoice && typeof startupChoice.skipAutoCarve !== "undefined") {
-            SKIP_AUTO_CARVE = !!startupChoice.skipAutoCarve;
+
+        // Carve-out options (default to false = disabled)
+        var ENABLE_REGISTER_CARVE = false;
+        var ENABLE_OVERLAP_CARVE = false;
+        if (startupChoice && typeof startupChoice.enableRegisterCarve !== "undefined") {
+            ENABLE_REGISTER_CARVE = !!startupChoice.enableRegisterCarve;
         }
-        addDebug("[Auto-Carve] SKIP_AUTO_CARVE=" + SKIP_AUTO_CARVE);
+        if (startupChoice && typeof startupChoice.enableOverlapCarve !== "undefined") {
+            ENABLE_OVERLAP_CARVE = !!startupChoice.enableOverlapCarve;
+        }
+        addDebug("[Carve-Out] ENABLE_REGISTER_CARVE=" + ENABLE_REGISTER_CARVE + ", ENABLE_OVERLAP_CARVE=" + ENABLE_OVERLAP_CARVE);
         // Enforce mutual exclusivity: skipFinal takes precedence over skipAll
         if (SKIP_FINAL_REGISTER_ORTHO && SKIP_ALL_BRANCH_ORTHO) {
             addDebug("[Skip Ortho] WARNING: Both skip options were true! Setting SKIP_ALL_BRANCH_ORTHO=false");
@@ -12996,15 +13003,19 @@ function setStaticTextColor(control, rgbArray) {
         // *** CARVE OUT BLUE DUCTWORK LINES THAT PASS THROUGH SQUARE REGISTERS ***
         // After placing square registers, check if OTHER blue lines pass through register areas
         // and carve out those segments to prevent overlap
-        updateProgress("Carving register gaps...");
         addDebug("\n=== SQUARE REGISTER CARVE-OUT ===");
 
-        var REGISTER_CARVE_HALF_WIDTH = 13.5; // 27pt total gap centered on register
-        var REGISTER_DETECTION_THRESHOLD = 10; // How close a line segment must be to register center to trigger carve-out
-        var squareRegLayer = null;
-        try { squareRegLayer = doc.layers.getByName("Square Registers"); } catch (e) { }
+        if (!ENABLE_REGISTER_CARVE) {
+            addDebug("[REGISTER-CARVE] SKIPPED - checkbox not enabled");
+            updateProgress("Register carve skipped...");
+        } else {
+            updateProgress("Carving register gaps...");
+            var REGISTER_CARVE_HALF_WIDTH = 13.5; // 27pt total gap centered on register
+            var REGISTER_DETECTION_THRESHOLD = 10; // How close a line segment must be to register center to trigger carve-out
+            var squareRegLayer = null;
+            try { squareRegLayer = doc.layers.getByName("Square Registers"); } catch (e) { }
 
-        if (squareRegLayer) {
+            if (squareRegLayer) {
             // Collect all square register center positions
             var registerCenters = [];
             for (var sri = 0; sri < squareRegLayer.pathItems.length; sri++) {
@@ -13372,12 +13383,13 @@ function setStaticTextColor(control, rgbArray) {
 
                 addDebug("[CARVE-OUT] Restored selection: " + restoredCount + " items (including " + newCompoundPaths.length + " new compound path(s))");
             }
-        }
+            } // end if (squareRegLayer)
+        } // end if (ENABLE_REGISTER_CARVE)
 
         // *** AUTOMATIC BLUE PATH INTERSECTION CARVE-OUT ***
         // Detect where blue ductwork paths cross each other (without requiring small segments)
         // and create carve-outs at those intersection points
-        updateProgress(SKIP_AUTO_CARVE ? "Auto-carve skipped..." : "Carving intersections...");
+        updateProgress(!ENABLE_OVERLAP_CARVE ? "Overlap carve skipped..." : "Carving intersections...");
         addDebug("\n=== AUTOMATIC BLUE PATH INTERSECTION CARVE-OUT ===");
 
         // Define variables outside conditional so they're always available
@@ -13386,8 +13398,8 @@ function setStaticTextColor(control, rgbArray) {
         var autoPathsToRemove = [];
         var autoNewCompoundPaths = [];
 
-        if (SKIP_AUTO_CARVE) {
-            addDebug("[AUTO-CARVE] SKIPPED by user option");
+        if (!ENABLE_OVERLAP_CARVE) {
+            addDebug("[AUTO-CARVE] SKIPPED - checkbox not enabled");
         } else {
             // Start of auto-carve processing (only runs if not skipped)
             var bluePathsForAutoCarveRaw = getPathsOnLayerSelected(blueSourceLayer) || [];
@@ -13992,7 +14004,7 @@ function setStaticTextColor(control, rgbArray) {
             } else {
                 addDebug("[AUTO-CARVE] No new intersections found (all may already be handled by small segments or registers)");
             }
-        } // End of SKIP_AUTO_CARVE else block
+        } // End of ENABLE_OVERLAP_CARVE else block
 
         // *** PLACE SQUARE REGISTERS AT INTERNAL ANCHORS WITH NO DIRECTION CHANGE ***
         // For internal anchors on blue paths that are NOT crossovers and have no direction change
@@ -15951,6 +15963,90 @@ function setStaticTextColor(control, rgbArray) {
                     addDebug("[CLEANUP] Final placement pass complete");
                 } catch (eCleanup) {
                     addDebug("[CLEANUP] Error in cleanup pass: " + eCleanup);
+                }
+
+                // *** DUPLICATE PATH CLEANUP ***
+                // Remove duplicate/overlapping path segments on Blue Ductwork layer
+                try {
+                    addDebug("[CLEANUP] Starting duplicate path removal...");
+                    var blueLayer = null;
+                    try { blueLayer = doc.layers.getByName("Blue Ductwork"); } catch (e) { }
+                    if (!blueLayer) {
+                        try { blueLayer = doc.layers.getByName("blue ductwork"); } catch (e) { }
+                    }
+
+                    if (blueLayer) {
+                        var duplicatesRemoved = 0;
+                        var allBluePaths = [];
+
+                        // Collect all paths on Blue Ductwork layer
+                        for (var bpi = 0; bpi < blueLayer.pathItems.length; bpi++) {
+                            try {
+                                var bPath = blueLayer.pathItems[bpi];
+                                if (bPath && bPath.pathPoints && bPath.pathPoints.length >= 2) {
+                                    allBluePaths.push(bPath);
+                                }
+                            } catch (e) { }
+                        }
+
+                        addDebug("[CLEANUP] Checking " + allBluePaths.length + " paths for duplicates");
+
+                        // Check each pair of paths for duplicates
+                        var DUPE_TOLERANCE = 1.0; // Points within 1pt are considered same
+                        var pathsToRemove = [];
+
+                        for (var dpA = 0; dpA < allBluePaths.length; dpA++) {
+                            var pathA = allBluePaths[dpA];
+                            if (!pathA || pathsToRemove.indexOf(pathA) >= 0) continue;
+
+                            var ptsA = pathA.pathPoints;
+                            var aStart = ptsA[0].anchor;
+                            var aEnd = ptsA[ptsA.length - 1].anchor;
+
+                            for (var dpB = dpA + 1; dpB < allBluePaths.length; dpB++) {
+                                var pathB = allBluePaths[dpB];
+                                if (!pathB || pathsToRemove.indexOf(pathB) >= 0) continue;
+
+                                var ptsB = pathB.pathPoints;
+                                var bStart = ptsB[0].anchor;
+                                var bEnd = ptsB[ptsB.length - 1].anchor;
+
+                                // Check if endpoints match (either direction)
+                                var sameDir = (Math.abs(aStart[0] - bStart[0]) < DUPE_TOLERANCE &&
+                                               Math.abs(aStart[1] - bStart[1]) < DUPE_TOLERANCE &&
+                                               Math.abs(aEnd[0] - bEnd[0]) < DUPE_TOLERANCE &&
+                                               Math.abs(aEnd[1] - bEnd[1]) < DUPE_TOLERANCE);
+                                var revDir = (Math.abs(aStart[0] - bEnd[0]) < DUPE_TOLERANCE &&
+                                              Math.abs(aStart[1] - bEnd[1]) < DUPE_TOLERANCE &&
+                                              Math.abs(aEnd[0] - bStart[0]) < DUPE_TOLERANCE &&
+                                              Math.abs(aEnd[1] - bStart[1]) < DUPE_TOLERANCE);
+
+                                if (sameDir || revDir) {
+                                    // Paths are duplicates - remove the shorter one (or B if same length)
+                                    var lenA = pathA.length;
+                                    var lenB = pathB.length;
+                                    if (lenB <= lenA) {
+                                        pathsToRemove.push(pathB);
+                                    } else {
+                                        pathsToRemove.push(pathA);
+                                        break; // pathA marked for removal, stop checking against it
+                                    }
+                                }
+                            }
+                        }
+
+                        // Remove duplicate paths
+                        for (var remDupe = 0; remDupe < pathsToRemove.length; remDupe++) {
+                            try {
+                                pathsToRemove[remDupe].remove();
+                                duplicatesRemoved++;
+                            } catch (e) { }
+                        }
+
+                        addDebug("[CLEANUP] Removed " + duplicatesRemoved + " duplicate path(s)");
+                    }
+                } catch (eDupe) {
+                    addDebug("[CLEANUP] Error in duplicate removal: " + eDupe);
                 }
 
                 // --- END embedded 03 - Place Ductwork at Points.jsx ---

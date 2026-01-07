@@ -317,13 +317,15 @@
             }
         }
 
-        const skipAutoCarveOption = document.getElementById('skip-auto-carve-option');
+        const enableRegisterCarveOption = document.getElementById('enable-register-carve-option');
+        const enableOverlapCarveOption = document.getElementById('enable-overlap-carve-option');
         const options = {
             action: 'process',
             skipAllBranchSegments: !!skipAllBranchesOption.checked,
             skipFinalRegisterSegment: !!skipFinalOption.checked,
             skipRegisterRotation: !(skipRegisterRotationOption && skipRegisterRotationOption.checked),
-            skipAutoCarve: !!(skipAutoCarveOption && skipAutoCarveOption.checked)
+            enableRegisterCarve: !!(enableRegisterCarveOption && enableRegisterCarveOption.checked),
+            enableOverlapCarve: !!(enableOverlapCarveOption && enableOverlapCarveOption.checked)
         };
 
         if (!skipOrthoOption.indeterminate) {
