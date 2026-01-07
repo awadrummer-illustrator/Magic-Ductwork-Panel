@@ -12533,6 +12533,8 @@ function setStaticTextColor(control, rgbArray) {
             addDebug("[CLEANUP] Marked " + oppositeEndpointsForUnits.length + " opposite endpoint(s) for unit placement");
         }
 
+        // BATCH PROCESSING: Process paths in chunks to prevent UI lockup
+        var ORTHO_BATCH_SIZE = 25; // Process 25 paths at a time
         var iteration = 0;
         var changed = true;
         while (changed && iteration < MAX_ITER) {
@@ -12541,11 +12543,19 @@ function setStaticTextColor(control, rgbArray) {
             addDebug("[Orthogonalize Iteration " + iteration + "] Starting with " + geometryPaths.length + " paths");
             var allSegments = buildSegmentsForPaths(geometryPaths);
             if (snapAnchors(geometryPaths, allSegments)) changed = true;
+
+            // Process in batches
             for (var i = 0; i < geometryPaths.length; i++) {
                 if (orthogonalizePath(geometryPaths[i], preOrthoConnections.pairs)) changed = true;
-                // UI yield with app.redraw
-                if (i % 5 === 0) {
-                    // yieldToUI();
+
+                // Update progress between batches (lightweight - no app.redraw)
+                if (i > 0 && i % ORTHO_BATCH_SIZE === 0) {
+                    if (progressWin && progressLabel) {
+                        try {
+                            progressLabel.text = "Orthogonalizing... " + i + "/" + geometryPaths.length;
+                            progressWin.update();
+                        } catch (e) { }
+                    }
                 }
             }
             if (restoreEndpointConnections(preOrthoConnections)) changed = true;
@@ -13607,10 +13617,20 @@ function setStaticTextColor(control, rgbArray) {
 
             // Limit carve-outs to prevent runaway processing on complex selections
             var MAX_CARVE_OUTS = 100;
+            var CARVE_BATCH_SIZE = 10; // Update progress every 10 carve-outs
             var carveCount = 0;
 
             // Process carve-outs (work backwards to avoid index issues)
             for (var acIdx = autoIntersections.length - 1; acIdx >= 0 && carveCount < MAX_CARVE_OUTS; acIdx--) {
+                // BATCH: Update progress between batches
+                if (carveCount > 0 && carveCount % CARVE_BATCH_SIZE === 0) {
+                    if (progressWin && progressLabel) {
+                        try {
+                            progressLabel.text = "Carving... " + carveCount + "/" + Math.min(autoIntersections.length, MAX_CARVE_OUTS);
+                            progressWin.update();
+                        } catch (e) { }
+                    }
+                }
                 var autoInt = autoIntersections[acIdx];
                 var carvePath = autoInt.pathToCarve;
                 var carveSegIdx = autoInt.carveSegIdx;
@@ -14499,6 +14519,7 @@ function setStaticTextColor(control, rgbArray) {
                 }
 
                 var components = findConnectedComponents(layerPaths, connections);
+                var COMPOUND_BATCH_SIZE = 10; // Update progress every 10 components
 
                 // DEBUG: Log connections and components for blue ductwork (compact)
                 if (layerName.toLowerCase().indexOf("blue") !== -1) {
@@ -14506,6 +14527,15 @@ function setStaticTextColor(control, rgbArray) {
                 }
 
                 for (var i = 0; i < components.length; i++) {
+                    // BATCH: Update progress between batches
+                    if (i > 0 && i % COMPOUND_BATCH_SIZE === 0) {
+                        if (progressWin && progressLabel) {
+                            try {
+                                progressLabel.text = "Compounding... " + i + "/" + components.length;
+                                progressWin.update();
+                            } catch (e) { }
+                        }
+                    }
                     var comp = components[i];
                     if (comp.length <= 1) continue;
                     var componentIsTargeted = false;
@@ -15332,14 +15362,21 @@ function setStaticTextColor(control, rgbArray) {
                         }
                     }
 
+                    var PLACEMENT_BATCH_SIZE = 15; // Update progress every 15 placements
                     for (var j = 0; j < anchorPts.length; j++) {
+                        // BATCH: Update progress between batches
+                        if (j > 0 && j % PLACEMENT_BATCH_SIZE === 0) {
+                            if (progressWin && progressLabel) {
+                                try {
+                                    progressLabel.text = type.name + "... " + j + "/" + anchorPts.length;
+                                    progressWin.update();
+                                } catch (e) { }
+                            }
+                        }
                         var info = anchorPts[j];
                         var a = info.pos;
                         var rotation = info.rotation;
                         var key = a[0].toFixed(2) + "_" + a[1].toFixed(2);
-                        // UI yield with app.redraw
-                        // UI yield REMOVED for performance
-                        // if (j % 5 === 0) { yieldToUI(); }
 
                         // Check if this location has custom transforms
                         var customScale = null;
