@@ -48,6 +48,20 @@ if (typeof JSON.parse !== "function") {
     };
 }
 
+// ============================================================================
+// DEBUG CONFIGURATION - ALL DEBUG FLAGS IN ONE PLACE
+// ============================================================================
+// Set these to true/false to control logging throughout the entire script
+// ============================================================================
+$.global.MDUX_DEBUG = {
+    ENABLED: true,              // Master switch - enables/disables ALL debug logging
+    CONNECTIONS: true,          // Log path connection detection details
+    INTERSECTIONS: true,        // Log intersection vertex detection
+    COMPOUNDING: true,          // Log compounding operations
+    COMPONENTS: true            // Log component placement (units, registers, etc.)
+};
+// ============================================================================
+
 // Emergency Shim: Define yieldToUI globally to prevent ReferenceError if any calls remain.
 // This function intentionally does nothing.
 if (typeof yieldToUI === "undefined") {
@@ -8496,8 +8510,8 @@ function setStaticTextColor(control, rgbArray) {
         }
 
         // --- GLOBAL DEBUG LOG ---
-        // DEBUG_MODE: Set to false for production to skip all logging overhead
-        var DEBUG_MODE = false; // Set to true for debugging
+        // DEBUG_MODE: References $.global.MDUX_DEBUG.ENABLED at top of file
+        var DEBUG_MODE = $.global.MDUX_DEBUG && $.global.MDUX_DEBUG.ENABLED;
         var GLOBAL_DEBUG_LOG = [];
         function addDebug(msg) {
             // PERFORMANCE: Skip all logging if debug mode is off
@@ -9741,7 +9755,7 @@ function setStaticTextColor(control, rgbArray) {
             var MIN_DIST = 0.5; // Minimum distance - paths closer than this are likely duplicates
             var T_JUNCTION_DIST = 25; // Larger tolerance for T-junction detection (point-to-segment)
             var PATH_ANCHOR_TOLERANCE = 10; // Distance threshold for path vertex at intersection check
-            var DEBUG_CONNECTIONS = false; // Set to true for connection debugging
+            var DEBUG_CONNECTIONS = $.global.MDUX_DEBUG && $.global.MDUX_DEBUG.CONNECTIONS; // References global config
             ignoredAnchorsOut = ignoredAnchorsOut || []; // Array to collect intersection points to ignore
 
             if (DEBUG_CONNECTIONS && pathItems.length > 0) {
@@ -9755,6 +9769,36 @@ function setStaticTextColor(control, rgbArray) {
                     var vy = pathPts[v].anchor[1] - pt[1];
                     if (Math.sqrt(vx * vx + vy * vy) <= PATH_ANCHOR_TOLERANCE) {
                         return true;
+                    }
+                }
+                return false;
+            }
+
+            // Helper to check if a point is near a crossover (segment intersection without vertex)
+            // Returns true if the point is near where pathA and pathB intersect but neither has a vertex there
+            function isNearCrossover(pt, ptsA, ptsB, tolerance) {
+                var CROSSOVER_CHECK_DIST = tolerance || 15;
+                for (var sA = 0; sA < ptsA.length - 1; sA++) {
+                    for (var sB = 0; sB < ptsB.length - 1; sB++) {
+                        var intPt = getSegmentIntersectionPoint(
+                            ptsA[sA].anchor[0], ptsA[sA].anchor[1],
+                            ptsA[sA + 1].anchor[0], ptsA[sA + 1].anchor[1],
+                            ptsB[sB].anchor[0], ptsB[sB].anchor[1],
+                            ptsB[sB + 1].anchor[0], ptsB[sB + 1].anchor[1]
+                        );
+                        if (intPt) {
+                            // Check if pt is near this intersection
+                            var distToInt = Math.sqrt((pt[0] - intPt[0]) * (pt[0] - intPt[0]) + (pt[1] - intPt[1]) * (pt[1] - intPt[1]));
+                            if (distToInt <= CROSSOVER_CHECK_DIST) {
+                                // Check if either path has a vertex at this intersection
+                                var hasVertexA = pathHasVertexNearPoint(ptsA, intPt);
+                                var hasVertexB = pathHasVertexNearPoint(ptsB, intPt);
+                                if (!hasVertexA && !hasVertexB) {
+                                    // This is a crossover - no vertex at intersection
+                                    return true;
+                                }
+                            }
+                        }
                     }
                 }
                 return false;
@@ -9916,8 +9960,13 @@ function setStaticTextColor(control, rgbArray) {
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist < bestTJDist) { bestTJDist = dist; bestTJt = res.t; }
                                 if (dist >= MIN_DIST && dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
-                                    connected = true;
-                                    if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction detected: path " + i + " point -> path " + j + " segment, dist=" + dist.toFixed(2));
+                                    // Check if this T-junction point is at a crossover (intersection without vertex)
+                                    if (isNearCrossover(res.pt, ptsA, ptsB, T_JUNCTION_DIST)) {
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction SKIPPED (crossover): path " + i + " point -> path " + j + " segment, dist=" + dist.toFixed(2));
+                                    } else {
+                                        connected = true;
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction detected: path " + i + " point -> path " + j + " segment, dist=" + dist.toFixed(2));
+                                    }
                                 }
                             }
                         }
@@ -9933,8 +9982,13 @@ function setStaticTextColor(control, rgbArray) {
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist < bestTJDist) { bestTJDist = dist; bestTJt = res.t; }
                                 if (dist >= MIN_DIST && dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
-                                    connected = true;
-                                    if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction detected: path " + j + " point -> path " + i + " segment, dist=" + dist.toFixed(2));
+                                    // Check if this T-junction point is at a crossover (intersection without vertex)
+                                    if (isNearCrossover(res.pt, ptsA, ptsB, T_JUNCTION_DIST)) {
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction SKIPPED (crossover): path " + j + " point -> path " + i + " segment, dist=" + dist.toFixed(2));
+                                    } else {
+                                        connected = true;
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction detected: path " + j + " point -> path " + i + " segment, dist=" + dist.toFixed(2));
+                                    }
                                 }
                             }
                         }
@@ -9945,6 +9999,7 @@ function setStaticTextColor(control, rgbArray) {
 
                     // 2b. Extended anchor-to-anchor: endpoints within T_JUNCTION_DIST (for branches connecting to branches)
                     // This handles cases where two branch endpoints are near each other but not close enough for strict maxDist
+                    // BUT skip if the endpoints are near a crossover (intersection without vertex)
                     if (!connected) {
                         var ENDPOINT_TOLERANCE = 15; // Allow endpoint connections up to 15pt apart
                         for (var ai = 0; ai < ptsA.length && !connected; ai++) {
@@ -9959,8 +10014,14 @@ function setStaticTextColor(control, rgbArray) {
                                 var dy = aPos[1] - bPos[1];
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist >= MIN_DIST && dist <= ENDPOINT_TOLERANCE) {
-                                    connected = true;
-                                    if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Extended endpoint-to-endpoint: path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
+                                    // Check if these endpoints are near a crossover (intersection without vertex)
+                                    var midPt = [(aPos[0] + bPos[0]) / 2, (aPos[1] + bPos[1]) / 2];
+                                    if (isNearCrossover(midPt, ptsA, ptsB, ENDPOINT_TOLERANCE)) {
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Endpoint-to-endpoint SKIPPED (crossover): path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
+                                    } else {
+                                        connected = true;
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Extended endpoint-to-endpoint: path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
+                                    }
                                 }
                             }
                         }
@@ -13010,6 +13071,67 @@ function setStaticTextColor(control, rgbArray) {
 
             addDebug("[OPPOSITE-UNITS] Created " + unitsCreated + " unit(s) at opposite endpoints");
         }
+
+        // PRE-STEP 4: Detect blue line intersections where one path has a vertex at the crossing
+        // These intersection points should be ignored for component placement (no square registers)
+        addDebug("\n=== DETECTING INTERSECTION VERTICES ===");
+        updateProgress("Detecting intersection vertices...");
+        var bluePathsForIntersect = filterPathsToProcessable(getPathsOnLayerSelected(blueSourceLayer));
+        var INTERSECT_VERTEX_TOLERANCE = 10;
+        var intersectionVertexIgnorePoints = [];
+
+        if (bluePathsForIntersect.length > 1) {
+            for (var intA = 0; intA < bluePathsForIntersect.length; intA++) {
+                var pathIntA = bluePathsForIntersect[intA];
+                var ptsIntA = pathIntA.pathPoints;
+                if (!ptsIntA || ptsIntA.length < 2) continue;
+
+                for (var intB = intA + 1; intB < bluePathsForIntersect.length; intB++) {
+                    var pathIntB = bluePathsForIntersect[intB];
+                    var ptsIntB = pathIntB.pathPoints;
+                    if (!ptsIntB || ptsIntB.length < 2) continue;
+
+                    // Check all segment pairs for intersection
+                    for (var segA = 0; segA < ptsIntA.length - 1; segA++) {
+                        for (var segB = 0; segB < ptsIntB.length - 1; segB++) {
+                            var intPt = getSegmentIntersectionPoint(
+                                ptsIntA[segA].anchor[0], ptsIntA[segA].anchor[1],
+                                ptsIntA[segA + 1].anchor[0], ptsIntA[segA + 1].anchor[1],
+                                ptsIntB[segB].anchor[0], ptsIntB[segB].anchor[1],
+                                ptsIntB[segB + 1].anchor[0], ptsIntB[segB + 1].anchor[1]
+                            );
+                            if (intPt) {
+                                // Check if either path has a vertex near this intersection
+                                var hasVertexA = false, hasVertexB = false;
+                                for (var vA = 0; vA < ptsIntA.length; vA++) {
+                                    var vdxA = ptsIntA[vA].anchor[0] - intPt[0];
+                                    var vdyA = ptsIntA[vA].anchor[1] - intPt[1];
+                                    if (Math.sqrt(vdxA * vdxA + vdyA * vdyA) <= INTERSECT_VERTEX_TOLERANCE) {
+                                        hasVertexA = true;
+                                        break;
+                                    }
+                                }
+                                for (var vB = 0; vB < ptsIntB.length; vB++) {
+                                    var vdxB = ptsIntB[vB].anchor[0] - intPt[0];
+                                    var vdyB = ptsIntB[vB].anchor[1] - intPt[1];
+                                    if (Math.sqrt(vdxB * vdxB + vdyB * vdyB) <= INTERSECT_VERTEX_TOLERANCE) {
+                                        hasVertexB = true;
+                                        break;
+                                    }
+                                }
+                                if (hasVertexA || hasVertexB) {
+                                    // Add to ignore list - no component should be placed here
+                                    intersectionVertexIgnorePoints.push([intPt[0], intPt[1]]);
+                                    ignoredAnchors.push([intPt[0], intPt[1]]);
+                                    addDebug("[INTERSECT-VERTEX] Found intersection with vertex at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - added to ignore list");
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        addDebug("[INTERSECT-VERTEX] Total intersection vertex ignore points: " + intersectionVertexIgnorePoints.length);
 
         // STEP 4: Create Registers, but skip endpoints that are close to existing Units, Ignored points, or existing points
         updateProgress("Creating registers...");

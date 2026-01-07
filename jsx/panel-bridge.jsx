@@ -468,8 +468,14 @@ if (typeof MDUX === "undefined") {
 }
 
 // Debug logging to file
-// PERFORMANCE: Set to false for production to skip logging overhead
-var MDUX_DEBUG_MODE = false; // Set to true for debug logging
+// NOTE: Debug flags are now centralized in magic-final.jsx at $.global.MDUX_DEBUG
+// This helper checks the global config, defaulting to true if not yet loaded
+function MDUX_isDebugEnabled() {
+    if (typeof $.global.MDUX_DEBUG !== "undefined" && $.global.MDUX_DEBUG) {
+        return $.global.MDUX_DEBUG.ENABLED;
+    }
+    return true; // Default to enabled if config not loaded yet
+}
 
 // In-memory debug log buffer
 if (typeof $.global.MDUX_debugBuffer === "undefined") {
@@ -478,7 +484,7 @@ if (typeof $.global.MDUX_debugBuffer === "undefined") {
 
 function MDUX_debugLog(message) {
     // PERFORMANCE: Skip all logging if debug mode is off
-    if (!MDUX_DEBUG_MODE) return;
+    if (!MDUX_isDebugEnabled()) return;
 
     try {
         // ExtendScript doesn't have toISOString(), use toString() instead
@@ -2493,8 +2499,8 @@ function MDUX_testNoteProperty() {
 // Function to get debug log contents from memory buffer
 function MDUX_getDebugLog() {
     // PERFORMANCE: Skip expensive operations if debug mode is off
-    if (!MDUX_DEBUG_MODE) {
-        return "Debug mode is disabled. Set MDUX_DEBUG_MODE = true in panel-bridge.jsx to enable logging.";
+    if (!MDUX_isDebugEnabled()) {
+        return "Debug mode is disabled. Set $.global.MDUX_DEBUG.ENABLED = true in magic-final.jsx to enable logging.";
     }
 
     try {
