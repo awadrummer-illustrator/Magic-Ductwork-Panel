@@ -15954,16 +15954,9 @@ function setStaticTextColor(control, rgbArray) {
                 // Run the embedded main
                 try { embeddedMain(); } catch (e) { /* swallow errors from embedded routine to match previous behavior */ }
 
-                // *** FINAL CLEANUP PASS ***
-                // Run placement again WITHOUT proximity filter to catch any orphaned anchors
-                // This ensures all anchor points get their components even if paths became invalid
-                try {
-                    addDebug("[CLEANUP] Running final placement pass for orphaned anchors...");
-                    placeLinkedComponents_local(doc, null); // null = no proximity filter
-                    addDebug("[CLEANUP] Final placement pass complete");
-                } catch (eCleanup) {
-                    addDebug("[CLEANUP] Error in cleanup pass: " + eCleanup);
-                }
+                // NOTE: Final cleanup pass removed - was causing 30+ second freeze by processing
+                // ALL existing anchors instead of just selection-related ones.
+                // If orphaned anchors are a problem, user can run Process again on those items.
 
                 // *** DUPLICATE PATH CLEANUP ***
                 // Remove duplicate/overlapping path segments on Blue Ductwork layer
