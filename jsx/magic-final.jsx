@@ -14599,23 +14599,83 @@ function setStaticTextColor(control, rgbArray) {
                     // This resets stroke to 1pt which is why we capture above first
                     normalizeStrokeProperties(comp);
 
+                    // *** PARENT VALIDATION - Ensure all paths are in same container ***
+                    // Compounding fails silently if paths are in different parent groups
+                    var compoundParentLayer = null;
+                    var needsParentReconciliation = false;
+                    var firstValidParent = null;
+
+                    for (var pvi = 0; pvi < comp.length; pvi++) {
+                        try {
+                            var pvPath = comp[pvi];
+                            if (!pvPath) continue;
+                            var pvParent = pvPath.parent;
+                            if (!pvParent) continue;
+
+                            // Find the layer (walk up if in group)
+                            var pvLayer = pvParent;
+                            while (pvLayer && pvLayer.typename !== "Layer") {
+                                pvLayer = pvLayer.parent;
+                            }
+                            if (pvLayer && !compoundParentLayer) {
+                                compoundParentLayer = pvLayer;
+                            }
+
+                            // Check if parent differs from first
+                            if (!firstValidParent) {
+                                firstValidParent = pvParent;
+                            } else if (pvParent !== firstValidParent) {
+                                needsParentReconciliation = true;
+                            }
+                        } catch (ePv) { }
+                    }
+
+                    // Move all paths to the common layer if they're in different parents
+                    if (needsParentReconciliation && compoundParentLayer) {
+                        addDebug("[COMPOUND] Parent mismatch detected - moving " + comp.length + " paths to layer");
+                        for (var mvIdx = 0; mvIdx < comp.length; mvIdx++) {
+                            try {
+                                var mvPath = comp[mvIdx];
+                                if (mvPath && mvPath.parent !== compoundParentLayer) {
+                                    mvPath.move(compoundParentLayer, ElementPlacement.PLACEATEND);
+                                }
+                            } catch (eMv) { }
+                        }
+                    }
+
                     doc.selection = null;
+                    var validPathCount = 0;
                     for (var j = 0; j < comp.length; j++) {
                         try {
                             comp[j].selected = true;
+                            validPathCount++;
                         } catch (e) {
                             // Skip if path is invalid
                         }
                     }
+
                     var originalInteractionLevel = app.userInteractionLevel;
+                    var compoundSuccess = false;
                     try {
                         if (doc.selection.length > 1) {
                             app.userInteractionLevel = UserInteractionLevel.DONTDISPLAYALERTS;
                             app.executeMenuCommand("compoundPath");
+                            // Check if compound was created
+                            if (doc.selection.length === 1 && doc.selection[0].typename === "CompoundPathItem") {
+                                compoundSuccess = true;
+                            }
                         }
                     } catch (e) {
-                        // This will catch script errors, but the interaction level change handles the app alert.
-                    } finally {
+                        addDebug("[COMPOUND] ERROR: " + e);
+                    }
+
+                    // Log if compounding failed on a multi-path component
+                    if (!compoundSuccess && validPathCount > 1) {
+                        addDebug("[COMPOUND] WARNING: Compounding failed for " + validPathCount + " paths (may be in different containers)");
+                    }
+
+                    // Restore interaction level and process result
+                    try {
                         // Mark compound paths for styling (both modes)
                         if (componentIsTargeted) {
                             try {
@@ -14677,6 +14737,9 @@ function setStaticTextColor(control, rgbArray) {
                                 }
                             } catch (eMarkCompound) { }
                         }
+                    } catch (eCompoundProcess) {
+                        addDebug("[COMPOUND] Error in post-compound processing: " + eCompoundProcess);
+                    } finally {
                         app.userInteractionLevel = originalInteractionLevel;
                     }
                 }
