@@ -14686,6 +14686,22 @@ function setStaticTextColor(control, rgbArray) {
                                     markCreatedPath(compoundItem);
                                     COMPOUND_PATHS_TO_STYLE.push(compoundItem);
 
+                                    // *** FIX: Add compound to SELECTED_PATHS for component placement ***
+                                    // The original paths are now part of the compound and invalid
+                                    SELECTED_PATHS.push(compoundItem);
+
+                                    // *** FIX: Remove original paths from SELECTED_PATHS ***
+                                    // They are now invalid (part of the compound)
+                                    for (var remIdx = 0; remIdx < comp.length; remIdx++) {
+                                        for (var spRemIdx = SELECTED_PATHS.length - 1; spRemIdx >= 0; spRemIdx--) {
+                                            try {
+                                                if (SELECTED_PATHS[spRemIdx] === comp[remIdx]) {
+                                                    SELECTED_PATHS.splice(spRemIdx, 1);
+                                                }
+                                            } catch (eRem) { }
+                                        }
+                                    }
+
                                     // Copy rotation override from child paths to compound path metadata
                                     try {
                                         addDebug("[COMPOUND] Processing compound path, typename=" + compoundItem.typename);
