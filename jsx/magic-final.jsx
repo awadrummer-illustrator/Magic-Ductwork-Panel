@@ -9966,7 +9966,9 @@ function setStaticTextColor(control, rgbArray) {
                         }
                     }
 
-                    // 3. Segment intersection (skip if anchor exists at intersection)
+                    // 3. Segment intersection (only connect if anchor exists at intersection)
+                    // If two lines cross WITHOUT an anchor, they're separate runs (crossover)
+                    // If two lines cross WITH an anchor, they're intentionally connected there
                     if (!connected) {
                         for (var ai = 0; ai < ptsA.length - 1 && !connected; ai++) {
                             for (var bi = 0; bi < ptsB.length - 1 && !connected; bi++) {
@@ -9979,10 +9981,12 @@ function setStaticTextColor(control, rgbArray) {
                                 if (intersectPt) {
                                     // Check if there's an anchor at this intersection point
                                     if (anchorPositions.length > 0 && hasAnchorNearPoint(intersectPt)) {
-                                        // Anchor exists at intersection - these are separate ductwork runs
-                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping intersection at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - anchor present");
-                                    } else {
+                                        // Anchor exists at intersection - these paths are connected here
                                         connected = true;
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Connected at intersection [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - anchor present");
+                                    } else {
+                                        // No anchor at intersection - these are separate runs (crossover)
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping intersection at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - no anchor (crossover)");
                                     }
                                 }
                             }
