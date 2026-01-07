@@ -469,7 +469,7 @@ if (typeof MDUX === "undefined") {
 
 // Debug logging to file
 // PERFORMANCE: Set to false for production to skip logging overhead
-var MDUX_DEBUG_MODE = false; // Set to true for debugging
+var MDUX_DEBUG_MODE = false; // Set to true for debug logging
 
 // In-memory debug log buffer
 if (typeof $.global.MDUX_debugBuffer === "undefined") {

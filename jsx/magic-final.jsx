@@ -9725,7 +9725,7 @@ function setStaticTextColor(control, rgbArray) {
             var ANGLE_THRESHOLD_DEG = 20;
             var MIN_DIST = 0.5; // Minimum distance - paths closer than this are likely duplicates
             var T_JUNCTION_DIST = 25; // Larger tolerance for T-junction detection (point-to-segment)
-            var DEBUG_CONNECTIONS = false; // Disabled for performance - enable for debugging only
+            var DEBUG_CONNECTIONS = false; // Set to true for connection debugging
 
             if (DEBUG_CONNECTIONS && pathItems.length > 0) {
                 addDebug("[CONN-DEBUG] Checking " + pathItems.length + " paths with maxDist=" + maxDist);
@@ -14250,31 +14250,35 @@ function setStaticTextColor(control, rgbArray) {
             }
             addDebug("[COMPOUND] " + layerName + " after filter: " + filteredPaths.length + " open paths");
 
-            // Exclude paths that are children of carve-out compounds
-            // These were already compounded during carve-out and should not be re-processed
+            // Build list of forced connections for paths in the same carve-out compound
+            // This ensures carved halves stay together when compounded with other paths
+            var carveOutForcedConnections = [];
             if (typeof CARVE_OUT_COMPOUNDS !== 'undefined' && CARVE_OUT_COMPOUNDS.length > 0) {
-                var preCarveFilterCount = filteredPaths.length;
-                var pathsNotInCarveCompounds = [];
-                for (var cfp = 0; cfp < filteredPaths.length; cfp++) {
-                    var cfPath = filteredPaths[cfp];
-                    var isInCarveCompound = false;
+                for (var cocIdx = 0; cocIdx < CARVE_OUT_COMPOUNDS.length; cocIdx++) {
                     try {
-                        if (cfPath && cfPath.parent && cfPath.parent.typename === 'CompoundPathItem') {
-                            for (var cocIdx = 0; cocIdx < CARVE_OUT_COMPOUNDS.length; cocIdx++) {
-                                if (cfPath.parent === CARVE_OUT_COMPOUNDS[cocIdx]) {
-                                    isInCarveCompound = true;
+                        var coc = CARVE_OUT_COMPOUNDS[cocIdx];
+                        if (!coc || coc.typename !== 'CompoundPathItem') continue;
+                        var cocChildren = [];
+                        for (var cocChild = 0; cocChild < coc.pathItems.length; cocChild++) {
+                            var childPath = coc.pathItems[cocChild];
+                            // Check if this child is in filteredPaths
+                            for (var fpCheck = 0; fpCheck < filteredPaths.length; fpCheck++) {
+                                if (filteredPaths[fpCheck] === childPath) {
+                                    cocChildren.push(childPath);
                                     break;
                                 }
                             }
                         }
-                    } catch (eCfCheck) { }
-                    if (!isInCarveCompound) {
-                        pathsNotInCarveCompounds.push(cfPath);
-                    }
+                        // Add forced connections between all children of this compound
+                        for (var cocA = 0; cocA < cocChildren.length; cocA++) {
+                            for (var cocB = cocA + 1; cocB < cocChildren.length; cocB++) {
+                                carveOutForcedConnections.push([cocChildren[cocA], cocChildren[cocB]]);
+                            }
+                        }
+                    } catch (eCoc) { }
                 }
-                filteredPaths = pathsNotInCarveCompounds;
-                if (preCarveFilterCount !== filteredPaths.length) {
-                    addDebug("[COMPOUND] Excluded " + (preCarveFilterCount - filteredPaths.length) + " paths from carve-out compounds");
+                if (carveOutForcedConnections.length > 0) {
+                    addDebug("[COMPOUND] Added " + carveOutForcedConnections.length + " forced connections for carve-out compound siblings");
                 }
             }
 
@@ -14522,6 +14526,14 @@ function setStaticTextColor(control, rgbArray) {
                             }
                         } catch (eEspPair) { }
                     }
+                }
+
+                // Add forced connections for carve-out compound siblings (carved halves must stay together)
+                if (carveOutForcedConnections.length > 0) {
+                    for (var cofcIdx = 0; cofcIdx < carveOutForcedConnections.length; cofcIdx++) {
+                        connections.push(carveOutForcedConnections[cofcIdx]);
+                    }
+                    addDebug("[COMPOUND] Added " + carveOutForcedConnections.length + " carve-out sibling connections");
                 }
 
                 // CROSSOVER FILTER: Remove connections between paths that are linked by a crossover segment
