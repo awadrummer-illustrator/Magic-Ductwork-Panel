@@ -8482,7 +8482,7 @@ function setStaticTextColor(control, rgbArray) {
 
         // --- GLOBAL DEBUG LOG ---
         // DEBUG_MODE: Set to false for production to skip all logging overhead
-        var DEBUG_MODE = false;
+        var DEBUG_MODE = false; // Set to true for debugging
         var GLOBAL_DEBUG_LOG = [];
         function addDebug(msg) {
             // PERFORMANCE: Skip all logging if debug mode is off
@@ -15995,9 +15995,17 @@ function setStaticTextColor(control, rgbArray) {
                         var DUPE_TOLERANCE = 1.0; // Points within 1pt are considered same
                         var pathsToRemove = [];
 
+                        // ES3 compatible indexOf helper
+                        function arrayContains(arr, item) {
+                            for (var idx = 0; idx < arr.length; idx++) {
+                                if (arr[idx] === item) return true;
+                            }
+                            return false;
+                        }
+
                         for (var dpA = 0; dpA < allBluePaths.length; dpA++) {
                             var pathA = allBluePaths[dpA];
-                            if (!pathA || pathsToRemove.indexOf(pathA) >= 0) continue;
+                            if (!pathA || arrayContains(pathsToRemove, pathA)) continue;
 
                             var ptsA = pathA.pathPoints;
                             var aStart = ptsA[0].anchor;
@@ -16005,7 +16013,7 @@ function setStaticTextColor(control, rgbArray) {
 
                             for (var dpB = dpA + 1; dpB < allBluePaths.length; dpB++) {
                                 var pathB = allBluePaths[dpB];
-                                if (!pathB || pathsToRemove.indexOf(pathB) >= 0) continue;
+                                if (!pathB || arrayContains(pathsToRemove, pathB)) continue;
 
                                 var ptsB = pathB.pathPoints;
                                 var bStart = ptsB[0].anchor;
