@@ -9734,26 +9734,26 @@ function setStaticTextColor(control, rgbArray) {
             return dirs;
         }
 
-        function findAllConnections(pathItems, maxDist, anchorPositions) {
+        function findAllConnections(pathItems, maxDist, ignoredAnchorsOut) {
             var connections = [];
             var seen = {};
             var ANGLE_THRESHOLD_DEG = 20;
             var MIN_DIST = 0.5; // Minimum distance - paths closer than this are likely duplicates
             var T_JUNCTION_DIST = 25; // Larger tolerance for T-junction detection (point-to-segment)
-            var ANCHOR_TOLERANCE = 15; // Distance threshold for anchor-at-intersection check
+            var PATH_ANCHOR_TOLERANCE = 10; // Distance threshold for path vertex at intersection check
             var DEBUG_CONNECTIONS = false; // Set to true for connection debugging
-            anchorPositions = anchorPositions || []; // Default to empty array if not provided
+            ignoredAnchorsOut = ignoredAnchorsOut || []; // Array to collect intersection points to ignore
 
             if (DEBUG_CONNECTIONS && pathItems.length > 0) {
-                addDebug("[CONN-DEBUG] Checking " + pathItems.length + " paths with maxDist=" + maxDist + ", anchorPositions=" + anchorPositions.length);
+                addDebug("[CONN-DEBUG] Checking " + pathItems.length + " paths with maxDist=" + maxDist);
             }
 
-            // Helper to check if there's an anchor near a point
-            function hasAnchorNearPoint(pt) {
-                for (var anc = 0; anc < anchorPositions.length; anc++) {
-                    var adx = pt[0] - anchorPositions[anc][0];
-                    var ady = pt[1] - anchorPositions[anc][1];
-                    if (Math.sqrt(adx * adx + ady * ady) <= ANCHOR_TOLERANCE) {
+            // Helper to check if a path has a vertex (path point) near a given point
+            function pathHasVertexNearPoint(pathPts, pt) {
+                for (var v = 0; v < pathPts.length; v++) {
+                    var vx = pathPts[v].anchor[0] - pt[0];
+                    var vy = pathPts[v].anchor[1] - pt[1];
+                    if (Math.sqrt(vx * vx + vy * vy) <= PATH_ANCHOR_TOLERANCE) {
                         return true;
                     }
                 }
@@ -9966,9 +9966,9 @@ function setStaticTextColor(control, rgbArray) {
                         }
                     }
 
-                    // 3. Segment intersection (only connect if anchor exists at intersection)
-                    // If two lines cross WITHOUT an anchor, they're separate runs (crossover)
-                    // If two lines cross WITH an anchor, they're intentionally connected there
+                    // 3. Segment intersection (only connect if path has vertex at intersection)
+                    // If two lines cross and one has a PATH VERTEX at the intersection → compound together
+                    // If two lines cross but neither has a vertex there → separate runs (crossover)
                     if (!connected) {
                         for (var ai = 0; ai < ptsA.length - 1 && !connected; ai++) {
                             for (var bi = 0; bi < ptsB.length - 1 && !connected; bi++) {
@@ -9979,14 +9979,18 @@ function setStaticTextColor(control, rgbArray) {
                                     ptsB[bi + 1].anchor[0], ptsB[bi + 1].anchor[1]
                                 );
                                 if (intersectPt) {
-                                    // Check if there's an anchor at this intersection point
-                                    if (anchorPositions.length > 0 && hasAnchorNearPoint(intersectPt)) {
-                                        // Anchor exists at intersection - these paths are connected here
+                                    // Check if either path has a vertex (path point) at this intersection
+                                    var pathAHasVertex = pathHasVertexNearPoint(ptsA, intersectPt);
+                                    var pathBHasVertex = pathHasVertexNearPoint(ptsB, intersectPt);
+                                    if (pathAHasVertex || pathBHasVertex) {
+                                        // Path vertex exists at intersection - these paths are connected here
                                         connected = true;
-                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Connected at intersection [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - anchor present");
+                                        // Add to ignored anchors so no component gets placed here
+                                        ignoredAnchorsOut.push([intersectPt[0], intersectPt[1]]);
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Connected at intersection [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - path vertex present, added to ignore list");
                                     } else {
-                                        // No anchor at intersection - these are separate runs (crossover)
-                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping intersection at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - no anchor (crossover)");
+                                        // No path vertex at intersection - these are separate runs (crossover)
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping intersection at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - no path vertex (crossover)");
                                     }
                                 }
                             }
@@ -14259,11 +14263,6 @@ function setStaticTextColor(control, rgbArray) {
         updateProgress("Compounding paths...");
         addDebug("\n=== COMPOUNDING CONNECTED PATHS ===");
 
-        // Get ALL existing anchor positions for intersection checking
-        // If two lines intersect at a point where an anchor exists, they are separate runs
-        var anchorPositionsForCompounding = getExistingAnchorPoints(["Units", "Square Registers", "Exhaust Registers", "Thermostats"]);
-        addDebug("[COMPOUND] Found " + anchorPositionsForCompounding.length + " anchor positions for intersection checking");
-
         var baseCompoundLayers = ["Green Ductwork", "Blue Ductwork", "Orange Ductwork", "Light Orange Ductwork"];
         var layersToProcess = [];
         for (var baseIdx = 0; baseIdx < baseCompoundLayers.length; baseIdx++) {
@@ -14539,7 +14538,17 @@ function setStaticTextColor(control, rgbArray) {
             }
 
             if (layerPaths.length > 1) {
-                var connections = findAllConnections(layerPaths, CONNECTION_DIST, anchorPositionsForCompounding);
+                // Array to collect intersection points where paths connect (should not get components)
+                var intersectionIgnorePoints = [];
+                var connections = findAllConnections(layerPaths, CONNECTION_DIST, intersectionIgnorePoints);
+
+                // Add intersection ignore points to main ignoredAnchors list
+                if (intersectionIgnorePoints.length > 0) {
+                    for (var iipIdx = 0; iipIdx < intersectionIgnorePoints.length; iipIdx++) {
+                        ignoredAnchors.push(intersectionIgnorePoints[iipIdx]);
+                    }
+                    addDebug("[COMPOUND] Added " + intersectionIgnorePoints.length + " intersection points to ignore list");
+                }
 
                 // Add forced connections for split path pairs (they should stay connected)
                 if (typeof splitPathPairs !== 'undefined' && splitPathPairs.length > 0) {
