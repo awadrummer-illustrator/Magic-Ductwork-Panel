@@ -8444,6 +8444,21 @@ function setStaticTextColor(control, rgbArray) {
             return (t >= 0 && t <= 1 && u >= 0 && u <= 1);
         }
 
+        // Returns intersection point [x, y] or null if no intersection
+        function getSegmentIntersectionPoint(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
+            var dax = ax2 - ax1, day = ay2 - ay1;
+            var dbx = bx2 - bx1, dby = by2 - by1;
+            var denom = dax * dby - day * dbx;
+            if (Math.abs(denom) < 1e-10) return null; // Parallel or collinear
+            var dx = ax1 - bx1, dy = ay1 - by1;
+            var t = (dbx * dy - dby * dx) / denom;
+            var u = (dax * dy - day * dx) / denom;
+            if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+                return [ax1 + t * dax, ay1 + t * day];
+            }
+            return null;
+        }
+
         function linesOverlap(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
             var cross1 = (ay1 - by1) * (bx2 - bx1) - (ax1 - bx1) * (by2 - by1);
             var cross2 = (ay2 - by1) * (bx2 - bx1) - (ax2 - bx1) * (by2 - by1);
@@ -9719,16 +9734,30 @@ function setStaticTextColor(control, rgbArray) {
             return dirs;
         }
 
-        function findAllConnections(pathItems, maxDist) {
+        function findAllConnections(pathItems, maxDist, anchorPositions) {
             var connections = [];
             var seen = {};
             var ANGLE_THRESHOLD_DEG = 20;
             var MIN_DIST = 0.5; // Minimum distance - paths closer than this are likely duplicates
             var T_JUNCTION_DIST = 25; // Larger tolerance for T-junction detection (point-to-segment)
+            var ANCHOR_TOLERANCE = 15; // Distance threshold for anchor-at-intersection check
             var DEBUG_CONNECTIONS = false; // Set to true for connection debugging
+            anchorPositions = anchorPositions || []; // Default to empty array if not provided
 
             if (DEBUG_CONNECTIONS && pathItems.length > 0) {
-                addDebug("[CONN-DEBUG] Checking " + pathItems.length + " paths with maxDist=" + maxDist);
+                addDebug("[CONN-DEBUG] Checking " + pathItems.length + " paths with maxDist=" + maxDist + ", anchorPositions=" + anchorPositions.length);
+            }
+
+            // Helper to check if there's an anchor near a point
+            function hasAnchorNearPoint(pt) {
+                for (var anc = 0; anc < anchorPositions.length; anc++) {
+                    var adx = pt[0] - anchorPositions[anc][0];
+                    var ady = pt[1] - anchorPositions[anc][1];
+                    if (Math.sqrt(adx * adx + ady * ady) <= ANCHOR_TOLERANCE) {
+                        return true;
+                    }
+                }
+                return false;
             }
 
             // === SPATIAL HASHING FOR O(n) PERFORMANCE ===
@@ -9937,17 +9966,24 @@ function setStaticTextColor(control, rgbArray) {
                         }
                     }
 
-                    // 3. Segment intersection
+                    // 3. Segment intersection (skip if anchor exists at intersection)
                     if (!connected) {
                         for (var ai = 0; ai < ptsA.length - 1 && !connected; ai++) {
                             for (var bi = 0; bi < ptsB.length - 1 && !connected; bi++) {
-                                if (segmentsIntersect(
+                                var intersectPt = getSegmentIntersectionPoint(
                                     ptsA[ai].anchor[0], ptsA[ai].anchor[1],
                                     ptsA[ai + 1].anchor[0], ptsA[ai + 1].anchor[1],
                                     ptsB[bi].anchor[0], ptsB[bi].anchor[1],
                                     ptsB[bi + 1].anchor[0], ptsB[bi + 1].anchor[1]
-                                )) {
-                                    connected = true;
+                                );
+                                if (intersectPt) {
+                                    // Check if there's an anchor at this intersection point
+                                    if (anchorPositions.length > 0 && hasAnchorNearPoint(intersectPt)) {
+                                        // Anchor exists at intersection - these are separate ductwork runs
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping intersection at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - anchor present");
+                                    } else {
+                                        connected = true;
+                                    }
                                 }
                             }
                         }
@@ -14218,6 +14254,12 @@ function setStaticTextColor(control, rgbArray) {
         // The Double Ductwork (rectangles/connectors) are generated separately AFTER compounding
         updateProgress("Compounding paths...");
         addDebug("\n=== COMPOUNDING CONNECTED PATHS ===");
+
+        // Get ALL existing anchor positions for intersection checking
+        // If two lines intersect at a point where an anchor exists, they are separate runs
+        var anchorPositionsForCompounding = getExistingAnchorPoints(["Units", "Square Registers", "Exhaust Registers", "Thermostats"]);
+        addDebug("[COMPOUND] Found " + anchorPositionsForCompounding.length + " anchor positions for intersection checking");
+
         var baseCompoundLayers = ["Green Ductwork", "Blue Ductwork", "Orange Ductwork", "Light Orange Ductwork"];
         var layersToProcess = [];
         for (var baseIdx = 0; baseIdx < baseCompoundLayers.length; baseIdx++) {
@@ -14493,7 +14535,7 @@ function setStaticTextColor(control, rgbArray) {
             }
 
             if (layerPaths.length > 1) {
-                var connections = findAllConnections(layerPaths, CONNECTION_DIST);
+                var connections = findAllConnections(layerPaths, CONNECTION_DIST, anchorPositionsForCompounding);
 
                 // Add forced connections for split path pairs (they should stay connected)
                 if (typeof splitPathPairs !== 'undefined' && splitPathPairs.length > 0) {
