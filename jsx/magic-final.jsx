@@ -15942,6 +15942,17 @@ function setStaticTextColor(control, rgbArray) {
                 // Run the embedded main
                 try { embeddedMain(); } catch (e) { /* swallow errors from embedded routine to match previous behavior */ }
 
+                // *** FINAL CLEANUP PASS ***
+                // Run placement again WITHOUT proximity filter to catch any orphaned anchors
+                // This ensures all anchor points get their components even if paths became invalid
+                try {
+                    addDebug("[CLEANUP] Running final placement pass for orphaned anchors...");
+                    placeLinkedComponents_local(doc, null); // null = no proximity filter
+                    addDebug("[CLEANUP] Final placement pass complete");
+                } catch (eCleanup) {
+                    addDebug("[CLEANUP] Error in cleanup pass: " + eCleanup);
+                }
+
                 // --- END embedded 03 - Place Ductwork at Points.jsx ---
             })(doc);
         } catch (e) {
