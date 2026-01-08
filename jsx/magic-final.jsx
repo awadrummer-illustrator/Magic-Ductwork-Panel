@@ -309,9 +309,57 @@ var LAYER_TO_COLOR_NAME = {
     "Light Orange Ductwork": "Light Orange Ductwork"
 };
 
+// Ductwork color to register layer mapping
+// Each ductwork color places registers on its respective register layer
+var DUCTWORK_COLOR_TO_REGISTER_MAP = {
+    "Blue Ductwork": "Square Registers",
+    "Green Ductwork": "Exhaust Registers",
+    "Light Green Ductwork": "Exhaust Registers",
+    "Orange Ductwork": "Exhaust Registers",
+    "Light Orange Ductwork": "Exhaust Registers"
+};
+
 // ========================================
 // LAYER HELPER FUNCTIONS
 // ========================================
+
+// Returns the register layer name for a given ductwork color layer
+function getRegisterLayerForDuctwork(ductworkLayerName) {
+    if (!ductworkLayerName) return "Exhaust Registers";
+    if (DUCTWORK_COLOR_TO_REGISTER_MAP.hasOwnProperty(ductworkLayerName)) {
+        return DUCTWORK_COLOR_TO_REGISTER_MAP[ductworkLayerName];
+    }
+    return "Exhaust Registers"; // Default
+}
+
+// Returns true if the layer name is one of the 5 ductwork color layers (not Thermostat Lines)
+function isDuctworkColorLayer(name) {
+    if (!name) return false;
+    for (var i = 0; i < DUCTWORK_COLOR_OPTIONS.length; i++) {
+        if (DUCTWORK_COLOR_OPTIONS[i] === name) return true;
+    }
+    return false;
+}
+
+// Safely get a path's layer name
+function getPathLayerName(pathItem) {
+    try {
+        if (!pathItem) return "";
+        var layer = pathItem.layer;
+        return layer ? layer.name : "";
+    } catch (e) {
+        return "";
+    }
+}
+
+// Check if two paths are on the same ductwork layer
+function areSameDuctworkLayer(pathA, pathB) {
+    var layerA = getPathLayerName(pathA);
+    var layerB = getPathLayerName(pathB);
+    if (!layerA || !layerB) return false;
+    if (!isDuctworkColorLayer(layerA) || !isDuctworkColorLayer(layerB)) return false;
+    return layerA === layerB;
+}
 
 function getColorNameForLayer(layerName) {
     if (!layerName) return null;
@@ -5440,7 +5488,7 @@ function setStaticTextColor(control, rgbArray) {
                 if (pathA.closed) continue;
                 var layerA = "";
                 try { layerA = pathA.layer ? pathA.layer.name : ""; } catch (eLayerA) { layerA = ""; }
-                if (!isBlueDuctworkLayerName(layerA)) continue;
+                if (!isDuctworkColorLayer(layerA)) continue; // Must be a ductwork color layer
                 var ptsA = null;
                 try { ptsA = pathA.pathPoints; } catch (ePtsA) { ptsA = null; }
                 if (!ptsA || ptsA.length < 2) continue;
@@ -5451,7 +5499,7 @@ function setStaticTextColor(control, rgbArray) {
                     if (pathB.closed) continue;
                     var layerB = "";
                     try { layerB = pathB.layer ? pathB.layer.name : ""; } catch (eLayerB) { layerB = ""; }
-                    if (!isBlueDuctworkLayerName(layerB)) continue;
+                    if (layerB !== layerA) continue; // SAME-LAYER ONLY: must match pathA's layer
                     var ptsB = null;
                     try { ptsB = pathB.pathPoints; } catch (ePtsB) { ptsB = null; }
                     if (!ptsB || ptsB.length < 2) continue;
@@ -13585,11 +13633,22 @@ function setStaticTextColor(control, rgbArray) {
 
         // Use same ductwork layers for both normal and Emory mode
         var greenSourceLayer = resolveDuctworkLayerForProcessing("Green Ductwork");
+        var lightGreenSourceLayer = resolveDuctworkLayerForProcessing("Light Green Ductwork");
         var blueSourceLayer = resolveDuctworkLayerForProcessing("Blue Ductwork");
         var orangeSourceLayer = resolveDuctworkLayerForProcessing("Orange Ductwork");
         var lightOrangeSourceLayer = resolveDuctworkLayerForProcessing("Light Orange Ductwork");
 
+        // All 5 ductwork colors with their source layer names for iteration
+        var ALL_DUCTWORK_SOURCES = [
+            { layer: greenSourceLayer, name: "Green Ductwork" },
+            { layer: lightGreenSourceLayer, name: "Light Green Ductwork" },
+            { layer: blueSourceLayer, name: "Blue Ductwork" },
+            { layer: orangeSourceLayer, name: "Orange Ductwork" },
+            { layer: lightOrangeSourceLayer, name: "Light Orange Ductwork" }
+        ];
+
         averageCloseEndpoints(greenSourceLayer, blueSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
+        averageCloseEndpoints(lightGreenSourceLayer, blueSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
         averageCloseEndpoints(orangeSourceLayer, lightOrangeSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
         averageCloseEndpoints("Thermostat Lines", blueSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
 
@@ -13821,22 +13880,28 @@ function setStaticTextColor(control, rgbArray) {
 
         addDebug("[MARKER-INTERSECT] Processed " + markersProcessed + " marker-triggered intersection(s)");
 
-        // PRE-STEP 4: Detect blue line intersections where one path has a vertex at the crossing
-        // These intersection points should be ignored for component placement (no square registers)
-        addDebug("\n=== DETECTING INTERSECTION VERTICES ===");
+        // PRE-STEP 4: Detect ductwork line intersections where one path has a vertex at the crossing
+        // These intersection points should be ignored for component placement (no registers)
+        // Process each color separately (same-color intersections only)
+        addDebug("\n=== DETECTING INTERSECTION VERTICES (ALL COLORS) ===");
         updateProgress("Detecting intersection vertices...");
-        var bluePathsForIntersect = filterPathsToProcessable(getPathsOnLayerSelected(blueSourceLayer));
         var INTERSECT_VERTEX_TOLERANCE = 10;
         var intersectionVertexIgnorePoints = [];
 
-        if (bluePathsForIntersect.length > 1) {
-            for (var intA = 0; intA < bluePathsForIntersect.length; intA++) {
-                var pathIntA = bluePathsForIntersect[intA];
+        for (var ivColorIdx = 0; ivColorIdx < ALL_DUCTWORK_SOURCES.length; ivColorIdx++) {
+            var ivSource = ALL_DUCTWORK_SOURCES[ivColorIdx];
+            var colorPathsForIntersect = filterPathsToProcessable(getPathsOnLayerSelected(ivSource.layer));
+            if (colorPathsForIntersect.length < 2) continue;
+
+            addDebug("[INTERSECT-VERTEX] Checking " + ivSource.name + ": " + colorPathsForIntersect.length + " paths");
+
+            for (var intA = 0; intA < colorPathsForIntersect.length; intA++) {
+                var pathIntA = colorPathsForIntersect[intA];
                 var ptsIntA = pathIntA.pathPoints;
                 if (!ptsIntA || ptsIntA.length < 2) continue;
 
-                for (var intB = intA + 1; intB < bluePathsForIntersect.length; intB++) {
-                    var pathIntB = bluePathsForIntersect[intB];
+                for (var intB = intA + 1; intB < colorPathsForIntersect.length; intB++) {
+                    var pathIntB = colorPathsForIntersect[intB];
                     var ptsIntB = pathIntB.pathPoints;
                     if (!ptsIntB || ptsIntB.length < 2) continue;
 
@@ -13872,7 +13937,7 @@ function setStaticTextColor(control, rgbArray) {
                                     // Add to ignore list - no component should be placed here
                                     intersectionVertexIgnorePoints.push([intPt[0], intPt[1]]);
                                     ignoredAnchors.push([intPt[0], intPt[1]]);
-                                    addDebug("[INTERSECT-VERTEX] Found intersection with vertex at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - added to ignore list");
+                                    addDebug("[INTERSECT-VERTEX] " + ivSource.name + ": Found intersection with vertex at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - added to ignore list");
                                 }
                             }
                         }
@@ -13897,28 +13962,31 @@ function setStaticTextColor(control, rgbArray) {
         var rectangularRegisterAnchors = getExistingAnchorPoints(["Rectangular Registers"]);
 
         // Use same ductwork layers for both normal and Emory mode
-        addDebug("=== REGISTER/UNIT CREATION ===");
-        var greenSelected = getPathsOnLayerSelected(greenSourceLayer) || [];
-        var greenAll = getPathsOnLayerAll(greenSourceLayer) || [];
-        var blueSelected = getPathsOnLayerSelected(blueSourceLayer) || [];
-        var blueAll = getPathsOnLayerAll(blueSourceLayer) || [];
-        var orangeSelected = getPathsOnLayerSelected(orangeSourceLayer) || [];
-        var orangeAll = getPathsOnLayerAll(orangeSourceLayer) || [];
+        addDebug("=== REGISTER/UNIT CREATION (ALL COLORS) ===");
 
-        addDebug("Green Ductwork (resolved: " + greenSourceLayer + ") paths: " + greenSelected.length + " selected, " + greenAll.length + " total");
-        addDebug("Blue Ductwork (resolved: " + blueSourceLayer + ") paths: " + blueSelected.length + " selected, " + blueAll.length + " total");
-        addDebug("Orange Ductwork (resolved: " + orangeSourceLayer + ") paths: " + orangeSelected.length + " selected, " + orangeAll.length + " total");
+        // Log path counts for all 5 colors
+        for (var regLogIdx = 0; regLogIdx < ALL_DUCTWORK_SOURCES.length; regLogIdx++) {
+            var regLogSrc = ALL_DUCTWORK_SOURCES[regLogIdx];
+            var regLogSelected = getPathsOnLayerSelected(regLogSrc.layer) || [];
+            var regLogAll = getPathsOnLayerAll(regLogSrc.layer) || [];
+            addDebug(regLogSrc.name + " (resolved: " + regLogSrc.layer + ") paths: " + regLogSelected.length + " selected, " + regLogAll.length + " total");
+        }
         addDebug("");
 
-        duplicateIsolatedEndpointsFiltered(greenSourceLayer, "Exhaust Registers", ignoredAnchors, allExistingRegisterPoints, null);
-        duplicateIsolatedEndpointsFiltered(blueSourceLayer, "Square Registers", ignoredAnchors, allExistingRegisterPoints, rectangularRegisterAnchors);
-        duplicateIsolatedEndpointsFiltered(orangeSourceLayer, "Exhaust Registers", ignoredAnchors, allExistingRegisterPoints, null);
+        // Create registers for all 5 ductwork colors using the color-to-register mapping
+        for (var regCreateIdx = 0; regCreateIdx < ALL_DUCTWORK_SOURCES.length; regCreateIdx++) {
+            var regSrc = ALL_DUCTWORK_SOURCES[regCreateIdx];
+            var registerLayer = getRegisterLayerForDuctwork(regSrc.name);
+            // Blue uses rectangularRegisterAnchors for duplicate checking, others don't
+            var rectAnchors = (regSrc.name === "Blue Ductwork") ? rectangularRegisterAnchors : null;
+            duplicateIsolatedEndpointsFiltered(regSrc.layer, registerLayer, ignoredAnchors, allExistingRegisterPoints, rectAnchors);
+        }
 
 
-        // *** CARVE OUT BLUE DUCTWORK LINES THAT PASS THROUGH SQUARE REGISTERS ***
-        // After placing square registers, check if OTHER blue lines pass through register areas
-        // and carve out those segments to prevent overlap
-        addDebug("\n=== SQUARE REGISTER CARVE-OUT ===");
+        // *** CARVE OUT DUCTWORK LINES THAT PASS THROUGH REGISTERS ***
+        // After placing registers, check if OTHER ductwork lines pass through register areas
+        // and carve out those segments to prevent overlap (each color processes its own register type)
+        addDebug("\n=== REGISTER CARVE-OUT (ALL COLORS) ===");
 
         if (!ENABLE_REGISTER_CARVE) {
             addDebug("[REGISTER-CARVE] SKIPPED - checkbox not enabled");
@@ -13927,30 +13995,43 @@ function setStaticTextColor(control, rgbArray) {
             updateProgress("Carving register gaps...");
             var REGISTER_CARVE_HALF_WIDTH = 13.5; // 27pt total gap centered on register
             var REGISTER_DETECTION_THRESHOLD = 10; // How close a line segment must be to register center to trigger carve-out
-            var squareRegLayer = null;
-            try { squareRegLayer = doc.layers.getByName("Square Registers"); } catch (e) { }
 
-            if (squareRegLayer) {
-            // Collect all square register center positions
+            // Process each ductwork color with its own register layer
+            for (var rcColorIdx = 0; rcColorIdx < ALL_DUCTWORK_SOURCES.length; rcColorIdx++) {
+                var rcColorSrc = ALL_DUCTWORK_SOURCES[rcColorIdx];
+                var rcRegisterLayerName = getRegisterLayerForDuctwork(rcColorSrc.name);
+                var rcRegLayer = null;
+                try { rcRegLayer = doc.layers.getByName(rcRegisterLayerName); } catch (e) { }
+
+                if (!rcRegLayer) {
+                    addDebug("[REGISTER-CARVE] " + rcColorSrc.name + ": No " + rcRegisterLayerName + " layer found, skipping");
+                    continue;
+                }
+
+            // Collect all register center positions for this color's register layer
             var registerCenters = [];
-            for (var sri = 0; sri < squareRegLayer.pathItems.length; sri++) {
+            for (var sri = 0; sri < rcRegLayer.pathItems.length; sri++) {
                 try {
-                    var regPath = squareRegLayer.pathItems[sri];
+                    var regPath = rcRegLayer.pathItems[sri];
                     if (regPath.pathPoints && regPath.pathPoints.length > 0) {
                         var regPt = regPath.pathPoints[0].anchor;
                         registerCenters.push(regPt);
                     }
                 } catch (e) { }
             }
-            addDebug("[CARVE-OUT] Found " + registerCenters.length + " square register position(s)");
+            if (registerCenters.length === 0) {
+                addDebug("[REGISTER-CARVE] " + rcColorSrc.name + ": No registers in " + rcRegisterLayerName + ", skipping");
+                continue;
+            }
+            addDebug("[REGISTER-CARVE] " + rcColorSrc.name + ": Found " + registerCenters.length + " " + rcRegisterLayerName + " position(s)");
 
-            // Get SELECTED blue ductwork paths only - do not touch unselected paths
-            var bluePathsForCarveRaw = getPathsOnLayerSelected(blueSourceLayer) || [];
+            // Get SELECTED ductwork paths for this color only - do not touch unselected paths
+            var colorPathsForCarveRaw = getPathsOnLayerSelected(rcColorSrc.layer) || [];
 
             // Extract paths from compound paths and include regular paths
-            var bluePathsForCarve = [];
-            for (var filterIdx = 0; filterIdx < bluePathsForCarveRaw.length; filterIdx++) {
-                var filterPath = bluePathsForCarveRaw[filterIdx];
+            var colorPathsForCarve = [];
+            for (var filterIdx = 0; filterIdx < colorPathsForCarveRaw.length; filterIdx++) {
+                var filterPath = colorPathsForCarveRaw[filterIdx];
                 if (!filterPath) continue;
 
                 // For CompoundPathItems: extract child paths
@@ -13959,7 +14040,7 @@ function setStaticTextColor(control, rgbArray) {
                         for (var cpIdx = 0; cpIdx < filterPath.pathItems.length; cpIdx++) {
                             var childPath = filterPath.pathItems[cpIdx];
                             if (childPath && childPath.pathPoints && childPath.pathPoints.length >= 2) {
-                                bluePathsForCarve.push(childPath);
+                                colorPathsForCarve.push(childPath);
                                 addDebug("[CARVE-OUT] Including child path from CompoundPathItem");
                             }
                         }
@@ -13970,21 +14051,21 @@ function setStaticTextColor(control, rgbArray) {
                 }
 
                 // Include regular paths (even if parent is CompoundPathItem - they're valid paths)
-                bluePathsForCarve.push(filterPath);
+                colorPathsForCarve.push(filterPath);
             }
-            addDebug("[CARVE-OUT] Checking " + bluePathsForCarve.length + " selected blue path(s) (filtered from " + bluePathsForCarveRaw.length + ")");
+            addDebug("[REGISTER-CARVE] " + rcColorSrc.name + ": Checking " + colorPathsForCarve.length + " selected path(s) (filtered from " + colorPathsForCarveRaw.length + ")");
             var carveOutsPerformed = 0;
             var pathsToRemove = [];
 
             addDebug("[CARVE-OUT] Detection threshold: " + REGISTER_DETECTION_THRESHOLD + "pt");
 
             // SAVE THE BLUE PATHS that need to be restored to selection after carve-out
-            // We use bluePathsForCarve since doc.selection may already be empty at this point
-            var originalBluePaths = [];
-            for (var origSelIdx = 0; origSelIdx < bluePathsForCarve.length; origSelIdx++) {
-                originalBluePaths.push(bluePathsForCarve[origSelIdx]);
+            // We use colorPathsForCarve since doc.selection may already be empty at this point
+            var originalColorPaths = [];
+            for (var origSelIdx = 0; origSelIdx < colorPathsForCarve.length; origSelIdx++) {
+                originalColorPaths.push(colorPathsForCarve[origSelIdx]);
             }
-            addDebug("[CARVE-OUT] Saved " + originalBluePaths.length + " blue paths for restoration");
+            addDebug("[CARVE-OUT] Saved " + originalColorPaths.length + " blue paths for restoration");
 
             // Track new compound paths created during carve-out
             var newCompoundPaths = [];
@@ -13995,8 +14076,8 @@ function setStaticTextColor(control, rgbArray) {
             var rcPathToCells = [];
 
             // Build spatial index for paths
-            for (var rcBuildIdx = 0; rcBuildIdx < bluePathsForCarve.length; rcBuildIdx++) {
-                var rcBuildPath = bluePathsForCarve[rcBuildIdx];
+            for (var rcBuildIdx = 0; rcBuildIdx < colorPathsForCarve.length; rcBuildIdx++) {
+                var rcBuildPath = colorPathsForCarve[rcBuildIdx];
                 var rcBuildPts = rcBuildPath ? rcBuildPath.pathPoints : null;
                 if (!rcBuildPts || rcBuildPts.length === 0) {
                     rcPathToCells.push([]);
@@ -14056,10 +14137,10 @@ function setStaticTextColor(control, rgbArray) {
                 for (var bpIdx in rcCandidates) {
                     if (!rcCandidates.hasOwnProperty(bpIdx)) continue;
                     bpIdx = parseInt(bpIdx);
-                    var bluePath = bluePathsForCarve[bpIdx];
-                    if (!bluePath || !bluePath.pathPoints || bluePath.pathPoints.length < 2) continue;
+                    var colorPath = colorPathsForCarve[bpIdx];
+                    if (!colorPath || !colorPath.pathPoints || colorPath.pathPoints.length < 2) continue;
 
-                    var pts = bluePath.pathPoints;
+                    var pts = colorPath.pathPoints;
 
                     // Skip if the register is at an endpoint of THIS path
                     var firstPt = pts[0].anchor;
@@ -14090,7 +14171,7 @@ function setStaticTextColor(control, rgbArray) {
 
                         if (distToSeg > REGISTER_DETECTION_THRESHOLD) continue;
 
-                        addDebug("[CARVE-OUT] Blue path segment passes through register at [" + regCenter[0].toFixed(1) + "," + regCenter[1].toFixed(1) + "]");
+                        addDebug("[REGISTER-CARVE] " + rcColorSrc.name + ": Path segment passes through register at [" + regCenter[0].toFixed(1) + "," + regCenter[1].toFixed(1) + "]");
 
                         // Calculate cut points along the LINE (not from register center)
                         // Use the closest point on the segment as the center of the gap
@@ -14100,7 +14181,7 @@ function setStaticTextColor(control, rgbArray) {
                         var cutAfter = [closestX + REGISTER_CARVE_HALF_WIDTH * dirX, closestY + REGISTER_CARVE_HALF_WIDTH * dirY];
 
                         try {
-                            var firstHalf = bluePath.duplicate();
+                            var firstHalf = colorPath.duplicate();
                             var firstPts = firstHalf.pathPoints;
                             for (var delIdx = firstPts.length - 1; delIdx > segIdx; delIdx--) {
                                 firstPts[delIdx].remove();
@@ -14110,7 +14191,7 @@ function setStaticTextColor(control, rgbArray) {
                             newEndPt.leftDirection = cutBefore;
                             newEndPt.rightDirection = cutBefore;
 
-                            var secondHalf = bluePath.duplicate();
+                            var secondHalf = colorPath.duplicate();
                             var secondPts = secondHalf.pathPoints;
 
                             // Set the segment start point (segIdx) to cutAfter position
@@ -14202,7 +14283,7 @@ function setStaticTextColor(control, rgbArray) {
                             // BUT skip if the original path was already part of a compound (to avoid "already part of compound" error)
                             var isAlreadyCompoundChild = false;
                             try {
-                                if (bluePath.parent && bluePath.parent.typename === "CompoundPathItem") {
+                                if (colorPath.parent && colorPath.parent.typename === "CompoundPathItem") {
                                     isAlreadyCompoundChild = true;
                                     addDebug("[CARVE-OUT] Original path was part of compound - skipping re-compounding");
                                 }
@@ -14239,7 +14320,7 @@ function setStaticTextColor(control, rgbArray) {
                                 addDebug("[CARVE-OUT] Added split halves to SELECTED_PATHS without compounding");
                             }
 
-                            pathsToRemove.push(bluePath);
+                            pathsToRemove.push(colorPath);
                             ignoredAnchors.push(cutBefore);
                             ignoredAnchors.push(cutAfter);
                             carveOutsPerformed++;
@@ -14276,9 +14357,9 @@ function setStaticTextColor(control, rgbArray) {
 
                 // Restore original blue paths - try to select each one
                 // If the item was removed, it will throw an error which we catch
-                for (var restIdx = 0; restIdx < originalBluePaths.length; restIdx++) {
+                for (var restIdx = 0; restIdx < originalColorPaths.length; restIdx++) {
                     try {
-                        var origItem = originalBluePaths[restIdx];
+                        var origItem = originalColorPaths[restIdx];
                         // Check if item is still valid by accessing a property
                         var testValid = origItem.typename;
                         origItem.selected = true;
@@ -14298,14 +14379,14 @@ function setStaticTextColor(control, rgbArray) {
 
                 addDebug("[CARVE-OUT] Restored selection: " + restoredCount + " items (including " + newCompoundPaths.length + " new compound path(s))");
             }
-            } // end if (squareRegLayer)
+            } // end for (rcColorIdx - each ductwork color)
         } // end if (ENABLE_REGISTER_CARVE)
 
-        // *** AUTOMATIC BLUE PATH INTERSECTION CARVE-OUT ***
-        // Detect where blue ductwork paths cross each other (without requiring small segments)
-        // and create carve-outs at those intersection points
+        // *** AUTOMATIC DUCTWORK PATH INTERSECTION CARVE-OUT ***
+        // Detect where ductwork paths of the same color cross each other (without requiring small segments)
+        // and create carve-outs at those intersection points (same-color only, no cross-color carving)
         updateProgress(!ENABLE_OVERLAP_CARVE ? "Overlap carve skipped..." : "Carving intersections...");
-        addDebug("\n=== AUTOMATIC BLUE PATH INTERSECTION CARVE-OUT ===");
+        addDebug("\n=== AUTOMATIC PATH INTERSECTION CARVE-OUT (ALL COLORS) ===");
 
         // Define variables outside conditional so they're always available
         var AUTO_CARVE_HALF_WIDTH = 4.25; // 8.5pt total gap, same as small segment crossovers
@@ -14363,35 +14444,43 @@ function setStaticTextColor(control, rgbArray) {
         if (!ENABLE_OVERLAP_CARVE) {
             addDebug("[AUTO-CARVE] SKIPPED - checkbox not enabled");
         } else {
-            // Start of auto-carve processing (only runs if not skipped)
-            var bluePathsForAutoCarveRaw = getPathsOnLayerSelected(blueSourceLayer) || [];
+            // Process each ductwork color separately (same-color intersections only)
+            for (var acColorIdx = 0; acColorIdx < ALL_DUCTWORK_SOURCES.length; acColorIdx++) {
+                var acColorSrc = ALL_DUCTWORK_SOURCES[acColorIdx];
 
-            // Extract paths from compound paths and include regular paths
-            var bluePathsForAutoCarve = [];
-            for (var acFilterIdx = 0; acFilterIdx < bluePathsForAutoCarveRaw.length; acFilterIdx++) {
-                var acFilterPath = bluePathsForAutoCarveRaw[acFilterIdx];
-                if (!acFilterPath) continue;
-
-                // For CompoundPathItems: extract child paths
-                if (acFilterPath.typename === "CompoundPathItem") {
-                    try {
-                        for (var acCpIdx = 0; acCpIdx < acFilterPath.pathItems.length; acCpIdx++) {
-                            var acChildPath = acFilterPath.pathItems[acCpIdx];
-                            if (acChildPath && acChildPath.pathPoints && acChildPath.pathPoints.length >= 2) {
-                                bluePathsForAutoCarve.push(acChildPath);
-                                addDebug("[AUTO-CARVE] Including child path from CompoundPathItem");
-                            }
-                        }
-                    } catch (e) {
-                        addDebug("[AUTO-CARVE] Error extracting compound children: " + e);
-                    }
-                    continue;
+                // Start of auto-carve processing for this color
+                var colorPathsForAutoCarveRaw = getPathsOnLayerSelected(acColorSrc.layer) || [];
+                if (colorPathsForAutoCarveRaw.length < 2) {
+                    addDebug("[AUTO-CARVE] " + acColorSrc.name + ": Less than 2 paths, skipping");
+                    continue; // Need at least 2 paths to have an intersection
                 }
 
-                // Include regular paths (even if parent is CompoundPathItem - they're valid paths)
-                bluePathsForAutoCarve.push(acFilterPath);
-            }
-            addDebug("[AUTO-CARVE] Checking " + bluePathsForAutoCarve.length + " selected blue path(s) for intersections (filtered from " + bluePathsForAutoCarveRaw.length + ")");
+                // Extract paths from compound paths and include regular paths
+                var colorPathsForAutoCarve = [];
+                for (var acFilterIdx = 0; acFilterIdx < colorPathsForAutoCarveRaw.length; acFilterIdx++) {
+                    var acFilterPath = colorPathsForAutoCarveRaw[acFilterIdx];
+                    if (!acFilterPath) continue;
+
+                    // For CompoundPathItems: extract child paths
+                    if (acFilterPath.typename === "CompoundPathItem") {
+                        try {
+                            for (var acCpIdx = 0; acCpIdx < acFilterPath.pathItems.length; acCpIdx++) {
+                                var acChildPath = acFilterPath.pathItems[acCpIdx];
+                                if (acChildPath && acChildPath.pathPoints && acChildPath.pathPoints.length >= 2) {
+                                    colorPathsForAutoCarve.push(acChildPath);
+                                    addDebug("[AUTO-CARVE] " + acColorSrc.name + ": Including child path from CompoundPathItem");
+                                }
+                            }
+                        } catch (e) {
+                            addDebug("[AUTO-CARVE] " + acColorSrc.name + ": Error extracting compound children: " + e);
+                        }
+                        continue;
+                    }
+
+                    // Include regular paths (even if parent is CompoundPathItem - they're valid paths)
+                    colorPathsForAutoCarve.push(acFilterPath);
+                }
+                addDebug("[AUTO-CARVE] " + acColorSrc.name + ": Checking " + colorPathsForAutoCarve.length + " selected path(s) for intersections (filtered from " + colorPathsForAutoCarveRaw.length + ")");
 
             // Build a spatial hash of already-handled crossover locations for O(1) lookup
             var handledCrossoverPoints = [];
@@ -14432,8 +14521,8 @@ function setStaticTextColor(control, rgbArray) {
 
             // Pre-compute path lengths for optimization (avoid recalculating in inner loops)
             var pathLengths = [];
-            for (var plIdx = 0; plIdx < bluePathsForAutoCarve.length; plIdx++) {
-                var plPath = bluePathsForAutoCarve[plIdx];
+            for (var plIdx = 0; plIdx < colorPathsForAutoCarve.length; plIdx++) {
+                var plPath = colorPathsForAutoCarve[plIdx];
                 var plLen = 0;
                 if (plPath && plPath.pathPoints) {
                     var plPts = plPath.pathPoints;
@@ -14457,8 +14546,8 @@ function setStaticTextColor(control, rgbArray) {
 
             // Phase 1: Build segment-level spatial index
             addDebug("[AUTO-CARVE] Building SEGMENT-LEVEL spatial index...");
-            for (var sgPathIdx = 0; sgPathIdx < bluePathsForAutoCarve.length; sgPathIdx++) {
-                var sgPath = bluePathsForAutoCarve[sgPathIdx];
+            for (var sgPathIdx = 0; sgPathIdx < colorPathsForAutoCarve.length; sgPathIdx++) {
+                var sgPath = colorPathsForAutoCarve[sgPathIdx];
                 if (!sgPath || !sgPath.pathPoints || sgPath.pathPoints.length < 2) continue;
                 var sgPts = sgPath.pathPoints;
 
@@ -14552,8 +14641,8 @@ function setStaticTextColor(control, rgbArray) {
                         // Determine which path to carve
                         var pathALen = pathLengths[segA.pathIdx];
                         var pathBLen = pathLengths[segB.pathIdx];
-                        var pathA = bluePathsForAutoCarve[segA.pathIdx];
-                        var pathB = bluePathsForAutoCarve[segB.pathIdx];
+                        var pathA = colorPathsForAutoCarve[segA.pathIdx];
+                        var pathB = colorPathsForAutoCarve[segB.pathIdx];
 
                         // For self-intersections (same path), carve the later segment
                         if (segA.pathIdx === segB.pathIdx) {
@@ -14669,7 +14758,7 @@ function setStaticTextColor(control, rgbArray) {
                     addDebug("[AUTO-CARVE] Creating carve-out at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - gap from [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "] to [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "] (" + (autoInt.isSelfIntersection ? "SELF-INTERSECTION" : "CROSS-PATH") + ")");
 
                     // Save the deleted segment for recovery/audit purposes
-                    saveDeletedSegment(cutBefore, cutAfter, blueSourceLayer);
+                    saveDeletedSegment(cutBefore, cutAfter, acColorSrc.layer);
 
                     // Store original parent for later use (compounding requires same parent)
                     var carveParent = null;
@@ -15027,10 +15116,11 @@ function setStaticTextColor(control, rgbArray) {
             }
 
             if (autoIntersections.length > 0) {
-                addDebug("[AUTO-CARVE] Performed " + autoIntersections.length + " automatic carve-out(s), created " + autoNewCompoundPaths.length + " compound path(s)");
+                addDebug("[AUTO-CARVE] " + acColorSrc.name + ": Performed " + autoIntersections.length + " automatic carve-out(s), created " + autoNewCompoundPaths.length + " compound path(s)");
             } else {
-                addDebug("[AUTO-CARVE] No new intersections found (all may already be handled by small segments or registers)");
+                addDebug("[AUTO-CARVE] " + acColorSrc.name + ": No new intersections found");
             }
+            } // End for loop over ductwork colors (acColorIdx)
         } // End of ENABLE_OVERLAP_CARVE else block
 
         // *** PLACE SQUARE REGISTERS AT INTERNAL ANCHORS WITH NO DIRECTION CHANGE ***
@@ -15063,9 +15153,18 @@ function setStaticTextColor(control, rgbArray) {
             return dot > (1 - tolerance);
         }
 
-        // Get blue ductwork paths for internal anchor processing
-        var bluePathsForRegisters = getPathsOnLayerSelected(blueSourceLayer) || [];
-        addDebug("[INTERNAL-REGISTERS] Processing " + bluePathsForRegisters.length + " blue paths");
+        // Process internal anchors for all ductwork colors
+        addDebug("[INTERNAL-REGISTERS] Processing all ductwork colors for internal anchor registers");
+
+        for (var irColorIdx = 0; irColorIdx < ALL_DUCTWORK_SOURCES.length; irColorIdx++) {
+            var irColorSrc = ALL_DUCTWORK_SOURCES[irColorIdx];
+            var irRegisterLayerName = getRegisterLayerForDuctwork(irColorSrc.name);
+            var colorPathsForRegisters = getPathsOnLayerSelected(irColorSrc.layer) || [];
+            if (colorPathsForRegisters.length === 0) {
+                addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": No paths, skipping");
+                continue;
+            }
+            addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Processing " + colorPathsForRegisters.length + " paths");
 
         // Build set of crossover anchor indices per path (using path reference as key via index)
         // EARLY_CROSSOVER_SEGMENTS contains: { path, pathIdx, segmentIdx, ... }
@@ -15094,12 +15193,17 @@ function setStaticTextColor(control, rgbArray) {
             "Thermostats", "Rectangular Registers"
         ]);
 
-        var squareRegisterLayer = getOrCreateLayer("Square Registers");
+        var irRegisterLayer = getOrCreateLayer(irRegisterLayerName);
         var internalRegistersPlaced = 0;
         var internalRegistersSkipped = 0;
 
-        for (var irPathIdx = 0; irPathIdx < bluePathsForRegisters.length; irPathIdx++) {
-            var irPath = bluePathsForRegisters[irPathIdx];
+        // Determine component file based on register type
+        var INTERNAL_REG_PATH = "E:/Work/Work/Floorplans/Ductwork Assets/";
+        var irComponentFileName = (irRegisterLayerName === "Square Registers") ? "Square Register.ai" : "Exhaust Register.ai";
+        var irComponentFile = new File(INTERNAL_REG_PATH + irComponentFileName);
+
+        for (var irPathIdx = 0; irPathIdx < colorPathsForRegisters.length; irPathIdx++) {
+            var irPath = colorPathsForRegisters[irPathIdx];
             try {
                 // Validity check - skip if path was removed during carve-out
                 if (!irPath || !irPath.typename) continue;
@@ -15163,20 +15267,18 @@ function setStaticTextColor(control, rgbArray) {
                         continue;
                     }
 
-                    // Place a square register LINKED COMPONENT at this collinear internal anchor
-                    addDebug("[INTERNAL-REGISTERS] Placing square register at internal anchor [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] (path " + irPathIdx + ", anchor " + iaIdx + ")");
+                    // Place a register LINKED COMPONENT at this collinear internal anchor
+                    addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Placing " + irRegisterLayerName + " at internal anchor [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] (path " + irPathIdx + ", anchor " + iaIdx + ")");
 
                     // Create anchor point for reference
-                    createAnchorPoint(squareRegisterLayer, anchorPt, null);
+                    createAnchorPoint(irRegisterLayer, anchorPt, null);
 
-                    // Also directly place the linked Square Register component
+                    // Also directly place the linked register component
                     try {
-                        var INTERNAL_REG_PATH = "E:/Work/Work/Floorplans/Ductwork Assets/";
-                        var squareRegFile = new File(INTERNAL_REG_PATH + "Square Register.ai");
-                        if (squareRegFile.exists) {
-                            var placed = squareRegisterLayer.placedItems.add();
-                            placed.file = squareRegFile;
-                            try { placed.relink(squareRegFile); } catch (eRelink) { }
+                        if (irComponentFile.exists) {
+                            var placed = irRegisterLayer.placedItems.add();
+                            placed.file = irComponentFile;
+                            try { placed.relink(irComponentFile); } catch (eRelink) { }
                             try { placed.update(); } catch (eUpdate) { }
 
                             // Center on anchor position
@@ -15184,7 +15286,7 @@ function setStaticTextColor(control, rgbArray) {
                             var w = bounds[2] - bounds[0];
                             var h = bounds[1] - bounds[3];
                             placed.position = [anchorPt[0] - w / 2, anchorPt[1] + h / 2];
-                            placed.name = "Square Register (Linked)";
+                            placed.name = irRegisterLayerName.replace(" Registers", " Register") + " (Linked)";
 
                             // Apply default 50% scale
                             var DEFAULT_SCALE = 50;
@@ -15211,9 +15313,9 @@ function setStaticTextColor(control, rgbArray) {
                                 placed.translate(dx, dy, true, true, true, true);
                             }
 
-                            addDebug("[INTERNAL-REGISTERS] Placed linked Square Register component at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "]");
+                            addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Placed linked " + irRegisterLayerName + " component at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "]");
                         } else {
-                            addDebug("[INTERNAL-REGISTERS] WARNING: Square Register file not found: " + squareRegFile.fsName);
+                            addDebug("[INTERNAL-REGISTERS] WARNING: Component file not found: " + irComponentFile.fsName);
                         }
                     } catch (ePlaceReg) {
                         addDebug("[INTERNAL-REGISTERS] Error placing linked component: " + ePlaceReg);
@@ -15225,12 +15327,13 @@ function setStaticTextColor(control, rgbArray) {
                     updatedRegisterPoints.push(anchorPt);
                 }
             } catch (irErr) {
-                addDebug("[INTERNAL-REGISTERS] Error processing path " + irPathIdx + ": " + irErr);
+                addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Error processing path " + irPathIdx + ": " + irErr);
             }
         }
 
-        addDebug("[INTERNAL-REGISTERS] Placed " + internalRegistersPlaced + " square register(s) at internal anchors with no direction change");
-        addDebug("[INTERNAL-REGISTERS] Skipped " + internalRegistersSkipped + " internal anchor(s)");
+        addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Placed " + internalRegistersPlaced + " " + irRegisterLayerName + " at internal anchors with no direction change");
+        addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Skipped " + internalRegistersSkipped + " internal anchor(s)");
+        } // End for loop over ductwork colors (irColorIdx) for internal registers
 
         // STEP 5: Create Thermostats from endpoints not near units, ignored points, or existing points
         updateProgress("Creating thermostats...");
@@ -15275,7 +15378,7 @@ function setStaticTextColor(control, rgbArray) {
             }
         }
 
-        var baseCompoundLayers = ["Green Ductwork", "Blue Ductwork", "Orange Ductwork", "Light Orange Ductwork"];
+        var baseCompoundLayers = ["Green Ductwork", "Light Green Ductwork", "Blue Ductwork", "Orange Ductwork", "Light Orange Ductwork"];
         var layersToProcess = [];
         for (var baseIdx = 0; baseIdx < baseCompoundLayers.length; baseIdx++) {
             var baseLayerName = baseCompoundLayers[baseIdx];
