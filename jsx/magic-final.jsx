@@ -13337,6 +13337,197 @@ function setStaticTextColor(control, rgbArray) {
             addDebug("[OPPOSITE-UNITS] Created " + unitsCreated + " unit(s) at opposite endpoints");
         }
 
+        // === MARKER-TRIGGERED INTERSECTION VERTICES ===
+        // When a single-point "marker" exists near an intersection of two ductwork paths,
+        // and neither path has a vertex at that intersection, insert a vertex into one of the
+        // paths at the exact intersection point. This converts a "crossover" into a connection.
+        addDebug("\n=== PROCESSING MARKER-TRIGGERED INTERSECTIONS ===");
+        updateProgress("Processing marker intersections...");
+
+        var MARKER_INTERSECTION_TOLERANCE = 25; // Distance from marker to intersection to trigger
+        var VERTEX_INSERT_TOLERANCE = 2; // Distance to consider "already has vertex"
+
+        // Helper: Insert a vertex into a path at a given segment index
+        // Returns true if successful, false otherwise
+        function insertVertexIntoPath(targetPath, segmentIdx, vertexPos) {
+            try {
+                var pts = targetPath.pathPoints;
+                if (!pts || pts.length < 2) return false;
+                if (segmentIdx < 0 || segmentIdx >= pts.length - 1) return false;
+
+                // Collect all current anchor positions
+                var newAnchors = [];
+                for (var i = 0; i <= segmentIdx; i++) {
+                    newAnchors.push([pts[i].anchor[0], pts[i].anchor[1]]);
+                }
+                // Insert the new vertex
+                newAnchors.push([vertexPos[0], vertexPos[1]]);
+                // Add remaining points
+                for (var j = segmentIdx + 1; j < pts.length; j++) {
+                    newAnchors.push([pts[j].anchor[0], pts[j].anchor[1]]);
+                }
+
+                // Rebuild the path with the new point
+                targetPath.setEntirePath(newAnchors);
+                return true;
+            } catch (e) {
+                addDebug("[MARKER-INTERSECT] ERROR inserting vertex: " + e);
+                return false;
+            }
+        }
+
+        // Collect single-point "marker" paths from selected paths on ductwork layers
+        var soloMarkers = [];
+        for (var mi = 0; mi < allPaths.length; mi++) {
+            try {
+                var mPath = allPaths[mi];
+                if (!mPath || !mPath.pathPoints || mPath.pathPoints.length !== 1) continue;
+
+                // Check if on a ductwork layer
+                var mLayerName = mPath.layer ? mPath.layer.name : null;
+                if (!mLayerName) continue;
+                var lowerLayerName = mLayerName.toLowerCase();
+                if (lowerLayerName.indexOf("ductwork") === -1) continue; // Skip non-ductwork layers
+
+                var markerAnchor = mPath.pathPoints[0].anchor;
+                soloMarkers.push({
+                    path: mPath,
+                    position: [markerAnchor[0], markerAnchor[1]],
+                    layerName: mLayerName
+                });
+            } catch (e) { }
+        }
+
+        addDebug("[MARKER-INTERSECT] Found " + soloMarkers.length + " single-point marker(s) on ductwork layers");
+
+        // For each marker, find nearby line intersections on the same layer
+        var markersProcessed = 0;
+        var markersToRemove = [];
+        for (var si = 0; si < soloMarkers.length; si++) {
+            var marker = soloMarkers[si];
+            var markerPos = marker.position;
+
+            // Get multi-point paths on the same layer
+            var sameLayerPaths = [];
+            for (var lpi = 0; lpi < allPaths.length; lpi++) {
+                try {
+                    var lPath = allPaths[lpi];
+                    if (!lPath || !lPath.pathPoints || lPath.pathPoints.length < 2) continue;
+                    var lpLayerName = lPath.layer ? lPath.layer.name : null;
+                    if (lpLayerName === marker.layerName) {
+                        sameLayerPaths.push(lPath);
+                    }
+                } catch (e) { }
+            }
+
+            if (sameLayerPaths.length < 2) continue; // Need at least 2 paths for an intersection
+
+            // Check all path pairs for intersections near this marker
+            var foundAndProcessed = false;
+            for (var pA = 0; pA < sameLayerPaths.length && !foundAndProcessed; pA++) {
+                var pathA = sameLayerPaths[pA];
+                var ptsA = pathA.pathPoints;
+                if (!ptsA || ptsA.length < 2) continue;
+
+                for (var pB = pA + 1; pB < sameLayerPaths.length && !foundAndProcessed; pB++) {
+                    var pathB = sameLayerPaths[pB];
+                    var ptsB = pathB.pathPoints;
+                    if (!ptsB || ptsB.length < 2) continue;
+
+                    // Check all segment pairs for intersection
+                    for (var sA = 0; sA < ptsA.length - 1 && !foundAndProcessed; sA++) {
+                        for (var sB = 0; sB < ptsB.length - 1 && !foundAndProcessed; sB++) {
+                            var intPt = getSegmentIntersectionPoint(
+                                ptsA[sA].anchor[0], ptsA[sA].anchor[1],
+                                ptsA[sA + 1].anchor[0], ptsA[sA + 1].anchor[1],
+                                ptsB[sB].anchor[0], ptsB[sB].anchor[1],
+                                ptsB[sB + 1].anchor[0], ptsB[sB + 1].anchor[1]
+                            );
+
+                            if (intPt) {
+                                // Check if this intersection is near the marker
+                                var dx = intPt[0] - markerPos[0];
+                                var dy = intPt[1] - markerPos[1];
+                                var distToMarker = Math.sqrt(dx * dx + dy * dy);
+
+                                if (distToMarker <= MARKER_INTERSECTION_TOLERANCE) {
+                                    addDebug("[MARKER-INTERSECT] Marker at [" + markerPos[0].toFixed(1) + "," + markerPos[1].toFixed(1) +
+                                        "] near intersection at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] (dist=" + distToMarker.toFixed(1) + ")");
+
+                                    // Check if either path already has a vertex at this intersection
+                                    var hasVertexA = false, hasVertexB = false;
+                                    for (var vA = 0; vA < ptsA.length; vA++) {
+                                        var vdxA = ptsA[vA].anchor[0] - intPt[0];
+                                        var vdyA = ptsA[vA].anchor[1] - intPt[1];
+                                        if (Math.sqrt(vdxA * vdxA + vdyA * vdyA) <= VERTEX_INSERT_TOLERANCE) {
+                                            hasVertexA = true;
+                                            break;
+                                        }
+                                    }
+                                    for (var vB = 0; vB < ptsB.length; vB++) {
+                                        var vdxB = ptsB[vB].anchor[0] - intPt[0];
+                                        var vdyB = ptsB[vB].anchor[1] - intPt[1];
+                                        if (Math.sqrt(vdxB * vdxB + vdyB * vdyB) <= VERTEX_INSERT_TOLERANCE) {
+                                            hasVertexB = true;
+                                            break;
+                                        }
+                                    }
+
+                                    if (!hasVertexA && !hasVertexB) {
+                                        // Neither path has a vertex - insert one into pathA at segment sA
+                                        addDebug("[MARKER-INTERSECT] Inserting vertex into path at segment " + sA);
+                                        if (insertVertexIntoPath(pathA, sA, intPt)) {
+                                            addDebug("[MARKER-INTERSECT] Successfully inserted vertex at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "]");
+                                            markersToRemove.push(marker.path);
+                                            markersProcessed++;
+                                            foundAndProcessed = true;
+                                        }
+                                    } else {
+                                        addDebug("[MARKER-INTERSECT] Intersection already has vertex (A=" + hasVertexA + ", B=" + hasVertexB + ") - skipping");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Remove processed markers
+        for (var rmIdx = 0; rmIdx < markersToRemove.length; rmIdx++) {
+            try {
+                markersToRemove[rmIdx].remove();
+                addDebug("[MARKER-INTERSECT] Removed processed marker");
+            } catch (e) { }
+        }
+
+        // Also remove processed markers from allPaths and SELECTED_PATHS
+        if (markersToRemove.length > 0) {
+            var removeSet = {};
+            for (var rsIdx = 0; rsIdx < markersToRemove.length; rsIdx++) {
+                try {
+                    // Use a unique identifier - concatenate position coordinates
+                    var rmPath = markersToRemove[rsIdx];
+                    // Path is already removed, skip trying to access it
+                } catch (e) { }
+            }
+            // Filter allPaths to remove any paths that no longer exist
+            var filteredAllPaths = [];
+            for (var fpi = 0; fpi < allPaths.length; fpi++) {
+                try {
+                    var fPath = allPaths[fpi];
+                    // Test if path is still valid by accessing a property
+                    var testTypename = fPath.typename;
+                    filteredAllPaths.push(fPath);
+                } catch (e) {
+                    // Path no longer exists, skip it
+                }
+            }
+            allPaths = filteredAllPaths;
+        }
+
+        addDebug("[MARKER-INTERSECT] Processed " + markersProcessed + " marker-triggered intersection(s)");
+
         // PRE-STEP 4: Detect blue line intersections where one path has a vertex at the crossing
         // These intersection points should be ignored for component placement (no square registers)
         addDebug("\n=== DETECTING INTERSECTION VERTICES ===");
@@ -13828,6 +14019,50 @@ function setStaticTextColor(control, rgbArray) {
         var autoIntersections = [];
         var autoPathsToRemove = [];
         var autoNewCompoundPaths = [];
+        // Track path pairs that should NOT be connected via T-junction
+        // (carved halves should not connect to the crossing path that caused the carve)
+        var CARVE_BLOCKED_CONNECTIONS = [];
+
+        // Helper function to save deleted segments to a "Deleted Segments" layer for safety/recovery
+        function saveDeletedSegment(startPt, endPt, sourceLayer) {
+            try {
+                var deletedLayer = null;
+                try { deletedLayer = doc.layers.getByName("Deleted Segments"); } catch (eNoLayer) { }
+                if (!deletedLayer) {
+                    deletedLayer = doc.layers.add();
+                    deletedLayer.name = "Deleted Segments";
+                    addDebug("[DELETED-SEG] Created 'Deleted Segments' layer");
+                }
+                // Unlock and show layer temporarily to add the path
+                if (deletedLayer.locked) deletedLayer.locked = false;
+                if (!deletedLayer.visible) deletedLayer.visible = true;
+
+                // Create a path for the deleted segment
+                var segPath = deletedLayer.pathItems.add();
+                segPath.setEntirePath([[startPt[0], startPt[1]], [endPt[0], endPt[1]]]);
+                segPath.filled = false;
+                segPath.stroked = true;
+                segPath.strokeWidth = 1;
+                try {
+                    // Try to match stroke color from source layer
+                    var sourceLayerObj = null;
+                    try { sourceLayerObj = doc.layers.getByName(sourceLayer); } catch (eNoSrc) { }
+                    if (sourceLayerObj && sourceLayerObj.pathItems.length > 0) {
+                        segPath.strokeColor = sourceLayerObj.pathItems[0].strokeColor;
+                    }
+                } catch (eColor) { }
+
+                // Hide and lock the layer after adding the path
+                deletedLayer.visible = false;
+                deletedLayer.locked = true;
+
+                addDebug("[DELETED-SEG] Saved segment from [" + startPt[0].toFixed(1) + "," + startPt[1].toFixed(1) + "] to [" + endPt[0].toFixed(1) + "," + endPt[1].toFixed(1) + "]");
+                return segPath;
+            } catch (eSave) {
+                addDebug("[DELETED-SEG] ERROR saving segment: " + eSave);
+                return null;
+            }
+        }
 
         if (!ENABLE_OVERLAP_CARVE) {
             addDebug("[AUTO-CARVE] SKIPPED - checkbox not enabled");
@@ -14137,6 +14372,9 @@ function setStaticTextColor(control, rgbArray) {
 
                     addDebug("[AUTO-CARVE] Creating carve-out at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - gap from [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "] to [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
 
+                    // Save the deleted segment for recovery/audit purposes
+                    saveDeletedSegment(cutBefore, cutAfter, blueSourceLayer);
+
                     // Store original parent for later use (compounding requires same parent)
                     var carveParent = null;
                     try {
@@ -14230,6 +14468,23 @@ function setStaticTextColor(control, rgbArray) {
                         autoFirstHalf.selected = true;
                         autoSecondHalf.selected = true;
                     } catch (eSel) { }
+
+                    // CRITICAL: Track that these carved halves should NOT connect via T-junction
+                    // to the crossing path that caused the carve (they're crossovers, not connections)
+                    var crossingPath = autoInt.otherPath;
+                    if (crossingPath) {
+                        try {
+                            CARVE_BLOCKED_CONNECTIONS.push({
+                                carvedPath: autoFirstHalf,
+                                crossingPath: crossingPath
+                            });
+                            CARVE_BLOCKED_CONNECTIONS.push({
+                                carvedPath: autoSecondHalf,
+                                crossingPath: crossingPath
+                            });
+                            addDebug("[AUTO-CARVE] Blocked T-junction connections between carved halves and crossing path");
+                        } catch (eBlock) { }
+                    }
 
                     // Create ignore anchors at cut points
                     try {
@@ -14714,6 +14969,88 @@ function setStaticTextColor(control, rgbArray) {
                 }
             }
 
+            // PERSISTENT CARVE-OUT SIBLINGS: On reruns, CARVE_OUT_COMPOUNDS is empty but we need to
+            // detect existing compound paths that contain carve-out siblings (paths with endpoints
+            // near carve-out gap pairs). Force connect children of such compounds.
+            if (carveOutForcedConnections.length === 0 && ignoredAnchors && ignoredAnchors.length >= 2) {
+                var CARVE_GAP_MIN = 7;
+                var CARVE_GAP_MAX = 10;
+                var CARVE_EP_TOL = 5;
+
+                // Find carve-out gap pairs (ignored anchor pairs ~8.5pt apart)
+                var carveGapPairs = [];
+                for (var gp1 = 0; gp1 < ignoredAnchors.length - 1; gp1++) {
+                    for (var gp2 = gp1 + 1; gp2 < ignoredAnchors.length; gp2++) {
+                        var gpDist = Math.sqrt(Math.pow(ignoredAnchors[gp1][0] - ignoredAnchors[gp2][0], 2) + Math.pow(ignoredAnchors[gp1][1] - ignoredAnchors[gp2][1], 2));
+                        if (gpDist >= CARVE_GAP_MIN && gpDist <= CARVE_GAP_MAX) {
+                            carveGapPairs.push([ignoredAnchors[gp1], ignoredAnchors[gp2]]);
+                        }
+                    }
+                }
+
+                if (carveGapPairs.length > 0) {
+                    addDebug("[COMPOUND] Found " + carveGapPairs.length + " carve-out gap pair(s) for persistent sibling detection");
+
+                    // Check each existing compound path on this layer
+                    try {
+                        var layer = doc.layers.getByName(layerName);
+                        for (var cpIdx = 0; cpIdx < layer.compoundPathItems.length; cpIdx++) {
+                            try {
+                                var cp = layer.compoundPathItems[cpIdx];
+                                if (!cp || cp.pathItems.length < 2) continue;
+
+                                // Get children that are in filteredPaths
+                                var cpChildren = [];
+                                for (var cpChild = 0; cpChild < cp.pathItems.length; cpChild++) {
+                                    var childPath = cp.pathItems[cpChild];
+                                    for (var fpIdx = 0; fpIdx < filteredPaths.length; fpIdx++) {
+                                        if (filteredPaths[fpIdx] === childPath) {
+                                            cpChildren.push(childPath);
+                                            break;
+                                        }
+                                    }
+                                }
+
+                                // Check if children have endpoints near carve-out gap pairs
+                                for (var cgpIdx = 0; cgpIdx < carveGapPairs.length; cgpIdx++) {
+                                    var gapPt1 = carveGapPairs[cgpIdx][0];
+                                    var gapPt2 = carveGapPairs[cgpIdx][1];
+
+                                    // Find children with endpoints near each gap point
+                                    var childNearPt1 = null, childNearPt2 = null;
+                                    for (var chIdx = 0; chIdx < cpChildren.length; chIdx++) {
+                                        var chPath = cpChildren[chIdx];
+                                        var chPts = chPath.pathPoints;
+                                        if (!chPts || chPts.length < 2) continue;
+
+                                        var ep1 = [chPts[0].anchor[0], chPts[0].anchor[1]];
+                                        var ep2 = [chPts[chPts.length - 1].anchor[0], chPts[chPts.length - 1].anchor[1]];
+
+                                        var d1a = Math.sqrt(Math.pow(ep1[0] - gapPt1[0], 2) + Math.pow(ep1[1] - gapPt1[1], 2));
+                                        var d1b = Math.sqrt(Math.pow(ep2[0] - gapPt1[0], 2) + Math.pow(ep2[1] - gapPt1[1], 2));
+                                        var d2a = Math.sqrt(Math.pow(ep1[0] - gapPt2[0], 2) + Math.pow(ep1[1] - gapPt2[1], 2));
+                                        var d2b = Math.sqrt(Math.pow(ep2[0] - gapPt2[0], 2) + Math.pow(ep2[1] - gapPt2[1], 2));
+
+                                        if (d1a <= CARVE_EP_TOL || d1b <= CARVE_EP_TOL) {
+                                            childNearPt1 = chPath;
+                                        }
+                                        if (d2a <= CARVE_EP_TOL || d2b <= CARVE_EP_TOL) {
+                                            childNearPt2 = chPath;
+                                        }
+                                    }
+
+                                    // If two different children are near the gap pair endpoints, force connect them
+                                    if (childNearPt1 && childNearPt2 && childNearPt1 !== childNearPt2) {
+                                        carveOutForcedConnections.push([childNearPt1, childNearPt2]);
+                                        addDebug("[COMPOUND] Detected persistent carve-out siblings, forcing connection");
+                                    }
+                                }
+                            } catch (eCpCheck) { }
+                        }
+                    } catch (eLayerCheck) { }
+                }
+            }
+
             layerPaths = filteredPaths;
 
             // CROSSOVER DETECTION: Find small internal segments (5-17pt) where another path intersects
@@ -14875,6 +15212,7 @@ function setStaticTextColor(control, rgbArray) {
                 // CROSSOVER SPLITTING: Split paths at crossover segments BEFORE compounding
                 // This must happen early so the new split paths are included in layerPaths
                 var splitPathPairs = []; // Track pairs of split paths that should be connected
+                var splitPathCrossoverBlocks = []; // Track split halves that should NOT connect to the intersecting path
                 for (var xoSplitIdx = 0; xoSplitIdx < crossoverInfo.length; xoSplitIdx++) {
                     var xoSplit = crossoverInfo[xoSplitIdx];
                     var targetPath = xoSplit.pathWithSmallSeg;
@@ -14912,6 +15250,16 @@ function setStaticTextColor(control, rgbArray) {
 
                                 // Track this pair so we can force a connection between them
                                 splitPathPairs.push({ pathA: targetPath, pathB: dupPath });
+
+                                // CRITICAL: Track that BOTH halves should NOT connect to the intersecting path
+                                // The original crossoverInfo only has targetPath, but dupPath also crosses over!
+                                if (xoSplit.intersectingPath) {
+                                    splitPathCrossoverBlocks.push({
+                                        splitPath: dupPath,
+                                        crossoverPath: xoSplit.intersectingPath
+                                    });
+                                    addDebug("[XOVER-SPLIT] Blocking dupPath <-> intersectingPath connection");
+                                }
 
                                 // Mark both as created paths for styling
                                 markCreatedPath(targetPath);
@@ -14979,7 +15327,9 @@ function setStaticTextColor(control, rgbArray) {
                 }
 
                 // CROSSOVER FILTER: Remove connections between paths that are linked by a crossover segment
-                if (crossoverInfo.length > 0) {
+                // Also filter AUTO-CARVE blocked connections (carved halves should not connect to crossing path)
+                // Also filter PERSISTENT crossovers (on rerun) by checking path endpoints near ignored anchors
+                if (crossoverInfo.length > 0 || (typeof splitPathCrossoverBlocks !== 'undefined' && splitPathCrossoverBlocks.length > 0) || (typeof CARVE_BLOCKED_CONNECTIONS !== 'undefined' && CARVE_BLOCKED_CONNECTIONS.length > 0) || (ignoredAnchors && ignoredAnchors.length > 0)) {
                     var originalConnCount = connections.length;
                     var filteredConnections = [];
                     for (var connIdx = 0; connIdx < connections.length; connIdx++) {
@@ -14993,6 +15343,7 @@ function setStaticTextColor(control, rgbArray) {
 
                             var isCrossoverConnection = false;
 
+                            // Check against original crossoverInfo (pathWithSmallSeg <-> intersectingPath)
                             for (var xoIdx = 0; xoIdx < crossoverInfo.length; xoIdx++) {
                                 try {
                                     var xo = crossoverInfo[xoIdx];
@@ -15000,15 +15351,186 @@ function setStaticTextColor(control, rgbArray) {
                                     if ((connPathA === xo.pathWithSmallSeg && connPathB === xo.intersectingPath) ||
                                         (connPathB === xo.pathWithSmallSeg && connPathA === xo.intersectingPath)) {
                                         isCrossoverConnection = true;
+                                        addDebug("[XOVER-FILTER] Blocking original crossover connection");
                                         break;
                                     }
                                 } catch (eXo) { }
+                            }
+
+                            // ALSO check against split path crossover blocks (dupPath <-> intersectingPath)
+                            // This catches connections between the NEW split half and the intersecting path
+                            if (!isCrossoverConnection && typeof splitPathCrossoverBlocks !== 'undefined') {
+                                for (var spxoIdx = 0; spxoIdx < splitPathCrossoverBlocks.length; spxoIdx++) {
+                                    try {
+                                        var spxo = splitPathCrossoverBlocks[spxoIdx];
+                                        if (!spxo || !spxo.splitPath || !spxo.crossoverPath) continue;
+                                        if ((connPathA === spxo.splitPath && connPathB === spxo.crossoverPath) ||
+                                            (connPathB === spxo.splitPath && connPathA === spxo.crossoverPath)) {
+                                            isCrossoverConnection = true;
+                                            addDebug("[XOVER-FILTER] Blocking split-half crossover connection");
+                                            break;
+                                        }
+                                    } catch (eSpXo) { }
+                                }
+                            }
+
+                            // ALSO check against CARVE_BLOCKED_CONNECTIONS (AUTO-CARVE blocked pairs)
+                            // This blocks T-junction connections between carved halves and crossing paths
+                            if (!isCrossoverConnection && typeof CARVE_BLOCKED_CONNECTIONS !== 'undefined' && CARVE_BLOCKED_CONNECTIONS.length > 0) {
+                                for (var cbcIdx = 0; cbcIdx < CARVE_BLOCKED_CONNECTIONS.length; cbcIdx++) {
+                                    try {
+                                        var cbc = CARVE_BLOCKED_CONNECTIONS[cbcIdx];
+                                        if (!cbc || !cbc.carvedPath || !cbc.crossingPath) continue;
+                                        if ((connPathA === cbc.carvedPath && connPathB === cbc.crossingPath) ||
+                                            (connPathB === cbc.carvedPath && connPathA === cbc.crossingPath)) {
+                                            isCrossoverConnection = true;
+                                            addDebug("[XOVER-FILTER] Blocking carve-out crossover connection");
+                                            break;
+                                        }
+                                    } catch (eCbc) { }
+                                }
+                            }
+
+                            // PERSISTENT CROSSOVER CHECK: On reruns, CARVE_BLOCKED_CONNECTIONS is empty
+                            // but we can detect carve-out crossovers by looking for PAIRS of ignored anchors
+                            // that are ~8.5pt apart (indicating a carve-out gap). Only block connections where:
+                            // 1. There's a PAIR of ignored anchors ~8.5pt apart (carve-out gap signature)
+                            // 2. One path has an endpoint near one of these paired anchors
+                            // 3. The other path passes through the gap (near the midpoint between the pair)
+                            // IMPORTANT: Do NOT block if BOTH paths have endpoints near the SAME gap pair
+                            // (those are siblings from the same carve-out, not crossovers)
+                            if (!isCrossoverConnection && ignoredAnchors && ignoredAnchors.length >= 2) {
+                                var CARVE_GAP_MIN = 7; // Minimum distance between carve-out anchor pairs
+                                var CARVE_GAP_MAX = 10; // Maximum distance between carve-out anchor pairs (8.5pt nominal)
+                                var CARVE_ENDPOINT_TOLERANCE = 3; // How close endpoint must be to an anchor
+                                try {
+                                    var ptsA = connPathA.pathPoints;
+                                    var ptsB = connPathB.pathPoints;
+                                    if (ptsA && ptsB && ptsA.length >= 2 && ptsB.length >= 2) {
+                                        // Get endpoints of both paths
+                                        var endpointsA = [[ptsA[0].anchor[0], ptsA[0].anchor[1]], [ptsA[ptsA.length - 1].anchor[0], ptsA[ptsA.length - 1].anchor[1]]];
+                                        var endpointsB = [[ptsB[0].anchor[0], ptsB[0].anchor[1]], [ptsB[ptsB.length - 1].anchor[0], ptsB[ptsB.length - 1].anchor[1]]];
+
+                                        // Find pairs of ignored anchors that are ~8.5pt apart (carve-out gaps)
+                                        for (var ignIdx1 = 0; ignIdx1 < ignoredAnchors.length - 1 && !isCrossoverConnection; ignIdx1++) {
+                                            for (var ignIdx2 = ignIdx1 + 1; ignIdx2 < ignoredAnchors.length && !isCrossoverConnection; ignIdx2++) {
+                                                var ign1 = ignoredAnchors[ignIdx1];
+                                                var ign2 = ignoredAnchors[ignIdx2];
+                                                var pairDx = ign1[0] - ign2[0];
+                                                var pairDy = ign1[1] - ign2[1];
+                                                var pairDist = Math.sqrt(pairDx * pairDx + pairDy * pairDy);
+
+                                                // Only consider pairs that are ~8.5pt apart (carve-out gap signature)
+                                                if (pairDist >= CARVE_GAP_MIN && pairDist <= CARVE_GAP_MAX) {
+                                                    var gapMidpoint = [(ign1[0] + ign2[0]) / 2, (ign1[1] + ign2[1]) / 2];
+
+                                                    // Check if pathA has an endpoint near either anchor of this pair
+                                                    var pathAEndpointNearPair = false;
+                                                    var pathANearWhichAnchor = 0; // 1 or 2
+                                                    for (var epAIdx = 0; epAIdx < endpointsA.length && !pathAEndpointNearPair; epAIdx++) {
+                                                        var d1 = Math.sqrt(Math.pow(endpointsA[epAIdx][0] - ign1[0], 2) + Math.pow(endpointsA[epAIdx][1] - ign1[1], 2));
+                                                        var d2 = Math.sqrt(Math.pow(endpointsA[epAIdx][0] - ign2[0], 2) + Math.pow(endpointsA[epAIdx][1] - ign2[1], 2));
+                                                        if (d1 <= CARVE_ENDPOINT_TOLERANCE) {
+                                                            pathAEndpointNearPair = true;
+                                                            pathANearWhichAnchor = 1;
+                                                        } else if (d2 <= CARVE_ENDPOINT_TOLERANCE) {
+                                                            pathAEndpointNearPair = true;
+                                                            pathANearWhichAnchor = 2;
+                                                        }
+                                                    }
+
+                                                    // SIBLING CHECK: Before checking if B passes through gap,
+                                                    // check if B ALSO has an endpoint near this gap pair (sibling)
+                                                    var pathBEndpointNearPair = false;
+                                                    if (pathAEndpointNearPair) {
+                                                        for (var epBSibIdx = 0; epBSibIdx < endpointsB.length && !pathBEndpointNearPair; epBSibIdx++) {
+                                                            var db1 = Math.sqrt(Math.pow(endpointsB[epBSibIdx][0] - ign1[0], 2) + Math.pow(endpointsB[epBSibIdx][1] - ign1[1], 2));
+                                                            var db2 = Math.sqrt(Math.pow(endpointsB[epBSibIdx][0] - ign2[0], 2) + Math.pow(endpointsB[epBSibIdx][1] - ign2[1], 2));
+                                                            if (db1 <= CARVE_ENDPOINT_TOLERANCE || db2 <= CARVE_ENDPOINT_TOLERANCE) {
+                                                                pathBEndpointNearPair = true;
+                                                            }
+                                                        }
+                                                    }
+
+                                                    // If BOTH paths have endpoints near this gap pair, they're SIBLINGS - don't block!
+                                                    if (pathAEndpointNearPair && pathBEndpointNearPair) {
+                                                        // Skip this gap pair - these are siblings, not crossovers
+                                                        continue;
+                                                    }
+
+                                                    // Check if pathB passes through the gap (near the midpoint)
+                                                    var pathBPassesThroughGap = false;
+                                                    if (pathAEndpointNearPair) {
+                                                        for (var segBIdx = 0; segBIdx < ptsB.length - 1 && !pathBPassesThroughGap; segBIdx++) {
+                                                            var segStart = [ptsB[segBIdx].anchor[0], ptsB[segBIdx].anchor[1]];
+                                                            var segEnd = [ptsB[segBIdx + 1].anchor[0], ptsB[segBIdx + 1].anchor[1]];
+                                                            var res = closestPointOnSegment(segStart, segEnd, gapMidpoint);
+                                                            if (res.t > 0.01 && res.t < 0.99) {
+                                                                var distToMid = Math.sqrt(Math.pow(gapMidpoint[0] - res.pt[0], 2) + Math.pow(gapMidpoint[1] - res.pt[1], 2));
+                                                                if (distToMid <= CARVE_GAP_MAX / 2) {
+                                                                    pathBPassesThroughGap = true;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if (pathAEndpointNearPair && pathBPassesThroughGap) {
+                                                        isCrossoverConnection = true;
+                                                        addDebug("[XOVER-FILTER] Blocking persistent carve-out crossover (pathA endpoint near gap pair)");
+                                                    }
+
+                                                    // Also check reverse: pathB endpoint near pair, pathA passes through gap
+                                                    // Note: pathBEndpointNearPair may already be set from sibling check above
+                                                    // If it was set, and pathAEndpointNearPair was also set, we already skipped this pair
+                                                    // So if we get here, either pathB wasn't near the pair, or we need to check if A passes through
+                                                    if (!isCrossoverConnection && !pathBEndpointNearPair) {
+                                                        // Re-check if pathB has endpoint near pair (wasn't checked in sibling check if pathA wasn't near)
+                                                        for (var epBIdx = 0; epBIdx < endpointsB.length && !pathBEndpointNearPair; epBIdx++) {
+                                                            var dbRev1 = Math.sqrt(Math.pow(endpointsB[epBIdx][0] - ign1[0], 2) + Math.pow(endpointsB[epBIdx][1] - ign1[1], 2));
+                                                            var dbRev2 = Math.sqrt(Math.pow(endpointsB[epBIdx][0] - ign2[0], 2) + Math.pow(endpointsB[epBIdx][1] - ign2[1], 2));
+                                                            if (dbRev1 <= CARVE_ENDPOINT_TOLERANCE || dbRev2 <= CARVE_ENDPOINT_TOLERANCE) {
+                                                                pathBEndpointNearPair = true;
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if (!isCrossoverConnection && pathBEndpointNearPair && !pathAEndpointNearPair) {
+                                                        // PathB is near gap but pathA isn't - check if A passes through gap
+                                                        var pathAPassesThroughGap = false;
+                                                        for (var segAIdx = 0; segAIdx < ptsA.length - 1 && !pathAPassesThroughGap; segAIdx++) {
+                                                            var segStartA = [ptsA[segAIdx].anchor[0], ptsA[segAIdx].anchor[1]];
+                                                            var segEndA = [ptsA[segAIdx + 1].anchor[0], ptsA[segAIdx + 1].anchor[1]];
+                                                            var resA = closestPointOnSegment(segStartA, segEndA, gapMidpoint);
+                                                            if (resA.t > 0.01 && resA.t < 0.99) {
+                                                                var distToMidA = Math.sqrt(Math.pow(gapMidpoint[0] - resA.pt[0], 2) + Math.pow(gapMidpoint[1] - resA.pt[1], 2));
+                                                                if (distToMidA <= CARVE_GAP_MAX / 2) {
+                                                                    pathAPassesThroughGap = true;
+                                                                }
+                                                            }
+                                                        }
+
+                                                        if (pathAPassesThroughGap) {
+                                                            isCrossoverConnection = true;
+                                                            addDebug("[XOVER-FILTER] Blocking persistent carve-out crossover (pathB endpoint near gap pair)");
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } catch (eIgnoreCheck) {
+                                    // Silently continue if check fails
+                                }
                             }
 
                             if (!isCrossoverConnection) {
                                 filteredConnections.push(connections[connIdx]);
                             }
                         } catch (eConnFilter) { }
+                    }
+                    var blockedCount = originalConnCount - filteredConnections.length;
+                    if (blockedCount > 0) {
+                        addDebug("[XOVER-FILTER] Blocked " + blockedCount + " crossover connection(s)");
                     }
                     connections = filteredConnections;
                 }
