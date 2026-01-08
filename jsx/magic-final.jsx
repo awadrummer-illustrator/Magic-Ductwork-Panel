@@ -2743,6 +2743,7 @@ function setStaticTextColor(control, rgbArray) {
         var SKIP_FINAL_REGISTER_ORTHO = false; // controls whether only final register segments stay freeform
         var SKIP_REGISTER_ROTATION = false; // controls whether square registers are rotated to match ductwork angle
         var ORTHO_IGNORED_ANCHORS = []; // ignored anchors collected early for ortho phase (FR-002)
+        var ORTHO_REGISTER_ANCHORS = []; // register positions collected early for ortho phase (skip-final check)
 
         // MDUX_getMetadata and MDUX_setMetadata must be defined early so they're available to all functions in this IIFE
         // Note: Use MDUX_debugLog from panel-bridge.jsx which is always available, NOT addDebug which may have uninitialized dependencies
@@ -9582,9 +9583,11 @@ function setStaticTextColor(control, rgbArray) {
             // NOTE: Do a LIVE check of the Ignored layer since ignore anchors may be created
             // during processing (e.g., when internal anchors close to endpoints are cleaned up)
             var registerEndpointIgnored = false;
+            var registerEndpointHasRegister = false; // Check if endpoint actually has a register nearby
             if (skipFinalBranchOrtho && pathIsBranch && pts.length >= 2) {
                 var registerEndpoint = registerEndIsFirst ? pts[0].anchor : pts[pts.length - 1].anchor;
                 var IGNORE_CHECK_DIST = 10; // tolerance for ignore anchor check
+                var REGISTER_CHECK_DIST = 25; // tolerance for register proximity check
 
                 // First check pre-collected ignore anchors
                 for (var igIdx = 0; igIdx < ORTHO_IGNORED_ANCHORS.length; igIdx++) {
@@ -9623,6 +9626,17 @@ function setStaticTextColor(control, rgbArray) {
                         }
                     } catch (eLiveCheck) { /* Ignore errors in live check */ }
                 }
+
+                // Check if there's actually a register near this endpoint
+                // If no register exists, we should still orthogonalize (trunk without register at end)
+                for (var regIdx = 0; regIdx < ORTHO_REGISTER_ANCHORS.length; regIdx++) {
+                    var regPt = ORTHO_REGISTER_ANCHORS[regIdx];
+                    var regDist = Math.sqrt(Math.pow(registerEndpoint[0] - regPt[0], 2) + Math.pow(registerEndpoint[1] - regPt[1], 2));
+                    if (regDist <= REGISTER_CHECK_DIST) {
+                        registerEndpointHasRegister = true;
+                        break;
+                    }
+                }
             }
 
             // PERFORMANCE: Removed all addDebug calls from this hot function
@@ -9640,6 +9654,11 @@ function setStaticTextColor(control, rgbArray) {
                         // FR-002: If register endpoint is ignored, DON'T skip ortho
                         // (the final segment goes to an ignored point, not a ductwork part)
                         if (registerEndpointIgnored) {
+                            return true; // Ortho this segment normally
+                        }
+                        // If no register exists at this endpoint, DON'T skip ortho
+                        // (trunk/path without register at end should be orthogonalized)
+                        if (!registerEndpointHasRegister) {
                             return true; // Ortho this segment normally
                         }
                         return false;
@@ -12361,6 +12380,19 @@ function setStaticTextColor(control, rgbArray) {
             ORTHO_IGNORED_ANCHORS = [];
         }
 
+        // Collect register positions EARLY for ortho phase
+        // This allows skip-final-ortho to check if endpoint actually has a register
+        try {
+            ORTHO_REGISTER_ANCHORS = getExistingAnchorPoints([
+                "Square Registers", "Rectangular Registers", "Circular Registers", "Exhaust Registers"
+            ]);
+            if (ORTHO_REGISTER_ANCHORS.length > 0) {
+                addDebug("[ORTHO-REGISTERS] Collected " + ORTHO_REGISTER_ANCHORS.length + " register position(s) for ortho phase");
+            }
+        } catch (eOrthoRegs) {
+            ORTHO_REGISTER_ANCHORS = [];
+        }
+
         // FR-003: Auto-snap near-intersection anchors to vertex points
         // If an anchor is within 0.5pt of a line intersection but NOT a proper vertex,
         // DELETE that anchor and ADD a vertex point on one of the intersecting lines
@@ -12813,10 +12845,12 @@ function setStaticTextColor(control, rgbArray) {
         // If an internal anchor on a blue ductwork path is within 4pt of an endpoint,
         // remove the internal anchor and mark that endpoint to be ignored (no part placed there)
         // Also mark the OPPOSITE endpoint for unit placement
+        // NOTE: We store PATH REFERENCES, not coordinates, because orthogonalization will move endpoints
         addDebug("\n=== INTERNAL ANCHOR CLEANUP (near endpoints) ===");
         var ENDPOINT_INTERNAL_THRESHOLD = 4;
-        var endpointsToIgnore = []; // Store endpoints that should be added to ignore layer
-        var oppositeEndpointsForUnits = []; // Store opposite endpoints where units should be created
+        var endpointPathRefs = []; // Store {path, endpoint: "start"|"end"} - will read coords AFTER ortho
+        var oppositeEndpointPathRefs = []; // Store opposite endpoint refs for unit placement
+        var endpointsToIgnore = []; // Will be populated AFTER ortho with actual coordinates
 
         addDebug("[CLEANUP] Checking " + bluePaths.length + " blue path(s) for internal anchors within " + ENDPOINT_INTERNAL_THRESHOLD + "pt of endpoints");
 
@@ -12850,17 +12884,19 @@ function setStaticTextColor(control, rgbArray) {
                     if (distToStart <= ENDPOINT_INTERNAL_THRESHOLD) {
                         addDebug("[CLEANUP] Path " + cleanIdx + ": Internal anchor at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "] is " + distToStart.toFixed(1) + "pt from start - REMOVING and marking start endpoint to ignore");
                         cleanPts[intIdx].remove();
-                        endpointsToIgnore.push([startPt[0], startPt[1]]);
+                        // Store PATH REFERENCE instead of coordinates (will read after ortho)
+                        endpointPathRefs.push({ path: cleanPath, endpoint: "start" });
                         // Add the OPPOSITE endpoint (end) for unit placement
-                        oppositeEndpointsForUnits.push([endPt[0], endPt[1]]);
-                        addDebug("[CLEANUP] Path " + cleanIdx + ": Marking opposite endpoint (end) [" + endPt[0].toFixed(1) + "," + endPt[1].toFixed(1) + "] for unit placement");
+                        oppositeEndpointPathRefs.push({ path: cleanPath, endpoint: "end" });
+                        addDebug("[CLEANUP] Path " + cleanIdx + ": Will read endpoint coordinates AFTER orthogonalization");
                     } else if (distToEnd <= ENDPOINT_INTERNAL_THRESHOLD) {
                         addDebug("[CLEANUP] Path " + cleanIdx + ": Internal anchor at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "] is " + distToEnd.toFixed(1) + "pt from end - REMOVING and marking end endpoint to ignore");
                         cleanPts[intIdx].remove();
-                        endpointsToIgnore.push([endPt[0], endPt[1]]);
+                        // Store PATH REFERENCE instead of coordinates (will read after ortho)
+                        endpointPathRefs.push({ path: cleanPath, endpoint: "end" });
                         // Add the OPPOSITE endpoint (start) for unit placement
-                        oppositeEndpointsForUnits.push([startPt[0], startPt[1]]);
-                        addDebug("[CLEANUP] Path " + cleanIdx + ": Marking opposite endpoint (start) [" + startPt[0].toFixed(1) + "," + startPt[1].toFixed(1) + "] for unit placement");
+                        oppositeEndpointPathRefs.push({ path: cleanPath, endpoint: "start" });
+                        addDebug("[CLEANUP] Path " + cleanIdx + ": Will read endpoint coordinates AFTER orthogonalization");
                     }
                 }
             } catch (eClean) {
@@ -12868,46 +12904,13 @@ function setStaticTextColor(control, rgbArray) {
             }
         }
 
-        // PERSIST IGNORE ANCHORS IMMEDIATELY - create physical PathItems on Ignored layer
-        if (endpointsToIgnore.length > 0) {
-            addDebug("[CLEANUP] Persisting " + endpointsToIgnore.length + " endpoint(s) to Ignored layer NOW");
-            var cleanupIgnLayer = null;
-            try {
-                cleanupIgnLayer = doc.layers.getByName("Ignored");
-            } catch (eNoLayer) {
-                addDebug("[CLEANUP] Creating Ignored layer");
-                cleanupIgnLayer = doc.layers.add();
-                cleanupIgnLayer.name = "Ignored";
-            }
-            if (cleanupIgnLayer) {
-                // Unlock and make visible
-                if (cleanupIgnLayer.locked) cleanupIgnLayer.locked = false;
-                if (!cleanupIgnLayer.visible) cleanupIgnLayer.visible = true;
-                // Unlock parents too
-                var pContainer = cleanupIgnLayer.parent;
-                while (pContainer && (pContainer.typename === "Layer" || pContainer.typename === "GroupItem")) {
-                    try { if (pContainer.locked) pContainer.locked = false; } catch (e) { }
-                    try { if (!pContainer.visible) pContainer.visible = true; } catch (e) { }
-                    pContainer = pContainer.parent;
-                }
-                // Create physical PathItems for each endpoint
-                for (var epIdx = 0; epIdx < endpointsToIgnore.length; epIdx++) {
-                    var epPt = endpointsToIgnore[epIdx];
-                    try {
-                        var epIgnAnchor = cleanupIgnLayer.pathItems.add();
-                        epIgnAnchor.setEntirePath([[epPt[0], epPt[1]]]);
-                        epIgnAnchor.filled = false;
-                        epIgnAnchor.stroked = false;
-                        addDebug("[CLEANUP] Created physical ignore anchor at [" + epPt[0].toFixed(1) + "," + epPt[1].toFixed(1) + "]");
-                    } catch (eAdd) {
-                        addDebug("[CLEANUP] ERROR creating ignore anchor: " + eAdd);
-                    }
-                }
-                addDebug("[CLEANUP] Persisted " + endpointsToIgnore.length + " ignore anchor(s) to layer");
-            }
+        // NOTE: DO NOT persist ignore anchors here - paths will be orthogonalized first
+        // The actual coordinates will be read and persisted AFTER orthogonalization
+        if (endpointPathRefs.length > 0) {
+            addDebug("[CLEANUP] Deferred " + endpointPathRefs.length + " endpoint(s) for ignore - will persist AFTER orthogonalization");
         }
-        if (oppositeEndpointsForUnits.length > 0) {
-            addDebug("[CLEANUP] Marked " + oppositeEndpointsForUnits.length + " opposite endpoint(s) for unit placement");
+        if (oppositeEndpointPathRefs.length > 0) {
+            addDebug("[CLEANUP] Deferred " + oppositeEndpointPathRefs.length + " opposite endpoint(s) for unit placement");
         }
 
         // BATCH PROCESSING: Process paths in chunks to prevent UI lockup
@@ -12939,6 +12942,60 @@ function setStaticTextColor(control, rgbArray) {
         }
 
         restoreEndpointConnections(collectEndpointConnections(geometryPaths, CONNECTION_DIST));
+
+        // *** POST-ORTHO: READ ACTUAL ENDPOINT COORDINATES FROM PATH REFERENCES ***
+        // Now that paths are orthogonalized, read the CURRENT endpoint positions
+        if (endpointPathRefs.length > 0) {
+            addDebug("\n=== POST-ORTHO: READING ENDPOINT COORDINATES ===");
+            for (var epRefIdx = 0; epRefIdx < endpointPathRefs.length; epRefIdx++) {
+                var epRef = endpointPathRefs[epRefIdx];
+                try {
+                    var epPath = epRef.path;
+                    var epPts = epPath.pathPoints;
+                    if (epPts && epPts.length > 0) {
+                        var actualCoord;
+                        if (epRef.endpoint === "start") {
+                            actualCoord = [epPts[0].anchor[0], epPts[0].anchor[1]];
+                        } else {
+                            actualCoord = [epPts[epPts.length - 1].anchor[0], epPts[epPts.length - 1].anchor[1]];
+                        }
+                        endpointsToIgnore.push(actualCoord);
+                        addDebug("[POST-ORTHO-IGNORE] Read " + epRef.endpoint + " endpoint: [" + actualCoord[0].toFixed(1) + "," + actualCoord[1].toFixed(1) + "]");
+                    } else {
+                        addDebug("[POST-ORTHO-IGNORE] WARNING: Path has no points, skipping");
+                    }
+                } catch (eReadEp) {
+                    addDebug("[POST-ORTHO-IGNORE] ERROR reading endpoint: " + eReadEp);
+                }
+            }
+            addDebug("[POST-ORTHO-IGNORE] Collected " + endpointsToIgnore.length + " endpoint(s) to ignore (using POST-ortho coordinates)");
+        }
+
+        // Also read opposite endpoints for unit placement
+        var oppositeEndpointsForUnits = [];
+        if (oppositeEndpointPathRefs.length > 0) {
+            addDebug("[POST-ORTHO-UNITS] Reading opposite endpoint coordinates for unit placement");
+            for (var oppRefIdx = 0; oppRefIdx < oppositeEndpointPathRefs.length; oppRefIdx++) {
+                var oppRef = oppositeEndpointPathRefs[oppRefIdx];
+                try {
+                    var oppPath = oppRef.path;
+                    var oppPts = oppPath.pathPoints;
+                    if (oppPts && oppPts.length > 0) {
+                        var oppCoord;
+                        if (oppRef.endpoint === "start") {
+                            oppCoord = [oppPts[0].anchor[0], oppPts[0].anchor[1]];
+                        } else {
+                            oppCoord = [oppPts[oppPts.length - 1].anchor[0], oppPts[oppPts.length - 1].anchor[1]];
+                        }
+                        oppositeEndpointsForUnits.push(oppCoord);
+                        addDebug("[POST-ORTHO-UNITS] Read " + oppRef.endpoint + " endpoint for unit: [" + oppCoord[0].toFixed(1) + "," + oppCoord[1].toFixed(1) + "]");
+                    }
+                } catch (eReadOpp) {
+                    addDebug("[POST-ORTHO-UNITS] ERROR reading opposite endpoint: " + eReadOpp);
+                }
+            }
+            addDebug("[POST-ORTHO-UNITS] Collected " + oppositeEndpointsForUnits.length + " opposite endpoint(s) for unit placement");
+        }
 
         // *** POST-ORTHO CROSSOVER SPLITTING ***
         // Now that paths are orthogonalized, split at crossover points with intersection alignment
