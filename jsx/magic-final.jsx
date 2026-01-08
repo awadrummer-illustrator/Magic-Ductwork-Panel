@@ -2744,6 +2744,7 @@ function setStaticTextColor(control, rgbArray) {
         var SKIP_REGISTER_ROTATION = false; // controls whether square registers are rotated to match ductwork angle
         var ORTHO_IGNORED_ANCHORS = []; // ignored anchors collected early for ortho phase (FR-002)
         var ORTHO_REGISTER_ANCHORS = []; // register positions collected early for ortho phase (skip-final check)
+        var ORTHO_IGNORE_MARKER_PATHS = []; // paths with ignore markers {path, endpoint, ignoreMarkerIndex}
 
         // MDUX_getMetadata and MDUX_setMetadata must be defined early so they're available to all functions in this IIFE
         // Note: Use MDUX_debugLog from panel-bridge.jsx which is always available, NOT addDebug which may have uninitialized dependencies
@@ -9562,6 +9563,7 @@ function setStaticTextColor(control, rgbArray) {
                 // (it T-junctions onto trunk or goes to registers at both ends)
                 if (!firstEndpointConnected && !lastEndpointConnected) {
                     pathIsBranch = true;
+                    addDebug("[BRANCH-DETECT] Path classified as BRANCH (neither endpoint connected). firstConnected=" + firstEndpointConnected + ", lastConnected=" + lastEndpointConnected);
 
                     // For skip-final, we need to know which end is the register end
                     // Check which endpoint T-junctions onto another path (that's the trunk connection)
@@ -9587,6 +9589,7 @@ function setStaticTextColor(control, rgbArray) {
             if (skipFinalBranchOrtho && pathIsBranch && pts.length >= 2) {
                 var registerEndpoint = registerEndIsFirst ? pts[0].anchor : pts[pts.length - 1].anchor;
                 var IGNORE_CHECK_DIST = 10; // tolerance for ignore anchor check
+                addDebug("[SKIP-FINAL-CHECK] Path is branch, checking register endpoint at [" + registerEndpoint[0].toFixed(1) + "," + registerEndpoint[1].toFixed(1) + "], registerEndIsFirst=" + registerEndIsFirst);
                 var REGISTER_CHECK_DIST = 25; // tolerance for register proximity check
 
                 // First check pre-collected ignore anchors
@@ -9637,6 +9640,7 @@ function setStaticTextColor(control, rgbArray) {
                         break;
                     }
                 }
+                addDebug("[SKIP-FINAL-CHECK] Results: registerEndpointIgnored=" + registerEndpointIgnored + ", registerEndpointHasRegister=" + registerEndpointHasRegister + ", ORTHO_REGISTER_ANCHORS.length=" + ORTHO_REGISTER_ANCHORS.length);
             }
 
             // PERFORMANCE: Removed all addDebug calls from this hot function
@@ -9654,13 +9658,16 @@ function setStaticTextColor(control, rgbArray) {
                         // FR-002: If register endpoint is ignored, DON'T skip ortho
                         // (the final segment goes to an ignored point, not a ductwork part)
                         if (registerEndpointIgnored) {
+                            addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment but endpoint is IGNORED - WILL ortho");
                             return true; // Ortho this segment normally
                         }
                         // If no register exists at this endpoint, DON'T skip ortho
                         // (trunk/path without register at end should be orthogonalized)
                         if (!registerEndpointHasRegister) {
+                            addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment but NO REGISTER at endpoint - WILL ortho");
                             return true; // Ortho this segment normally
                         }
+                        addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment with REGISTER - SKIPPING ortho");
                         return false;
                     }
                     return true;
@@ -9736,7 +9743,94 @@ function setStaticTextColor(control, rgbArray) {
                         var angle = Math.atan2(dy, dx) * (180 / Math.PI);
                         var isSteep = isSteepAngle(angle);
                         addDebug("[Orthogonalize Seg " + i + "] Angle: " + angle.toFixed(2) + "°, dx: " + dx.toFixed(2) + ", dy: " + dy.toFixed(2) + ", isSteep: " + isSteep);
-                        if (!isSteep) {
+
+                        // FIRST: Check if this segment connects an ignore marker to an endpoint
+                        // If so, use the adjacent segment's direction instead of the segment's own angle
+                        var ignoreMarkerInfo = null;
+                        for (var imIdx = 0; imIdx < ORTHO_IGNORE_MARKER_PATHS.length; imIdx++) {
+                            if (ORTHO_IGNORE_MARKER_PATHS[imIdx].path === pathItem) {
+                                ignoreMarkerInfo = ORTHO_IGNORE_MARKER_PATHS[imIdx];
+                                break;
+                            }
+                        }
+
+                        var isIgnoreMarkerSegment = false;
+                        var useAdjacentDirection = null; // "prev" or "next"
+                        if (ignoreMarkerInfo) {
+                            var markerIdx = ignoreMarkerInfo.ignoreMarkerIndex;
+                            if (ignoreMarkerInfo.endpoint === "end") {
+                                // Ignore marker is at markerIdx, endpoint is at pts.length-1
+                                // The segment from marker to endpoint is segment index markerIdx
+                                if (i === markerIdx) {
+                                    isIgnoreMarkerSegment = true;
+                                    useAdjacentDirection = "prev";
+                                }
+                            } else if (ignoreMarkerInfo.endpoint === "start") {
+                                // Ignore marker is at markerIdx, endpoint is at 0
+                                // The segment from endpoint to marker is segment index 0
+                                if (i === 0) {
+                                    isIgnoreMarkerSegment = true;
+                                    useAdjacentDirection = "next";
+                                }
+                            }
+                        }
+
+                        if (isIgnoreMarkerSegment && useAdjacentDirection === "prev" && i > 0) {
+                            // Segment connects ignore marker to END - use previous segment direction
+                            var prevPt = pts[i - 1];
+                            var prevDx = curr.anchor[0] - prevPt.anchor[0];
+                            var prevDy = curr.anchor[1] - prevPt.anchor[1];
+                            addDebug("[Orthogonalize Seg " + i + "] Ignore marker segment (to end) - using prev segment direction");
+
+                            var newX = next.anchor[0];
+                            var newY = next.anchor[1];
+                            if (Math.abs(prevDx) > Math.abs(prevDy)) {
+                                // Previous segment was horizontal, extend horizontally
+                                newY = curr.anchor[1];
+                                addDebug("[Orthogonalize Seg " + i + "] Extending horizontal from prev (newY = " + newY.toFixed(2) + ")");
+                            } else {
+                                // Previous segment was vertical, extend vertically
+                                newX = curr.anchor[0];
+                                addDebug("[Orthogonalize Seg " + i + "] Extending vertical from prev (newX = " + newX.toFixed(2) + ")");
+                            }
+                            var isAlmostEqual = almostEqualPoints([newX, newY], next.anchor);
+                            if (!isAlmostEqual) {
+                                next.anchor = [newX, newY];
+                                changed = true;
+                                addDebug("[Orthogonalize Seg " + i + "] CHANGED anchor (ignore marker segment)");
+                            }
+                            curr.rightDirection = curr.anchor.slice();
+                            next.leftDirection = next.anchor.slice();
+                            next.rightDirection = next.anchor.slice();
+                        } else if (isIgnoreMarkerSegment && useAdjacentDirection === "next" && pts.length > 2) {
+                            // Segment connects START to ignore marker - use next segment direction
+                            var nextNext = pts[2];
+                            var nextDx = nextNext.anchor[0] - next.anchor[0];
+                            var nextDy = nextNext.anchor[1] - next.anchor[1];
+                            addDebug("[Orthogonalize Seg " + i + "] Ignore marker segment (from start) - using next segment direction");
+
+                            var newX = curr.anchor[0];
+                            var newY = curr.anchor[1];
+                            if (Math.abs(nextDx) > Math.abs(nextDy)) {
+                                // Next segment is horizontal, move curr to match next's Y
+                                newY = next.anchor[1];
+                                addDebug("[Orthogonalize Seg " + i + "] Aligning to horizontal from next (newY = " + newY.toFixed(2) + ")");
+                            } else {
+                                // Next segment is vertical, move curr to match next's X
+                                newX = next.anchor[0];
+                                addDebug("[Orthogonalize Seg " + i + "] Aligning to vertical from next (newX = " + newX.toFixed(2) + ")");
+                            }
+                            var isAlmostEqual = almostEqualPoints([newX, newY], curr.anchor);
+                            if (!isAlmostEqual) {
+                                curr.anchor = [newX, newY];
+                                changed = true;
+                                addDebug("[Orthogonalize Seg " + i + "] CHANGED anchor (ignore marker segment)");
+                            }
+                            curr.leftDirection = curr.anchor.slice();
+                            curr.rightDirection = curr.anchor.slice();
+                            next.leftDirection = next.anchor.slice();
+                        } else if (!isSteep) {
+                            // Normal non-steep segment - orthogonalize based on segment's own angle
                             var newX = next.anchor[0];
                             var newY = next.anchor[1];
                             if (Math.abs(dx) > Math.abs(dy)) {
@@ -9763,6 +9857,7 @@ function setStaticTextColor(control, rgbArray) {
                             curr.leftDirection = curr.anchor.slice();
                             curr.rightDirection = curr.anchor.slice();
                         } else {
+                            // Steep angle - skip (ignore marker segments already handled above)
                             addDebug("[Orthogonalize Seg " + i + "] SKIPPED (steep angle)");
                         }
                     }
@@ -9826,7 +9921,7 @@ function setStaticTextColor(control, rgbArray) {
             var seen = {};
             var ANGLE_THRESHOLD_DEG = 20;
             var MIN_DIST = 0.5; // Minimum distance - paths closer than this are likely duplicates
-            var T_JUNCTION_DIST = 25; // Larger tolerance for T-junction detection (point-to-segment)
+            var T_JUNCTION_DIST = 3; // Tolerance for T-junction detection (point-to-segment) - real branches are drawn very close
             var PATH_ANCHOR_TOLERANCE = 10; // Distance threshold for path vertex at intersection check
             var DEBUG_CONNECTIONS = $.global.MDUX_DEBUG && $.global.MDUX_DEBUG.CONNECTIONS; // References global config
             ignoredAnchorsOut = ignoredAnchorsOut || []; // Array to collect intersection points to ignore
@@ -10033,8 +10128,14 @@ function setStaticTextColor(control, rgbArray) {
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist < bestTJDist) { bestTJDist = dist; bestTJt = res.t; }
                                 if (dist >= MIN_DIST && dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
+                                    // Skip T-junctions at exactly 4.25pt - this is the carve-out gap distance
+                                    // and almost certainly indicates a false connection to a carved path endpoint
+                                    var CARVE_GAP_DIST = 4.25;
+                                    var CARVE_GAP_TOL = 0.5;
+                                    if (Math.abs(dist - CARVE_GAP_DIST) < CARVE_GAP_TOL) {
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction SKIPPED (carve-gap distance): path " + i + " point -> path " + j + " segment, dist=" + dist.toFixed(2));
                                     // Check if this T-junction point is at a crossover (intersection without vertex)
-                                    if (isNearCrossover(res.pt, ptsA, ptsB, T_JUNCTION_DIST)) {
+                                    } else if (isNearCrossover(res.pt, ptsA, ptsB, T_JUNCTION_DIST)) {
                                         if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction SKIPPED (crossover): path " + i + " point -> path " + j + " segment, dist=" + dist.toFixed(2));
                                     } else {
                                         connected = true;
@@ -10055,8 +10156,13 @@ function setStaticTextColor(control, rgbArray) {
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist < bestTJDist) { bestTJDist = dist; bestTJt = res.t; }
                                 if (dist >= MIN_DIST && dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
+                                    // Skip T-junctions at exactly 4.25pt - this is the carve-out gap distance
+                                    var CARVE_GAP_DIST2 = 4.25;
+                                    var CARVE_GAP_TOL2 = 0.5;
+                                    if (Math.abs(dist - CARVE_GAP_DIST2) < CARVE_GAP_TOL2) {
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction SKIPPED (carve-gap distance): path " + j + " point -> path " + i + " segment, dist=" + dist.toFixed(2));
                                     // Check if this T-junction point is at a crossover (intersection without vertex)
-                                    if (isNearCrossover(res.pt, ptsA, ptsB, T_JUNCTION_DIST)) {
+                                    } else if (isNearCrossover(res.pt, ptsA, ptsB, T_JUNCTION_DIST)) {
                                         if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction SKIPPED (crossover): path " + j + " point -> path " + i + " segment, dist=" + dist.toFixed(2));
                                     } else {
                                         connected = true;
@@ -11106,6 +11212,59 @@ function setStaticTextColor(control, rgbArray) {
             }
 
             return existingAnchors;
+        }
+
+        // --- NEW: GET ONLY PLACED ITEM POSITIONS (NOT ANCHOR PATHS) ---
+        // Used for skip-final-ortho check - only actual placed components should trigger skip
+        function getExistingPlacedItemPositions(layerNames) {
+            var placedPositions = [];
+
+            function collectPlacedItems(container) {
+                try {
+                    // ONLY collect center positions from PlacedItems (actual components)
+                    for (var pi = 0; pi < container.placedItems.length; pi++) {
+                        try {
+                            var placed = container.placedItems[pi];
+                            var gb = placed.geometricBounds;
+                            var centerX = (gb[0] + gb[2]) / 2;
+                            var centerY = (gb[1] + gb[3]) / 2;
+                            placedPositions.push([centerX, centerY]);
+                        } catch (e) {
+                            // Skip this placed item
+                        }
+                    }
+
+                    for (var m = 0; m < container.groupItems.length; m++) {
+                        try {
+                            collectPlacedItems(container.groupItems[m]);
+                        } catch (e) {
+                            // Skip this group
+                        }
+                    }
+
+                    if (container.layers) {
+                        for (var s = 0; s < container.layers.length; s++) {
+                            try {
+                                collectPlacedItems(container.layers[s]);
+                            } catch (e) {
+                                // Skip this sublayer
+                            }
+                        }
+                    }
+                } catch (e) {
+                    // Skip this container entirely
+                }
+            }
+
+            for (var layerIdx = 0; layerIdx < layerNames.length; layerIdx++) {
+                var layerName = layerNames[layerIdx];
+                var targetLayer = null;
+                try { targetLayer = findLayerByNameDeep(layerName); } catch (eFind) { targetLayer = null; }
+                if (!targetLayer) continue;
+                collectPlacedItems(targetLayer);
+            }
+
+            return placedPositions;
         }
 
         // --- NEW: CHECK IF POINT OVERLAPS WITH EXISTING ANCHORS ---
@@ -12380,14 +12539,17 @@ function setStaticTextColor(control, rgbArray) {
             ORTHO_IGNORED_ANCHORS = [];
         }
 
-        // Collect register positions EARLY for ortho phase
-        // This allows skip-final-ortho to check if endpoint actually has a register
+        // Collect ONLY placed register items EARLY for ortho phase
+        // This allows skip-final-ortho to check if endpoint actually has a placed register component
+        // NOTE: We use getExistingPlacedItemPositions (not getExistingAnchorPoints) to ONLY detect
+        // actual placed components, NOT anchor paths. Anchor paths that will receive ignore markers
+        // should NOT trigger skip-final-ortho.
         try {
-            ORTHO_REGISTER_ANCHORS = getExistingAnchorPoints([
+            ORTHO_REGISTER_ANCHORS = getExistingPlacedItemPositions([
                 "Square Registers", "Rectangular Registers", "Circular Registers", "Exhaust Registers"
             ]);
             if (ORTHO_REGISTER_ANCHORS.length > 0) {
-                addDebug("[ORTHO-REGISTERS] Collected " + ORTHO_REGISTER_ANCHORS.length + " register position(s) for ortho phase");
+                addDebug("[ORTHO-REGISTERS] Collected " + ORTHO_REGISTER_ANCHORS.length + " placed register component(s) for ortho phase");
             }
         } catch (eOrthoRegs) {
             ORTHO_REGISTER_ANCHORS = [];
@@ -12591,6 +12753,76 @@ function setStaticTextColor(control, rgbArray) {
             }
         } catch (eFR003) {
             addDebug("[FR-003] Error in intersection snap: " + eFR003);
+        }
+
+        // PRE-STEP: Release any existing compound paths in ductwork layers
+        // This ensures we work with clean individual paths and avoids issues with
+        // persistent sibling detection incorrectly matching paths from different compounds
+        try {
+            addDebug("\n=== RELEASING EXISTING COMPOUND PATHS ===");
+            var ductworkLayerNamesForRelease = [
+                "Blue Ductwork", "Green Ductwork", "Orange Ductwork", "Light Orange Ductwork"
+            ];
+            var compoundsReleased = 0;
+
+            // Get selection bounds for filtering
+            var releaseBounds = computeItemsBounds(originalSelectionItems);
+
+            for (var relLayerIdx = 0; relLayerIdx < ductworkLayerNamesForRelease.length; relLayerIdx++) {
+                var relLayerName = ductworkLayerNamesForRelease[relLayerIdx];
+                var relLayer = null;
+                try { relLayer = findLayerByNameDeep(relLayerName); } catch (e) { continue; }
+                if (!relLayer) continue;
+
+                // Release compounds in this layer that overlap with selection
+                for (var relCpIdx = relLayer.compoundPathItems.length - 1; relCpIdx >= 0; relCpIdx--) {
+                    try {
+                        var relCompound = relLayer.compoundPathItems[relCpIdx];
+                        if (!relCompound) continue;
+
+                        var cpBounds = null;
+                        try { cpBounds = relCompound.geometricBounds; } catch (e) { continue; }
+                        if (!cpBounds || cpBounds.length < 4) continue;
+
+                        // Only release if it overlaps with selection (or if no bounds, release all)
+                        if (!releaseBounds || boundsOverlap(cpBounds, releaseBounds)) {
+                            relCompound.selected = true;
+                            app.executeMenuCommand("releasePath");
+                            compoundsReleased++;
+                        }
+                    } catch (eRelCp) { }
+                }
+            }
+
+            if (compoundsReleased > 0) {
+                addDebug("[COMPOUND-RELEASE] Released " + compoundsReleased + " compound path(s) before processing");
+                // Re-collect paths from ductwork layers after release since structure changed
+                var newAllPaths = [];
+                for (var relLayerIdx2 = 0; relLayerIdx2 < ductworkLayerNamesForRelease.length; relLayerIdx2++) {
+                    var relLayerName2 = ductworkLayerNamesForRelease[relLayerIdx2];
+                    var relLayer2 = null;
+                    try { relLayer2 = findLayerByNameDeep(relLayerName2); } catch (e) { continue; }
+                    if (!relLayer2) continue;
+
+                    // Collect all open paths from this layer that are within selection bounds
+                    for (var relPathIdx = 0; relPathIdx < relLayer2.pathItems.length; relPathIdx++) {
+                        try {
+                            var relPath = relLayer2.pathItems[relPathIdx];
+                            if (relPath && !relPath.closed) {
+                                var pathBounds = null;
+                                try { pathBounds = relPath.geometricBounds; } catch (e) { continue; }
+                                if (pathBounds && (!releaseBounds || boundsOverlap(pathBounds, releaseBounds))) {
+                                    newAllPaths.push(relPath);
+                                }
+                            }
+                        } catch (e) { }
+                    }
+                }
+                allPaths = newAllPaths;
+                addDebug("[COMPOUND-RELEASE] Re-collected " + allPaths.length + " path(s) after release");
+            }
+        } catch (ePreRelease) {
+            addDebug("[COMPOUND-RELEASE] Error: " + ePreRelease);
         }
 
         // STEP 1: Process selected paths (snap, orthogonalize)
@@ -12882,20 +13114,24 @@ function setStaticTextColor(control, rgbArray) {
                     addDebug("[CLEANUP] Path " + cleanIdx + " internal #" + intIdx + " at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "]: distToStart=" + distToStart.toFixed(1) + "pt, distToEnd=" + distToEnd.toFixed(1) + "pt");
 
                     if (distToStart <= ENDPOINT_INTERNAL_THRESHOLD) {
-                        addDebug("[CLEANUP] Path " + cleanIdx + ": Internal anchor at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "] is " + distToStart.toFixed(1) + "pt from start - REMOVING and marking start endpoint to ignore");
-                        cleanPts[intIdx].remove();
+                        addDebug("[CLEANUP] Path " + cleanIdx + ": Internal anchor at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "] is " + distToStart.toFixed(1) + "pt from start - PRESERVING anchor, marking start endpoint to ignore");
+                        // NOTE: We no longer remove internal anchors - they survive for reruns
                         // Store PATH REFERENCE instead of coordinates (will read after ortho)
                         endpointPathRefs.push({ path: cleanPath, endpoint: "start" });
                         // Add the OPPOSITE endpoint (end) for unit placement
                         oppositeEndpointPathRefs.push({ path: cleanPath, endpoint: "end" });
+                        // Store for orthogonalization - ignore marker is at intIdx, endpoint is at index 0
+                        ORTHO_IGNORE_MARKER_PATHS.push({ path: cleanPath, endpoint: "start", ignoreMarkerIndex: intIdx });
                         addDebug("[CLEANUP] Path " + cleanIdx + ": Will read endpoint coordinates AFTER orthogonalization");
                     } else if (distToEnd <= ENDPOINT_INTERNAL_THRESHOLD) {
-                        addDebug("[CLEANUP] Path " + cleanIdx + ": Internal anchor at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "] is " + distToEnd.toFixed(1) + "pt from end - REMOVING and marking end endpoint to ignore");
-                        cleanPts[intIdx].remove();
+                        addDebug("[CLEANUP] Path " + cleanIdx + ": Internal anchor at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "] is " + distToEnd.toFixed(1) + "pt from end - PRESERVING anchor, marking end endpoint to ignore");
+                        // NOTE: We no longer remove internal anchors - they survive for reruns
                         // Store PATH REFERENCE instead of coordinates (will read after ortho)
                         endpointPathRefs.push({ path: cleanPath, endpoint: "end" });
                         // Add the OPPOSITE endpoint (start) for unit placement
                         oppositeEndpointPathRefs.push({ path: cleanPath, endpoint: "start" });
+                        // Store for orthogonalization - ignore marker is at intIdx, endpoint is at last index
+                        ORTHO_IGNORE_MARKER_PATHS.push({ path: cleanPath, endpoint: "end", ignoreMarkerIndex: intIdx });
                         addDebug("[CLEANUP] Path " + cleanIdx + ": Will read endpoint coordinates AFTER orthogonalization");
                     }
                 }
@@ -14080,6 +14316,9 @@ function setStaticTextColor(control, rgbArray) {
         // (carved halves should not connect to the crossing path that caused the carve)
         var CARVE_BLOCKED_CONNECTIONS = [];
 
+        // Track split path pairs that SHOULD be connected (siblings from same carve-out)
+        var AUTO_CARVE_SPLIT_PAIRS = [];
+
         // Helper function to save deleted segments to a "Deleted Segments" layer for safety/recovery
         function saveDeletedSegment(startPt, endPt, sourceLayer) {
             try {
@@ -14427,7 +14666,7 @@ function setStaticTextColor(control, rgbArray) {
                     var cutBefore = [intPt[0] - AUTO_CARVE_HALF_WIDTH * cDirX, intPt[1] - AUTO_CARVE_HALF_WIDTH * cDirY];
                     var cutAfter = [intPt[0] + AUTO_CARVE_HALF_WIDTH * cDirX, intPt[1] + AUTO_CARVE_HALF_WIDTH * cDirY];
 
-                    addDebug("[AUTO-CARVE] Creating carve-out at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - gap from [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "] to [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
+                    addDebug("[AUTO-CARVE] Creating carve-out at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - gap from [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "] to [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "] (" + (autoInt.isSelfIntersection ? "SELF-INTERSECTION" : "CROSS-PATH") + ")");
 
                     // Save the deleted segment for recovery/audit purposes
                     saveDeletedSegment(cutBefore, cutAfter, blueSourceLayer);
@@ -14528,20 +14767,65 @@ function setStaticTextColor(control, rgbArray) {
 
                     // CRITICAL: Track that these carved halves should NOT connect via T-junction
                     // to the crossing path that caused the carve (they're crossovers, not connections)
+                    // NOTE: For self-intersections, otherPath is the same as pathToCarve, so we skip blocking
                     var crossingPath = autoInt.otherPath;
-                    if (crossingPath) {
+                    if (crossingPath && !autoInt.isSelfIntersection) {
                         try {
+                            // Store endpoint coordinates for reliable comparison later
+                            // (path references may not compare correctly in ExtendScript)
+                            var crossPts = crossingPath.pathPoints;
+                            var crossEndpoints = null;
+                            if (crossPts && crossPts.length >= 2) {
+                                crossEndpoints = {
+                                    start: [crossPts[0].anchor[0], crossPts[0].anchor[1]],
+                                    end: [crossPts[crossPts.length - 1].anchor[0], crossPts[crossPts.length - 1].anchor[1]]
+                                };
+                                addDebug("[AUTO-CARVE-BLOCK] crossingPath endpoints: [" + crossEndpoints.start[0].toFixed(1) + "," + crossEndpoints.start[1].toFixed(1) + "] to [" + crossEndpoints.end[0].toFixed(1) + "," + crossEndpoints.end[1].toFixed(1) + "]");
+                                addDebug("[AUTO-CARVE-BLOCK] pathToCarve endpoints: [" + autoInt.pathToCarve.pathPoints[0].anchor[0].toFixed(1) + "," + autoInt.pathToCarve.pathPoints[0].anchor[1].toFixed(1) + "] to [" + autoInt.pathToCarve.pathPoints[autoInt.pathToCarve.pathPoints.length-1].anchor[0].toFixed(1) + "," + autoInt.pathToCarve.pathPoints[autoInt.pathToCarve.pathPoints.length-1].anchor[1].toFixed(1) + "]");
+                            }
+                            var firstPts = autoFirstHalf.pathPoints;
+                            var firstEndpoints = null;
+                            if (firstPts && firstPts.length >= 2) {
+                                firstEndpoints = {
+                                    start: [firstPts[0].anchor[0], firstPts[0].anchor[1]],
+                                    end: [firstPts[firstPts.length - 1].anchor[0], firstPts[firstPts.length - 1].anchor[1]]
+                                };
+                            }
+                            var secondPts = autoSecondHalf.pathPoints;
+                            var secondEndpoints = null;
+                            if (secondPts && secondPts.length >= 2) {
+                                secondEndpoints = {
+                                    start: [secondPts[0].anchor[0], secondPts[0].anchor[1]],
+                                    end: [secondPts[secondPts.length - 1].anchor[0], secondPts[secondPts.length - 1].anchor[1]]
+                                };
+                            }
                             CARVE_BLOCKED_CONNECTIONS.push({
                                 carvedPath: autoFirstHalf,
-                                crossingPath: crossingPath
+                                carvedEndpoints: firstEndpoints,
+                                crossingPath: crossingPath,
+                                crossEndpoints: crossEndpoints
                             });
                             CARVE_BLOCKED_CONNECTIONS.push({
                                 carvedPath: autoSecondHalf,
-                                crossingPath: crossingPath
+                                carvedEndpoints: secondEndpoints,
+                                crossingPath: crossingPath,
+                                crossEndpoints: crossEndpoints
                             });
                             addDebug("[AUTO-CARVE] Blocked T-junction connections between carved halves and crossing path");
                         } catch (eBlock) { }
+                    } else if (autoInt.isSelfIntersection) {
+                        addDebug("[AUTO-CARVE] Skipping T-junction blocking for self-intersection (otherPath = same path)");
                     }
+
+                    // Track split pair for FORCED connection during compounding
+                    // (siblings must stay together in the same compound path)
+                    try {
+                        AUTO_CARVE_SPLIT_PAIRS.push({
+                            pathA: autoFirstHalf,
+                            pathB: autoSecondHalf
+                        });
+                        addDebug("[AUTO-CARVE] Tracked split pair for forced sibling connection");
+                    } catch (eSplitPair) { }
 
                     // Create ignore anchors at cut points
                     try {
@@ -14962,6 +15246,35 @@ function setStaticTextColor(control, rgbArray) {
         updateProgress("Compounding paths...");
         addDebug("\n=== COMPOUNDING CONNECTED PATHS ===");
 
+        // Helper function to compare paths by endpoint coordinates (instead of object reference)
+        // ExtendScript may return different wrapper objects for the same underlying path
+        // Only compares ENDPOINTS, not internal point count (paths may have different point counts)
+        function pathsAreSameByEndpoints(pathA, pathB) {
+            if (!pathA || !pathB) return false;
+            try {
+                var ptsA = pathA.pathPoints;
+                var ptsB = pathB.pathPoints;
+                if (!ptsA || !ptsB) return false;
+                if (ptsA.length < 2 || ptsB.length < 2) return false;
+
+                // Compare first and last endpoints with small tolerance
+                var tol = 0.5; // Half a point tolerance
+                var a0 = ptsA[0].anchor;
+                var aL = ptsA[ptsA.length - 1].anchor;
+                var b0 = ptsB[0].anchor;
+                var bL = ptsB[ptsB.length - 1].anchor;
+
+                // Check if endpoints match (in either direction)
+                var match1 = (Math.abs(a0[0] - b0[0]) < tol && Math.abs(a0[1] - b0[1]) < tol &&
+                              Math.abs(aL[0] - bL[0]) < tol && Math.abs(aL[1] - bL[1]) < tol);
+                var match2 = (Math.abs(a0[0] - bL[0]) < tol && Math.abs(a0[1] - bL[1]) < tol &&
+                              Math.abs(aL[0] - b0[0]) < tol && Math.abs(aL[1] - b0[1]) < tol);
+                return match1 || match2;
+            } catch (e) {
+                return false;
+            }
+        }
+
         var baseCompoundLayers = ["Green Ductwork", "Blue Ductwork", "Orange Ductwork", "Light Orange Ductwork"];
         var layersToProcess = [];
         for (var baseIdx = 0; baseIdx < baseCompoundLayers.length; baseIdx++) {
@@ -14997,6 +15310,24 @@ function setStaticTextColor(control, rgbArray) {
             // Build list of forced connections for paths in the same carve-out compound
             // This ensures carved halves stay together when compounded with other paths
             var carveOutForcedConnections = [];
+
+            // FIRST: Add forced connections from AUTO_CARVE_SPLIT_PAIRS (direct tracking)
+            // This is the most reliable method - uses actual path references stored at carve time
+            if (typeof AUTO_CARVE_SPLIT_PAIRS !== 'undefined' && AUTO_CARVE_SPLIT_PAIRS.length > 0) {
+                for (var acspIdx = 0; acspIdx < AUTO_CARVE_SPLIT_PAIRS.length; acspIdx++) {
+                    try {
+                        var acsp = AUTO_CARVE_SPLIT_PAIRS[acspIdx];
+                        if (acsp && acsp.pathA && acsp.pathB) {
+                            carveOutForcedConnections.push([acsp.pathA, acsp.pathB]);
+                            addDebug("[COMPOUND] Forced connection from AUTO_CARVE_SPLIT_PAIRS: pathA <-> pathB");
+                        }
+                    } catch (eAcsp) { }
+                }
+                if (carveOutForcedConnections.length > 0) {
+                    addDebug("[COMPOUND] Added " + carveOutForcedConnections.length + " forced connections from AUTO_CARVE_SPLIT_PAIRS");
+                }
+            }
+
             if (typeof CARVE_OUT_COMPOUNDS !== 'undefined' && CARVE_OUT_COMPOUNDS.length > 0) {
                 for (var cocIdx = 0; cocIdx < CARVE_OUT_COMPOUNDS.length; cocIdx++) {
                     try {
@@ -15433,18 +15764,65 @@ function setStaticTextColor(control, rgbArray) {
 
                             // ALSO check against CARVE_BLOCKED_CONNECTIONS (AUTO-CARVE blocked pairs)
                             // This blocks T-junction connections between carved halves and crossing paths
+                            // Use stored endpoint coordinates for reliable comparison
                             if (!isCrossoverConnection && typeof CARVE_BLOCKED_CONNECTIONS !== 'undefined' && CARVE_BLOCKED_CONNECTIONS.length > 0) {
+                                addDebug("[CARVE-BLOCK-CHECK] Checking connection against " + CARVE_BLOCKED_CONNECTIONS.length + " blocked pairs");
+
+                                // Helper to compare path endpoints with stored coordinates
+                                function pathMatchesStoredEndpoints(path, storedEndpoints) {
+                                    if (!path || !storedEndpoints) return false;
+                                    try {
+                                        var pts = path.pathPoints;
+                                        if (!pts || pts.length < 2) return false;
+                                        var tol = 1.0; // 1pt tolerance
+                                        var p0 = pts[0].anchor;
+                                        var pL = pts[pts.length - 1].anchor;
+                                        var s0 = storedEndpoints.start;
+                                        var sL = storedEndpoints.end;
+                                        // Check forward match
+                                        var fwd = (Math.abs(p0[0] - s0[0]) < tol && Math.abs(p0[1] - s0[1]) < tol &&
+                                                   Math.abs(pL[0] - sL[0]) < tol && Math.abs(pL[1] - sL[1]) < tol);
+                                        // Check reverse match
+                                        var rev = (Math.abs(p0[0] - sL[0]) < tol && Math.abs(p0[1] - sL[1]) < tol &&
+                                                   Math.abs(pL[0] - s0[0]) < tol && Math.abs(pL[1] - s0[1]) < tol);
+                                        return fwd || rev;
+                                    } catch (e) { return false; }
+                                }
+
+                                // Debug: log endpoints of connPathA and connPathB
+                                try {
+                                    var dbgPtsA = connPathA.pathPoints;
+                                    var dbgPtsB = connPathB.pathPoints;
+                                    addDebug("[CARVE-BLOCK-CHECK] connPathA endpoints: [" + dbgPtsA[0].anchor[0].toFixed(1) + "," + dbgPtsA[0].anchor[1].toFixed(1) + "] to [" + dbgPtsA[dbgPtsA.length-1].anchor[0].toFixed(1) + "," + dbgPtsA[dbgPtsA.length-1].anchor[1].toFixed(1) + "]");
+                                    addDebug("[CARVE-BLOCK-CHECK] connPathB endpoints: [" + dbgPtsB[0].anchor[0].toFixed(1) + "," + dbgPtsB[0].anchor[1].toFixed(1) + "] to [" + dbgPtsB[dbgPtsB.length-1].anchor[0].toFixed(1) + "," + dbgPtsB[dbgPtsB.length-1].anchor[1].toFixed(1) + "]");
+                                } catch (eDbg) {}
                                 for (var cbcIdx = 0; cbcIdx < CARVE_BLOCKED_CONNECTIONS.length; cbcIdx++) {
                                     try {
                                         var cbc = CARVE_BLOCKED_CONNECTIONS[cbcIdx];
-                                        if (!cbc || !cbc.carvedPath || !cbc.crossingPath) continue;
-                                        if ((connPathA === cbc.carvedPath && connPathB === cbc.crossingPath) ||
-                                            (connPathB === cbc.carvedPath && connPathA === cbc.crossingPath)) {
+                                        if (!cbc) continue;
+                                        // Debug: log stored endpoint coordinates
+                                        try {
+                                            if (cbc.carvedEndpoints) {
+                                                addDebug("[CARVE-BLOCK-CHECK] cbc[" + cbcIdx + "] stored carvedEndpoints: [" + cbc.carvedEndpoints.start[0].toFixed(1) + "," + cbc.carvedEndpoints.start[1].toFixed(1) + "] to [" + cbc.carvedEndpoints.end[0].toFixed(1) + "," + cbc.carvedEndpoints.end[1].toFixed(1) + "]");
+                                            }
+                                            if (cbc.crossEndpoints) {
+                                                addDebug("[CARVE-BLOCK-CHECK] cbc[" + cbcIdx + "] stored crossEndpoints: [" + cbc.crossEndpoints.start[0].toFixed(1) + "," + cbc.crossEndpoints.start[1].toFixed(1) + "] to [" + cbc.crossEndpoints.end[0].toFixed(1) + "," + cbc.crossEndpoints.end[1].toFixed(1) + "]");
+                                            }
+                                        } catch (eDbg2) { }
+                                        // Use stored coordinates for comparison (more reliable than path references)
+                                        var carvedMatchA = cbc.carvedEndpoints ? pathMatchesStoredEndpoints(connPathA, cbc.carvedEndpoints) : false;
+                                        var carvedMatchB = cbc.carvedEndpoints ? pathMatchesStoredEndpoints(connPathB, cbc.carvedEndpoints) : false;
+                                        var crossMatchA = cbc.crossEndpoints ? pathMatchesStoredEndpoints(connPathA, cbc.crossEndpoints) : false;
+                                        var crossMatchB = cbc.crossEndpoints ? pathMatchesStoredEndpoints(connPathB, cbc.crossEndpoints) : false;
+                                        addDebug("[CARVE-BLOCK-CHECK] cbc[" + cbcIdx + "]: carvedMatchA=" + carvedMatchA + ", carvedMatchB=" + carvedMatchB + ", crossMatchA=" + crossMatchA + ", crossMatchB=" + crossMatchB);
+                                        if ((carvedMatchA && crossMatchB) || (carvedMatchB && crossMatchA)) {
                                             isCrossoverConnection = true;
-                                            addDebug("[XOVER-FILTER] Blocking carve-out crossover connection");
+                                            addDebug("[XOVER-FILTER] Blocking carve-out crossover connection (coordinate match)");
                                             break;
                                         }
-                                    } catch (eCbc) { }
+                                    } catch (eCbc) {
+                                        addDebug("[CARVE-BLOCK-CHECK] Error: " + eCbc);
+                                    }
                                 }
                             }
 
@@ -15992,9 +16370,32 @@ function setStaticTextColor(control, rgbArray) {
                         drawFrame_local(doc, frameLayer, doc.artboards[0]);
                     }
 
-                    // Pass SELECTED_PATHS to enable proximity filtering for register/unit/thermostat placement
-                    // SELECTED_PATHS is defined in the outer scope and accessible via closure
-                    var selectedPathsToUse = (typeof SELECTED_PATHS !== 'undefined' && SELECTED_PATHS && SELECTED_PATHS.length > 0) ? SELECTED_PATHS : null;
+                    // Re-collect selected paths from ductwork layers RIGHT BEFORE component placement
+                    // This ensures paths created by carve-out splits are included in proximity filter
+                    var selectedPathsToUse = [];
+                    var ductworkLayerNamesForPlacement = ["Blue Ductwork", "Green Ductwork", "Orange Ductwork", "Light Orange Ductwork"];
+                    for (var dpLayerIdx = 0; dpLayerIdx < ductworkLayerNamesForPlacement.length; dpLayerIdx++) {
+                        try {
+                            var dpLayer = doc.layers.getByName(ductworkLayerNamesForPlacement[dpLayerIdx]);
+                            if (!dpLayer) continue;
+                            // Collect selected PathItems
+                            for (var dpPathIdx = 0; dpPathIdx < dpLayer.pathItems.length; dpPathIdx++) {
+                                var dpPath = dpLayer.pathItems[dpPathIdx];
+                                if (dpPath.selected && !dpPath.guides && !dpPath.clipping) {
+                                    selectedPathsToUse.push(dpPath);
+                                }
+                            }
+                            // Collect selected CompoundPathItems
+                            for (var dpCpIdx = 0; dpCpIdx < dpLayer.compoundPathItems.length; dpCpIdx++) {
+                                var dpCp = dpLayer.compoundPathItems[dpCpIdx];
+                                if (dpCp.selected) {
+                                    selectedPathsToUse.push(dpCp);
+                                }
+                            }
+                        } catch (eDpLayer) { }
+                    }
+                    addDebug("[COMPONENT PLACEMENT] Re-collected " + selectedPathsToUse.length + " selected path(s) from ductwork layers");
+                    if (selectedPathsToUse.length === 0) selectedPathsToUse = null;
                     placeLinkedComponents_local(doc, selectedPathsToUse);
 
                     // DEBUG OUTPUT COMMENTED OUT - uncomment to show unit placement debug info
@@ -16815,33 +17216,35 @@ function setStaticTextColor(control, rgbArray) {
                                 var itemType = item.typename; // This will throw if item is invalid/deleted
 
                                 // Handle CompoundPathItems - iterate through child pathItems
+                                // Include ALL path vertices, not just endpoints (so T-junctions and internal anchors match)
                                 if (itemType === "CompoundPathItem" && item.pathItems) {
                                     addDebug("[ANCHOR COLLECTION] Path " + sp + " is CompoundPathItem with " + item.pathItems.length + " sub-paths");
                                     for (var cpIdx = 0; cpIdx < item.pathItems.length; cpIdx++) {
                                         var childPath = item.pathItems[cpIdx];
                                         if (childPath && childPath.pathPoints && childPath.pathPoints.length > 0) {
-                                            var cFirstPt = childPath.pathPoints[0].anchor;
-                                            selectedEndpoints.push([cFirstPt[0], cFirstPt[1]]);
-                                            var cLastPt = childPath.pathPoints[childPath.pathPoints.length - 1].anchor;
-                                            selectedEndpoints.push([cLastPt[0], cLastPt[1]]);
+                                            // Add ALL vertices from this sub-path
+                                            for (var cpPtIdx = 0; cpPtIdx < childPath.pathPoints.length; cpPtIdx++) {
+                                                var cpPt = childPath.pathPoints[cpPtIdx].anchor;
+                                                selectedEndpoints.push([cpPt[0], cpPt[1]]);
+                                            }
                                         }
                                     }
                                 }
                                 // Handle regular PathItems
                                 else if (itemType === "PathItem" && item.pathPoints && item.pathPoints.length > 0) {
-                                    // Add first endpoint
-                                    var firstPt = item.pathPoints[0].anchor;
-                                    selectedEndpoints.push([firstPt[0], firstPt[1]]);
-                                    // Add last endpoint
-                                    var lastPt = item.pathPoints[item.pathPoints.length - 1].anchor;
-                                    selectedEndpoints.push([lastPt[0], lastPt[1]]);
+                                    // Add ALL vertices from this path (not just endpoints)
+                                    // This ensures T-junctions, internal anchors, etc. are matched
+                                    for (var ptIdx = 0; ptIdx < item.pathPoints.length; ptIdx++) {
+                                        var pt = item.pathPoints[ptIdx].anchor;
+                                        selectedEndpoints.push([pt[0], pt[1]]);
+                                    }
                                 }
                             } catch (ePathAccess) {
                                 // Path was deleted or is invalid - skip it
                                 addDebug("[ANCHOR COLLECTION] Path " + sp + " is invalid/deleted - skipping: " + ePathAccess.message);
                             }
                         }
-                        addDebug("[ANCHOR COLLECTION] Built " + selectedEndpoints.length + " endpoints from selected paths");
+                        addDebug("[ANCHOR COLLECTION] Built " + selectedEndpoints.length + " vertices from selected paths");
                     } else {
                         addDebug("[ANCHOR COLLECTION] No proximity filter - collecting all anchors from layer");
                     }
