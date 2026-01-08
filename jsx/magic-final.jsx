@@ -2742,6 +2742,7 @@ function setStaticTextColor(control, rgbArray) {
         var SKIP_ALL_BRANCH_ORTHO = false; // controls whether all branch segments stay freeform
         var SKIP_FINAL_REGISTER_ORTHO = false; // controls whether only final register segments stay freeform
         var SKIP_REGISTER_ROTATION = false; // controls whether square registers are rotated to match ductwork angle
+        var ORTHO_IGNORED_ANCHORS = []; // ignored anchors collected early for ortho phase (FR-002)
 
         // MDUX_getMetadata and MDUX_setMetadata must be defined early so they're available to all functions in this IIFE
         // Note: Use MDUX_debugLog from panel-bridge.jsx which is always available, NOT addDebug which may have uninitialized dependencies
@@ -9576,6 +9577,22 @@ function setStaticTextColor(control, rgbArray) {
                 }
             }
 
+            // FR-002: Check if register endpoint has an ignore anchor
+            // If so, the final segment should still be orthogonalized
+            var registerEndpointIgnored = false;
+            if (skipFinalBranchOrtho && pathIsBranch && pts.length >= 2) {
+                var registerEndpoint = registerEndIsFirst ? pts[0].anchor : pts[pts.length - 1].anchor;
+                var IGNORE_CHECK_DIST = 10; // tolerance for ignore anchor check
+                for (var igIdx = 0; igIdx < ORTHO_IGNORED_ANCHORS.length; igIdx++) {
+                    var igPt = ORTHO_IGNORED_ANCHORS[igIdx];
+                    var igDist = Math.sqrt(Math.pow(registerEndpoint[0] - igPt[0], 2) + Math.pow(registerEndpoint[1] - igPt[1], 2));
+                    if (igDist <= IGNORE_CHECK_DIST) {
+                        registerEndpointIgnored = true;
+                        break;
+                    }
+                }
+            }
+
             // PERFORMANCE: Removed all addDebug calls from this hot function
             var shouldOrthogonalizeSegment = function (segmentIndex, totalSegments) {
                 if (skipAllBranchOrtho) {
@@ -9588,6 +9605,11 @@ function setStaticTextColor(control, rgbArray) {
                     if (totalSegments === 1) return true;
                     var registerSegmentIndex = registerEndIsFirst ? 0 : (totalSegments - 1);
                     if (segmentIndex === registerSegmentIndex) {
+                        // FR-002: If register endpoint is ignored, DON'T skip ortho
+                        // (the final segment goes to an ignored point, not a ductwork part)
+                        if (registerEndpointIgnored) {
+                            return true; // Ortho this segment normally
+                        }
                         return false;
                     }
                     return true;
@@ -12295,6 +12317,110 @@ function setStaticTextColor(control, rgbArray) {
 
         // Pre-step: align thermostat endpoints to duct junctions before processing selection
         try { snapThermostatEndpointsToJunctions(); } catch (e) { }
+
+        // FR-002: Collect ignored anchors EARLY for ortho phase
+        // This allows skip-final-ortho to respect ignore anchors at endpoints
+        try {
+            ORTHO_IGNORED_ANCHORS = getIgnoredAnchorPoints();
+            if (ORTHO_IGNORED_ANCHORS.length > 0) {
+                addDebug("[ORTHO-IGNORE] Collected " + ORTHO_IGNORED_ANCHORS.length + " ignored anchor(s) for ortho phase");
+            }
+        } catch (eOrthoIgnore) {
+            ORTHO_IGNORED_ANCHORS = [];
+        }
+
+        // FR-003: Auto-snap near-intersection anchors to vertex points
+        // If an anchor is within 0.5pt of a line intersection but not at the vertex,
+        // move that anchor to the exact intersection point
+        try {
+            var SNAP_TO_INTERSECTION_DIST = 0.5; // tolerance in points
+            var snappedAnchorsCount = 0;
+
+            // Only process blue ductwork paths for intersection snapping
+            var blueLayerName = resolveDuctworkLayerForProcessing("Blue Ductwork");
+            var blueSnapPaths = [];
+            for (var bspIdx = 0; bspIdx < allPaths.length; bspIdx++) {
+                try {
+                    var bspPath = allPaths[bspIdx];
+                    if (bspPath && bspPath.layer && bspPath.layer.name === blueLayerName) {
+                        blueSnapPaths.push(bspPath);
+                    }
+                } catch (eBsp) { }
+            }
+
+            if (blueSnapPaths.length > 1) {
+                addDebug("[FR-003] Checking " + blueSnapPaths.length + " blue paths for near-intersection anchors");
+
+                // Find all segment intersections between different paths
+                for (var snapPathA = 0; snapPathA < blueSnapPaths.length; snapPathA++) {
+                    var pathA = blueSnapPaths[snapPathA];
+                    var ptsA = null;
+                    try { ptsA = pathA.pathPoints; } catch (e) { continue; }
+                    if (!ptsA || ptsA.length < 2) continue;
+
+                    for (var snapPathB = snapPathA + 1; snapPathB < blueSnapPaths.length; snapPathB++) {
+                        var pathB = blueSnapPaths[snapPathB];
+                        var ptsB = null;
+                        try { ptsB = pathB.pathPoints; } catch (e) { continue; }
+                        if (!ptsB || ptsB.length < 2) continue;
+
+                        // Check each segment pair for intersection
+                        for (var segA = 0; segA < ptsA.length - 1; segA++) {
+                            var a1 = ptsA[segA].anchor;
+                            var a2 = ptsA[segA + 1].anchor;
+
+                            for (var segB = 0; segB < ptsB.length - 1; segB++) {
+                                var b1 = ptsB[segB].anchor;
+                                var b2 = ptsB[segB + 1].anchor;
+
+                                // Calculate intersection point
+                                var intPt = getSegmentIntersectionPoint(
+                                    a1[0], a1[1], a2[0], a2[1],
+                                    b1[0], b1[1], b2[0], b2[1]
+                                );
+
+                                if (intPt) {
+                                    // Found an intersection - check if any nearby anchor needs snapping
+                                    // Check anchors in pathA near this intersection
+                                    for (var ancA = 0; ancA < ptsA.length; ancA++) {
+                                        var anchorA = ptsA[ancA].anchor;
+                                        var distA = Math.sqrt(Math.pow(anchorA[0] - intPt[0], 2) + Math.pow(anchorA[1] - intPt[1], 2));
+
+                                        // If within tolerance but NOT exactly at intersection
+                                        if (distA > 0.01 && distA <= SNAP_TO_INTERSECTION_DIST) {
+                                            addDebug("[FR-003] Snapping pathA anchor [" + anchorA[0].toFixed(2) + "," + anchorA[1].toFixed(2) +
+                                                     "] to intersection [" + intPt[0].toFixed(2) + "," + intPt[1].toFixed(2) + "] (dist=" + distA.toFixed(3) + ")");
+                                            ptsA[ancA].anchor = [intPt[0], intPt[1]];
+                                            snappedAnchorsCount++;
+                                        }
+                                    }
+
+                                    // Check anchors in pathB near this intersection
+                                    for (var ancB = 0; ancB < ptsB.length; ancB++) {
+                                        var anchorB = ptsB[ancB].anchor;
+                                        var distB = Math.sqrt(Math.pow(anchorB[0] - intPt[0], 2) + Math.pow(anchorB[1] - intPt[1], 2));
+
+                                        // If within tolerance but NOT exactly at intersection
+                                        if (distB > 0.01 && distB <= SNAP_TO_INTERSECTION_DIST) {
+                                            addDebug("[FR-003] Snapping pathB anchor [" + anchorB[0].toFixed(2) + "," + anchorB[1].toFixed(2) +
+                                                     "] to intersection [" + intPt[0].toFixed(2) + "," + intPt[1].toFixed(2) + "] (dist=" + distB.toFixed(3) + ")");
+                                            ptsB[ancB].anchor = [intPt[0], intPt[1]];
+                                            snappedAnchorsCount++;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (snappedAnchorsCount > 0) {
+                    addDebug("[FR-003] Snapped " + snappedAnchorsCount + " anchor(s) to exact intersection points");
+                }
+            }
+        } catch (eFR003) {
+            addDebug("[FR-003] Error in intersection snap: " + eFR003);
+        }
 
         // STEP 1: Process selected paths (snap, orthogonalize)
         updateProgress("Orthogonalizing paths...");
