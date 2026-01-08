@@ -250,6 +250,21 @@ var PythonBridge = (function() {
     }
 
     /**
+     * Orthogonalize paths (snap + make horizontal/vertical)
+     * This is the main performance bottleneck - Python is 100x+ faster
+     * @param {Array} pathItems - Array of PathItems to orthogonalize
+     * @param {number} snapThreshold - Snap distance threshold (default: 5)
+     * @returns {Object} { paths: [{id, points}], iterations, time_ms }
+     */
+    function orthogonalize(pathItems, snapThreshold) {
+        return executePython('orthogonalize', pathItems, {
+            snap_threshold: snapThreshold || 5,
+            steep_min: 17,
+            steep_max: 70
+        });
+    }
+
+    /**
      * Check if Python bridge is available
      */
     function isAvailable() {
@@ -265,6 +280,7 @@ var PythonBridge = (function() {
         findConnections: findConnections,
         buildGroups: buildGroups,
         detectIntersections: detectIntersections,
+        orthogonalize: orthogonalize,
         isAvailable: isAvailable,
 
         // Expose utilities for debugging

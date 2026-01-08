@@ -367,6 +367,216 @@ def detect_intersections(paths_data: List[Dict]) -> Dict:
     }
 
 
+def snap_anchors(paths_data: List[Dict], snap_threshold: float = 5.0) -> Dict:
+    """
+    Find anchor points that should snap to nearby segments.
+    Uses spatial indexing for O(n log n) instead of O(n²).
+
+    Returns snap suggestions: which points should move and where.
+    """
+    start_time = time.time()
+
+    # Build all segments with their path/point indices
+    segments = []  # List of (LineString, path_idx, seg_idx)
+    segment_lines = []  # Just the LineStrings for spatial index
+
+    for path_idx, path in enumerate(paths_data):
+        points = path.get('points', [])
+        for seg_idx in range(len(points) - 1):
+            p1 = (points[seg_idx]['x'], points[seg_idx]['y'])
+            p2 = (points[seg_idx + 1]['x'], points[seg_idx + 1]['y'])
+            line = LineString([p1, p2])
+            segments.append((line, path_idx, seg_idx))
+            segment_lines.append(line)
+
+    if len(segment_lines) == 0:
+        return {'snaps': [], 'time_ms': 0}
+
+    # Build spatial index on segments
+    tree = STRtree(segment_lines)
+
+    snaps = []
+    threshold_sq = snap_threshold * snap_threshold
+
+    for path_idx, path in enumerate(paths_data):
+        points = path.get('points', [])
+        for pt_idx, pt in enumerate(points):
+            point = Point(pt['x'], pt['y'])
+
+            # Query spatial index for nearby segments
+            candidates = tree.query(point.buffer(snap_threshold))
+
+            best_snap = None
+            best_dist_sq = threshold_sq
+
+            for seg_idx in candidates:
+                seg_line, seg_path_idx, _ = segments[seg_idx]
+
+                # Don't snap to own path's segments
+                if seg_path_idx == path_idx:
+                    continue
+
+                # Find closest point on segment
+                closest = seg_line.interpolate(seg_line.project(point))
+                dist_sq = (closest.x - pt['x'])**2 + (closest.y - pt['y'])**2
+
+                if dist_sq < best_dist_sq:
+                    best_dist_sq = dist_sq
+                    best_snap = {
+                        'path_idx': path_idx,
+                        'point_idx': pt_idx,
+                        'snap_to': [closest.x, closest.y],
+                        'distance': dist_sq ** 0.5,
+                        'target_path_idx': seg_path_idx
+                    }
+
+            if best_snap:
+                snaps.append(best_snap)
+
+    elapsed_ms = (time.time() - start_time) * 1000
+    log(f"Found {len(snaps)} snap points in {elapsed_ms:.1f}ms")
+
+    return {
+        'snaps': snaps,
+        'time_ms': elapsed_ms,
+        'path_count': len(paths_data),
+        'segment_count': len(segments)
+    }
+
+
+def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
+                        steep_min: float = 17.0, steep_max: float = 70.0) -> Dict:
+    """
+    Full orthogonalization pipeline:
+    1. Snap anchors to nearby segments
+    2. Orthogonalize segments (make horizontal or vertical)
+    3. Return modified path coordinates
+
+    This replaces the iterative ExtendScript loop with a single Python call.
+    """
+    start_time = time.time()
+
+    # Convert to numpy for faster math
+    paths = []
+    for p in paths_data:
+        points = np.array([[pt['x'], pt['y']] for pt in p.get('points', [])])
+        paths.append({
+            'points': points,
+            'layer': p.get('layerName', ''),
+            'id': p.get('id', -1)
+        })
+
+    changes_made = True
+    iteration = 0
+    max_iterations = 8
+    total_snaps = 0
+    total_ortho = 0
+
+    while changes_made and iteration < max_iterations:
+        iteration += 1
+        changes_made = False
+
+        # Phase 1: Snap anchors
+        # Build segments for spatial index
+        segment_lines = []
+        segment_info = []
+
+        for path_idx, path in enumerate(paths):
+            pts = path['points']
+            if len(pts) < 2:
+                continue
+            for seg_idx in range(len(pts) - 1):
+                line = LineString([pts[seg_idx], pts[seg_idx + 1]])
+                segment_lines.append(line)
+                segment_info.append((path_idx, seg_idx))
+
+        if segment_lines:
+            tree = STRtree(segment_lines)
+            threshold_sq = snap_threshold * snap_threshold
+
+            for path_idx, path in enumerate(paths):
+                pts = path['points']
+                for pt_idx in range(len(pts)):
+                    point = Point(pts[pt_idx])
+                    candidates = tree.query(point.buffer(snap_threshold))
+
+                    for seg_idx in candidates:
+                        seg_path_idx, _ = segment_info[seg_idx]
+                        if seg_path_idx == path_idx:
+                            continue
+
+                        seg_line = segment_lines[seg_idx]
+                        closest = seg_line.interpolate(seg_line.project(point))
+                        dist_sq = (closest.x - pts[pt_idx][0])**2 + (closest.y - pts[pt_idx][1])**2
+
+                        if dist_sq < threshold_sq and dist_sq > 0.01:  # Don't snap if already there
+                            pts[pt_idx] = np.array([closest.x, closest.y])
+                            changes_made = True
+                            total_snaps += 1
+                            break
+
+        # Phase 2: Orthogonalize segments
+        for path in paths:
+            pts = path['points']
+            if len(pts) < 2:
+                continue
+
+            for i in range(len(pts) - 1):
+                p1 = pts[i]
+                p2 = pts[i + 1]
+
+                dx = p2[0] - p1[0]
+                dy = p2[1] - p1[1]
+
+                if abs(dx) < 0.001 and abs(dy) < 0.001:
+                    continue
+
+                angle = abs(np.degrees(np.arctan2(dy, dx))) % 90
+                if angle > 45:
+                    angle = 90 - angle
+
+                # Skip steep angles (non-orthogonal by design)
+                if steep_min <= angle <= steep_max:
+                    continue
+
+                # Decide whether to make horizontal or vertical
+                if abs(dx) > abs(dy):
+                    # More horizontal - make perfectly horizontal
+                    if pts[i + 1][1] != pts[i][1]:
+                        mid_y = (p1[1] + p2[1]) / 2
+                        pts[i][1] = mid_y
+                        pts[i + 1][1] = mid_y
+                        changes_made = True
+                        total_ortho += 1
+                else:
+                    # More vertical - make perfectly vertical
+                    if pts[i + 1][0] != pts[i][0]:
+                        mid_x = (p1[0] + p2[0]) / 2
+                        pts[i][0] = mid_x
+                        pts[i + 1][0] = mid_x
+                        changes_made = True
+                        total_ortho += 1
+
+    # Convert back to output format
+    result_paths = []
+    for path in paths:
+        result_paths.append({
+            'id': path['id'],
+            'points': [{'x': float(pt[0]), 'y': float(pt[1])} for pt in path['points']]
+        })
+
+    elapsed_ms = (time.time() - start_time) * 1000
+    log(f"Orthogonalized in {iteration} iterations: {total_snaps} snaps, {total_ortho} ortho changes in {elapsed_ms:.1f}ms")
+
+    return {
+        'paths': result_paths,
+        'iterations': iteration,
+        'total_snaps': total_snaps,
+        'total_ortho_changes': total_ortho,
+        'time_ms': elapsed_ms
+    }
+
+
 def build_connection_groups(paths_data: List[Dict], max_dist: float = CLOSE_DIST) -> Dict:
     """
     Build groups of connected paths using Union-Find algorithm.
@@ -429,6 +639,8 @@ OPERATIONS = {
     'find_connections': find_connections,
     'detect_intersections': detect_intersections,
     'build_groups': build_connection_groups,
+    'snap_anchors': snap_anchors,
+    'orthogonalize': orthogonalize_paths,
 }
 
 
