@@ -62,6 +62,16 @@ $.global.MDUX_DEBUG = {
 };
 // ============================================================================
 
+// ============================================================================
+// PYTHON GEOMETRY BRIDGE - High-performance geometry operations
+// ============================================================================
+// Include Python bridge for 100-1000x faster connection detection
+//@include "python-bridge.jsx"
+// ============================================================================
+
+// Flag to control Python acceleration (set to false to use pure ExtendScript)
+$.global.MDUX_USE_PYTHON = true;
+
 // Emergency Shim: Define yieldToUI globally to prevent ReferenceError if any calls remain.
 // This function intentionally does nothing.
 if (typeof yieldToUI === "undefined") {
@@ -9964,7 +9974,59 @@ function setStaticTextColor(control, rgbArray) {
             return dirs;
         }
 
+        // =====================================================================
+        // PYTHON-ACCELERATED CONNECTION DETECTION
+        // =====================================================================
+        // This wrapper function uses Python for 100-1000x faster processing
+        // Falls back to ExtendScript if Python is unavailable
+        // =====================================================================
         function findAllConnections(pathItems, maxDist, ignoredAnchorsOut) {
+            ignoredAnchorsOut = ignoredAnchorsOut || [];
+
+            // Try Python acceleration first
+            if ($.global.MDUX_USE_PYTHON && typeof PythonBridge !== 'undefined' && PythonBridge.isAvailable()) {
+                addDebug("[PYTHON] Attempting Python-accelerated connection detection for " + pathItems.length + " paths");
+                var startTime = new Date().getTime();
+
+                try {
+                    var pyResult = PythonBridge.findConnections(pathItems, maxDist);
+
+                    if (pyResult && pyResult.connections && !pyResult.error) {
+                        // Map Python indices back to actual path objects
+                        var connections = [];
+                        for (var ci = 0; ci < pyResult.connections.length; ci++) {
+                            var conn = pyResult.connections[ci];
+                            var pathA = pathItems[conn.a];
+                            var pathB = pathItems[conn.b];
+                            if (pathA && pathB) {
+                                connections.push([pathA, pathB]);
+                            }
+                        }
+
+                        // Copy ignored anchors from Python result
+                        if (pyResult.ignored_anchors) {
+                            for (var ia = 0; ia < pyResult.ignored_anchors.length; ia++) {
+                                ignoredAnchorsOut.push(pyResult.ignored_anchors[ia]);
+                            }
+                        }
+
+                        var elapsed = new Date().getTime() - startTime;
+                        addDebug("[PYTHON] SUCCESS: Found " + connections.length + " connections in " + elapsed + "ms (Python: " + (pyResult.time_ms || "?") + "ms)");
+                        return connections;
+                    } else {
+                        addDebug("[PYTHON] No valid result, falling back to ExtendScript");
+                    }
+                } catch (ePython) {
+                    addDebug("[PYTHON] Error: " + ePython + ", falling back to ExtendScript");
+                }
+            }
+
+            // Fall back to original ExtendScript implementation
+            return findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut);
+        }
+
+        // Original ExtendScript implementation (renamed from findAllConnections)
+        function findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut) {
             var connections = [];
             var seen = {};
             var ANGLE_THRESHOLD_DEG = 20;
