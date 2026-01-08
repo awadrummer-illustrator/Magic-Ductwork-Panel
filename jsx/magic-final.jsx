@@ -9579,10 +9579,14 @@ function setStaticTextColor(control, rgbArray) {
 
             // FR-002: Check if register endpoint has an ignore anchor
             // If so, the final segment should still be orthogonalized
+            // NOTE: Do a LIVE check of the Ignored layer since ignore anchors may be created
+            // during processing (e.g., when internal anchors close to endpoints are cleaned up)
             var registerEndpointIgnored = false;
             if (skipFinalBranchOrtho && pathIsBranch && pts.length >= 2) {
                 var registerEndpoint = registerEndIsFirst ? pts[0].anchor : pts[pts.length - 1].anchor;
                 var IGNORE_CHECK_DIST = 10; // tolerance for ignore anchor check
+
+                // First check pre-collected ignore anchors
                 for (var igIdx = 0; igIdx < ORTHO_IGNORED_ANCHORS.length; igIdx++) {
                     var igPt = ORTHO_IGNORED_ANCHORS[igIdx];
                     var igDist = Math.sqrt(Math.pow(registerEndpoint[0] - igPt[0], 2) + Math.pow(registerEndpoint[1] - igPt[1], 2));
@@ -9590,6 +9594,34 @@ function setStaticTextColor(control, rgbArray) {
                         registerEndpointIgnored = true;
                         break;
                     }
+                }
+
+                // LIVE CHECK: Also check the Ignored layer directly for newly created ignore anchors
+                if (!registerEndpointIgnored) {
+                    try {
+                        var ignoredLayerNames = ["Ignore", "Ignored", "ignore", "ignored"];
+                        for (var ignLayerIdx = 0; ignLayerIdx < ignoredLayerNames.length && !registerEndpointIgnored; ignLayerIdx++) {
+                            try {
+                                var ignLayer = doc.layers.getByName(ignoredLayerNames[ignLayerIdx]);
+                                if (ignLayer) {
+                                    // Check all path items on this layer
+                                    for (var ignPathIdx = 0; ignPathIdx < ignLayer.pathItems.length && !registerEndpointIgnored; ignPathIdx++) {
+                                        var ignPath = ignLayer.pathItems[ignPathIdx];
+                                        if (ignPath && ignPath.pathPoints && ignPath.pathPoints.length >= 1) {
+                                            for (var ignPtIdx = 0; ignPtIdx < ignPath.pathPoints.length; ignPtIdx++) {
+                                                var ignAnchor = ignPath.pathPoints[ignPtIdx].anchor;
+                                                var ignDistLive = Math.sqrt(Math.pow(registerEndpoint[0] - ignAnchor[0], 2) + Math.pow(registerEndpoint[1] - ignAnchor[1], 2));
+                                                if (ignDistLive <= IGNORE_CHECK_DIST) {
+                                                    registerEndpointIgnored = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (eIgnLayer) { /* Layer doesn't exist */ }
+                        }
+                    } catch (eLiveCheck) { /* Ignore errors in live check */ }
                 }
             }
 
@@ -12330,11 +12362,12 @@ function setStaticTextColor(control, rgbArray) {
         }
 
         // FR-003: Auto-snap near-intersection anchors to vertex points
-        // If an anchor is within 0.5pt of a line intersection but not at the vertex,
-        // move that anchor to the exact intersection point
+        // If an anchor is within 0.5pt of a line intersection but NOT a proper vertex,
+        // DELETE that anchor and ADD a vertex point on one of the intersecting lines
         try {
             var SNAP_TO_INTERSECTION_DIST = 0.5; // tolerance in points
-            var snappedAnchorsCount = 0;
+            var anchorsDeleted = 0;
+            var verticesAdded = 0;
 
             // Only process blue ductwork paths for intersection snapping
             var blueLayerName = resolveDuctworkLayerForProcessing("Blue Ductwork");
@@ -12350,6 +12383,9 @@ function setStaticTextColor(control, rgbArray) {
 
             if (blueSnapPaths.length > 1) {
                 addDebug("[FR-003] Checking " + blueSnapPaths.length + " blue paths for near-intersection anchors");
+
+                // Collect all intersections and nearby misaligned anchors
+                var intersectionsToFix = [];
 
                 // Find all segment intersections between different paths
                 for (var snapPathA = 0; snapPathA < blueSnapPaths.length; snapPathA++) {
@@ -12380,33 +12416,60 @@ function setStaticTextColor(control, rgbArray) {
                                 );
 
                                 if (intPt) {
-                                    // Found an intersection - check if any nearby anchor needs snapping
-                                    // Check anchors in pathA near this intersection
-                                    for (var ancA = 0; ancA < ptsA.length; ancA++) {
-                                        var anchorA = ptsA[ancA].anchor;
-                                        var distA = Math.sqrt(Math.pow(anchorA[0] - intPt[0], 2) + Math.pow(anchorA[1] - intPt[1], 2));
+                                    // Check if there's already a proper vertex at this intersection
+                                    var hasProperVertex = false;
 
-                                        // If within tolerance but NOT exactly at intersection
-                                        if (distA > 0.01 && distA <= SNAP_TO_INTERSECTION_DIST) {
-                                            addDebug("[FR-003] Snapping pathA anchor [" + anchorA[0].toFixed(2) + "," + anchorA[1].toFixed(2) +
-                                                     "] to intersection [" + intPt[0].toFixed(2) + "," + intPt[1].toFixed(2) + "] (dist=" + distA.toFixed(3) + ")");
-                                            ptsA[ancA].anchor = [intPt[0], intPt[1]];
-                                            snappedAnchorsCount++;
+                                    // Check pathA for vertex at intersection
+                                    for (var vCheckA = 0; vCheckA < ptsA.length; vCheckA++) {
+                                        var vAncA = ptsA[vCheckA].anchor;
+                                        var vDistA = Math.sqrt(Math.pow(vAncA[0] - intPt[0], 2) + Math.pow(vAncA[1] - intPt[1], 2));
+                                        if (vDistA <= 0.01) {
+                                            hasProperVertex = true;
+                                            break;
                                         }
                                     }
 
-                                    // Check anchors in pathB near this intersection
+                                    // Check pathB for vertex at intersection
+                                    if (!hasProperVertex) {
+                                        for (var vCheckB = 0; vCheckB < ptsB.length; vCheckB++) {
+                                            var vAncB = ptsB[vCheckB].anchor;
+                                            var vDistB = Math.sqrt(Math.pow(vAncB[0] - intPt[0], 2) + Math.pow(vAncB[1] - intPt[1], 2));
+                                            if (vDistB <= 0.01) {
+                                                hasProperVertex = true;
+                                                break;
+                                            }
+                                        }
+                                    }
+
+                                    // Find misaligned anchors (within tolerance but not exactly at intersection)
+                                    var misalignedAnchors = [];
+
+                                    for (var ancA = 0; ancA < ptsA.length; ancA++) {
+                                        var anchorA = ptsA[ancA].anchor;
+                                        var distA = Math.sqrt(Math.pow(anchorA[0] - intPt[0], 2) + Math.pow(anchorA[1] - intPt[1], 2));
+                                        if (distA > 0.01 && distA <= SNAP_TO_INTERSECTION_DIST) {
+                                            misalignedAnchors.push({ path: pathA, anchorIdx: ancA, dist: distA });
+                                        }
+                                    }
+
                                     for (var ancB = 0; ancB < ptsB.length; ancB++) {
                                         var anchorB = ptsB[ancB].anchor;
                                         var distB = Math.sqrt(Math.pow(anchorB[0] - intPt[0], 2) + Math.pow(anchorB[1] - intPt[1], 2));
-
-                                        // If within tolerance but NOT exactly at intersection
                                         if (distB > 0.01 && distB <= SNAP_TO_INTERSECTION_DIST) {
-                                            addDebug("[FR-003] Snapping pathB anchor [" + anchorB[0].toFixed(2) + "," + anchorB[1].toFixed(2) +
-                                                     "] to intersection [" + intPt[0].toFixed(2) + "," + intPt[1].toFixed(2) + "] (dist=" + distB.toFixed(3) + ")");
-                                            ptsB[ancB].anchor = [intPt[0], intPt[1]];
-                                            snappedAnchorsCount++;
+                                            misalignedAnchors.push({ path: pathB, anchorIdx: ancB, dist: distB });
                                         }
+                                    }
+
+                                    if (misalignedAnchors.length > 0) {
+                                        intersectionsToFix.push({
+                                            intPt: intPt,
+                                            pathA: pathA,
+                                            pathB: pathB,
+                                            segA: segA,
+                                            segB: segB,
+                                            hasProperVertex: hasProperVertex,
+                                            misalignedAnchors: misalignedAnchors
+                                        });
                                     }
                                 }
                             }
@@ -12414,8 +12477,84 @@ function setStaticTextColor(control, rgbArray) {
                     }
                 }
 
-                if (snappedAnchorsCount > 0) {
-                    addDebug("[FR-003] Snapped " + snappedAnchorsCount + " anchor(s) to exact intersection points");
+                // Process intersections: delete misaligned anchors and add proper vertices
+                for (var fixIdx = 0; fixIdx < intersectionsToFix.length; fixIdx++) {
+                    var fix = intersectionsToFix[fixIdx];
+
+                    // Delete misaligned anchors (process in reverse order to maintain indices)
+                    fix.misalignedAnchors.sort(function(a, b) { return b.anchorIdx - a.anchorIdx; });
+
+                    for (var delIdx = 0; delIdx < fix.misalignedAnchors.length; delIdx++) {
+                        var toDelete = fix.misalignedAnchors[delIdx];
+                        try {
+                            var delPts = toDelete.path.pathPoints;
+                            var oldAnchor = delPts[toDelete.anchorIdx].anchor;
+                            addDebug("[FR-003] Deleting misaligned anchor [" + oldAnchor[0].toFixed(2) + "," + oldAnchor[1].toFixed(2) +
+                                     "] (dist=" + toDelete.dist.toFixed(3) + " from intersection)");
+                            delPts[toDelete.anchorIdx].remove();
+                            anchorsDeleted++;
+                        } catch (eDelete) {
+                            addDebug("[FR-003] Error deleting anchor: " + eDelete);
+                        }
+                    }
+
+                    // Add vertex on pathA at the intersection point (if no proper vertex exists)
+                    if (!fix.hasProperVertex) {
+                        try {
+                            // Add new point to pathA at the intersection
+                            // Insert between segA and segA+1
+                            var targetPath = fix.pathA;
+                            var targetPts = targetPath.pathPoints;
+                            var insertAfterIdx = fix.segA;
+
+                            // Add a new point at the end, then we'll set its position
+                            var newPt = targetPts.add();
+                            newPt.anchor = [fix.intPt[0], fix.intPt[1]];
+                            newPt.leftDirection = [fix.intPt[0], fix.intPt[1]];
+                            newPt.rightDirection = [fix.intPt[0], fix.intPt[1]];
+                            newPt.pointType = PointType.CORNER;
+
+                            // Now we need to move it to the correct position in the path
+                            // The new point was added at the end, we need to reorder
+                            // We'll collect all points, remove them, and re-add in correct order
+                            var allAnchors = [];
+                            for (var collectIdx = 0; collectIdx < targetPts.length; collectIdx++) {
+                                allAnchors.push({
+                                    anchor: [targetPts[collectIdx].anchor[0], targetPts[collectIdx].anchor[1]],
+                                    leftDir: [targetPts[collectIdx].leftDirection[0], targetPts[collectIdx].leftDirection[1]],
+                                    rightDir: [targetPts[collectIdx].rightDirection[0], targetPts[collectIdx].rightDirection[1]],
+                                    pointType: targetPts[collectIdx].pointType
+                                });
+                            }
+
+                            // The new point is at the end, move it to insertAfterIdx + 1
+                            var newPointData = allAnchors.pop(); // Remove from end
+                            allAnchors.splice(insertAfterIdx + 1, 0, newPointData); // Insert at correct position
+
+                            // Clear all points and re-add in correct order
+                            while (targetPts.length > 0) {
+                                targetPts[targetPts.length - 1].remove();
+                            }
+
+                            for (var readdIdx = 0; readdIdx < allAnchors.length; readdIdx++) {
+                                var ptData = allAnchors[readdIdx];
+                                var addedPt = targetPts.add();
+                                addedPt.anchor = ptData.anchor;
+                                addedPt.leftDirection = ptData.leftDir;
+                                addedPt.rightDirection = ptData.rightDir;
+                                try { addedPt.pointType = ptData.pointType; } catch (ePtType) { }
+                            }
+
+                            addDebug("[FR-003] Added vertex at intersection [" + fix.intPt[0].toFixed(2) + "," + fix.intPt[1].toFixed(2) + "]");
+                            verticesAdded++;
+                        } catch (eAddVertex) {
+                            addDebug("[FR-003] Error adding vertex: " + eAddVertex);
+                        }
+                    }
+                }
+
+                if (anchorsDeleted > 0 || verticesAdded > 0) {
+                    addDebug("[FR-003] Deleted " + anchorsDeleted + " misaligned anchor(s), added " + verticesAdded + " vertex point(s)");
                 }
             }
         } catch (eFR003) {
