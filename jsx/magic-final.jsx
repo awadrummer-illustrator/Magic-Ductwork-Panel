@@ -267,7 +267,7 @@ var PythonBridge = (function() {
     return {
         findConnections: function(p, d) { return executePython('find_connections', p, { max_dist: d || 10 }); },
         buildGroups: function(p, d) { return executePython('build_groups', p, { max_dist: d || 10 }); },
-        orthogonalize: function(p, t) { return executePython('orthogonalize', p, { snap_threshold: t || 5, steep_min: 17, steep_max: 70 }); },
+        orthogonalize: function(p, t, lockedPts) { return executePython('orthogonalize', p, { snap_threshold: t || 5, steep_min: 17, steep_max: 70, locked_points: lockedPts || [] }); },
         isAvailable: function() {
             if (serverAvailable === null) {
                 serverAvailable = checkServerHealth();
@@ -10225,8 +10225,9 @@ function setStaticTextColor(control, rgbArray) {
         // This wrapper function uses Python for 100-1000x faster processing
         // Falls back to ExtendScript if Python is unavailable
         // =====================================================================
-        function findAllConnections(pathItems, maxDist, ignoredAnchorsOut) {
+        function findAllConnections(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors) {
             ignoredAnchorsOut = ignoredAnchorsOut || [];
+            existingIgnoredAnchors = existingIgnoredAnchors || [];
 
             // Minimum paths threshold - Python startup overhead (~7s) isn't worth it for small groups
             var MIN_PATHS_FOR_PYTHON = 20;
@@ -10270,11 +10271,11 @@ function setStaticTextColor(control, rgbArray) {
             }
 
             // Fall back to original ExtendScript implementation
-            return findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut);
+            return findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors);
         }
 
         // Original ExtendScript implementation (renamed from findAllConnections)
-        function findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut) {
+        function findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors) {
             var connections = [];
             var seen = {};
             var ANGLE_THRESHOLD_DEG = 20;
@@ -10283,6 +10284,7 @@ function setStaticTextColor(control, rgbArray) {
             var PATH_ANCHOR_TOLERANCE = 10; // Distance threshold for path vertex at intersection check
             var DEBUG_CONNECTIONS = $.global.MDUX_DEBUG && $.global.MDUX_DEBUG.CONNECTIONS; // References global config
             ignoredAnchorsOut = ignoredAnchorsOut || []; // Array to collect intersection points to ignore
+            existingIgnoredAnchors = existingIgnoredAnchors || []; // Array of existing ignored anchors to skip
 
             if (DEBUG_CONNECTIONS && pathItems.length > 0) {
                 addDebug("[CONN-DEBUG] Checking " + pathItems.length + " paths with maxDist=" + maxDist);
@@ -10325,6 +10327,20 @@ function setStaticTextColor(control, rgbArray) {
                                 }
                             }
                         }
+                    }
+                }
+                return false;
+            }
+
+            // Helper to check if a point is near an existing ignored anchor
+            function isNearIgnoredAnchor(pt, ignoredAnchors, tolerance) {
+                var IGNORED_TOLERANCE = tolerance || 4; // Default 4pt (matches IGNORED_DIST)
+                for (var ig = 0; ig < ignoredAnchors.length; ig++) {
+                    var dx = pt[0] - ignoredAnchors[ig][0];
+                    var dy = pt[1] - ignoredAnchors[ig][1];
+                    var d = Math.sqrt(dx * dx + dy * dy);
+                    if (d <= IGNORED_TOLERANCE) {
+                        return true;
                     }
                 }
                 return false;
@@ -10551,13 +10567,18 @@ function setStaticTextColor(control, rgbArray) {
                                 var dy = aPos[1] - bPos[1];
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist >= MIN_DIST && dist <= ENDPOINT_TOLERANCE) {
+                                    // Check if either endpoint is near an ignored anchor (user marked to skip)
+                                    if (existingIgnoredAnchors.length > 0 && (isNearIgnoredAnchor(aPos, existingIgnoredAnchors) || isNearIgnoredAnchor(bPos, existingIgnoredAnchors))) {
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Endpoint-to-endpoint SKIPPED (ignored anchor): path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
                                     // Check if these endpoints are near a crossover (intersection without vertex)
-                                    var midPt = [(aPos[0] + bPos[0]) / 2, (aPos[1] + bPos[1]) / 2];
-                                    if (isNearCrossover(midPt, ptsA, ptsB, ENDPOINT_TOLERANCE)) {
-                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Endpoint-to-endpoint SKIPPED (crossover): path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
                                     } else {
-                                        connected = true;
-                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Extended endpoint-to-endpoint: path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
+                                        var midPt = [(aPos[0] + bPos[0]) / 2, (aPos[1] + bPos[1]) / 2];
+                                        if (isNearCrossover(midPt, ptsA, ptsB, ENDPOINT_TOLERANCE)) {
+                                            if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Endpoint-to-endpoint SKIPPED (crossover): path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
+                                        } else {
+                                            connected = true;
+                                            if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Extended endpoint-to-endpoint: path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
+                                        }
                                     }
                                 }
                             }
@@ -10577,18 +10598,23 @@ function setStaticTextColor(control, rgbArray) {
                                     ptsB[bi + 1].anchor[0], ptsB[bi + 1].anchor[1]
                                 );
                                 if (intersectPt) {
-                                    // Check if either path has a vertex (path point) at this intersection
-                                    var pathAHasVertex = pathHasVertexNearPoint(ptsA, intersectPt);
-                                    var pathBHasVertex = pathHasVertexNearPoint(ptsB, intersectPt);
-                                    if (pathAHasVertex || pathBHasVertex) {
-                                        // Path vertex exists at intersection - these paths are connected here
-                                        connected = true;
-                                        // Add to ignored anchors so no component gets placed here
-                                        ignoredAnchorsOut.push([intersectPt[0], intersectPt[1]]);
-                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Connected at intersection [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - path vertex present, added to ignore list");
+                                    // Check if this intersection is near an existing ignored anchor
+                                    if (existingIgnoredAnchors.length > 0 && isNearIgnoredAnchor(intersectPt, existingIgnoredAnchors)) {
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Intersection SKIPPED (ignored anchor) at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "]");
                                     } else {
-                                        // No path vertex at intersection - these are separate runs (crossover)
-                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping intersection at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - no path vertex (crossover)");
+                                        // Check if either path has a vertex (path point) at this intersection
+                                        var pathAHasVertex = pathHasVertexNearPoint(ptsA, intersectPt);
+                                        var pathBHasVertex = pathHasVertexNearPoint(ptsB, intersectPt);
+                                        if (pathAHasVertex || pathBHasVertex) {
+                                            // Path vertex exists at intersection - these paths are connected here
+                                            connected = true;
+                                            // Add to ignored anchors so no component gets placed here
+                                            ignoredAnchorsOut.push([intersectPt[0], intersectPt[1]]);
+                                            if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Connected at intersection [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - path vertex present, added to ignore list");
+                                        } else {
+                                            // No path vertex at intersection - these are separate runs (crossover)
+                                            if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping intersection at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - no path vertex (crossover)");
+                                        }
                                     }
                                 }
                             }
@@ -13520,9 +13546,25 @@ function setStaticTextColor(control, rgbArray) {
             addDebug("[PYTHON-ORTHO] Attempting Python-accelerated orthogonalization for " + geometryPaths.length + " paths");
             var orthoStartTime = new Date().getTime();
 
+            // Build locked points list from ORTHO_IGNORE_MARKER_PATHS
+            // These are endpoints with ignore markers that should NOT be snapped
+            var lockedPointsForPython = [];
+            for (var lpIdx = 0; lpIdx < ORTHO_IGNORE_MARKER_PATHS.length; lpIdx++) {
+                var imInfo = ORTHO_IGNORE_MARKER_PATHS[lpIdx];
+                // Find the path index in geometryPaths
+                for (var gpIdx = 0; gpIdx < geometryPaths.length; gpIdx++) {
+                    if (geometryPaths[gpIdx] === imInfo.path) {
+                        var pointIdx = (imInfo.endpoint === "start") ? 0 : geometryPaths[gpIdx].pathPoints.length - 1;
+                        lockedPointsForPython.push({ path_idx: gpIdx, point_idx: pointIdx });
+                        addDebug("[PYTHON-ORTHO] Locking point: path " + gpIdx + ", point " + pointIdx + " (ignore marker endpoint)");
+                        break;
+                    }
+                }
+            }
+
             try {
                 updateProgress("Orthogonalizing paths (Python)...");
-                var pyOrthoResult = PythonBridge.orthogonalize(geometryPaths, SNAP_THRESHOLD);
+                var pyOrthoResult = PythonBridge.orthogonalize(geometryPaths, SNAP_THRESHOLD, lockedPointsForPython);
 
                 if (pyOrthoResult && pyOrthoResult.paths && !pyOrthoResult.error) {
                     // Apply Python results back to Illustrator paths
@@ -16164,7 +16206,7 @@ function setStaticTextColor(control, rgbArray) {
             if (layerPaths.length > 1) {
                 // Array to collect intersection points where paths connect (should not get components)
                 var intersectionIgnorePoints = [];
-                var connections = findAllConnections(layerPaths, CONNECTION_DIST, intersectionIgnorePoints);
+                var connections = findAllConnections(layerPaths, CONNECTION_DIST, intersectionIgnorePoints, ignoredAnchors);
 
                 // Add intersection ignore points to main ignoredAnchors list
                 if (intersectionIgnorePoints.length > 0) {

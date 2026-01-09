@@ -367,13 +367,103 @@ def detect_intersections(paths_data: List[Dict]) -> Dict:
     }
 
 
-def snap_anchors(paths_data: List[Dict], snap_threshold: float = 5.0) -> Dict:
+def find_crossovers(paths_data: List[Dict]) -> Dict:
+    """
+    Find specific segment-segment crossovers between different paths.
+    Returns detailed info for splitting segments.
+    """
+    start_time = time.time()
+    
+    # 1. Build all segments
+    segments = []
+    segment_map = [] # (path_idx, seg_idx)
+    
+    for p_idx, p in enumerate(paths_data):
+        points = p.get('points', [])
+        if len(points) < 2: continue
+        
+        # Convert all points to floats once
+        pts = [(float(pt['x']), float(pt['y'])) for pt in points]
+        
+        for i in range(len(pts)-1):
+            line = LineString([pts[i], pts[i+1]])
+            segments.append(line)
+            segment_map.append((p_idx, i))
+            
+    if not segments:
+        return {'crossovers': [], 'time_ms': 0}
+        
+    # 2. Build STRtree
+    tree = STRtree(segments)
+    
+    crossovers = []
+    
+    # 3. Query
+    for i, seg in enumerate(segments):
+        candidates = tree.query(seg)
+        path_a_idx, seg_a_idx = segment_map[i]
+        
+        for j in candidates:
+            if j <= i: continue # Avoid duplicates and self-checks
+            
+            path_b_idx, seg_b_idx = segment_map[j]
+            
+            # Skip if same path (we only care about crossovers between different paths)
+            if path_a_idx == path_b_idx: continue
+            
+            other_seg = segments[j]
+            if seg.intersects(other_seg):
+                intersection = seg.intersection(other_seg)
+                if not intersection.is_empty:
+                    # Handle Point vs MultiPoint etc
+                    pts = []
+                    if hasattr(intersection, 'x'):
+                        pts.append(intersection)
+                    elif hasattr(intersection, 'geoms'):
+                        pts.extend([g for g in intersection.geoms if hasattr(g, 'x')])
+                    else:
+                        pts.append(intersection.centroid)
+                        
+                    for pt in pts:
+                        # Check if intersection is at endpoint (vertecies)
+                        # We ignore connections at endpoints
+                        is_endpoint = (
+                            point_near_vertex(pt, seg, 0.1) or 
+                            point_near_vertex(pt, other_seg, 0.1)
+                        )
+                        
+                        if not is_endpoint:
+                            crossovers.append({
+                                'pathIdx': path_a_idx,
+                                'segmentIdx': seg_a_idx,
+                                'crossingPathIdx': path_b_idx,
+                                'crossingSegIdx': seg_b_idx,
+                                'point': {'x': pt.x, 'y': pt.y}
+                            })
+
+    elapsed_ms = (time.time() - start_time) * 1000
+    log(f"Found {len(crossovers)} crossovers in {elapsed_ms:.1f}ms")
+    
+    return {
+        'crossovers': crossovers,
+        'time_ms': elapsed_ms
+    }
+
+
+def snap_anchors(paths_data: List[Dict], snap_threshold: float = 5.0, locked_points: List[Dict] = None) -> Dict:
     """
     Find anchor points that should snap to nearby segments.
     Uses spatial indexing for O(n log n) instead of O(n²).
+    
+    locked_points: List of {path_idx, point_idx} dicts for points that should NOT snap.
 
     Returns snap suggestions: which points should move and where.
     """
+    # Build set of locked points for fast lookup
+    locked_set = set()
+    if locked_points:
+        for lp in locked_points:
+            locked_set.add((lp.get('path_idx', -1), lp.get('point_idx', -1)))
     start_time = time.time()
 
     # Build all segments with their path/point indices
@@ -401,6 +491,10 @@ def snap_anchors(paths_data: List[Dict], snap_threshold: float = 5.0) -> Dict:
     for path_idx, path in enumerate(paths_data):
         points = path.get('points', [])
         for pt_idx, pt in enumerate(points):
+            # Skip locked points (e.g., ignore marker endpoints)
+            if (path_idx, pt_idx) in locked_set:
+                continue
+                
             point = Point(pt['x'], pt['y'])
 
             # Query spatial index for nearby segments
@@ -445,16 +539,26 @@ def snap_anchors(paths_data: List[Dict], snap_threshold: float = 5.0) -> Dict:
 
 
 def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
-                        steep_min: float = 17.0, steep_max: float = 70.0) -> Dict:
+                        steep_min: float = 17.0, steep_max: float = 70.0,
+                        locked_points: List[Dict] = None) -> Dict:
     """
     Full orthogonalization pipeline:
     1. Snap anchors to nearby segments
     2. Orthogonalize segments (make horizontal or vertical)
     3. Return modified path coordinates
 
+    locked_points: List of {path_idx, point_idx} dicts for points that should NOT snap.
+    
     This replaces the iterative ExtendScript loop with a single Python call.
     """
     start_time = time.time()
+    
+    # Build set of locked points for fast lookup
+    locked_set = set()
+    if locked_points:
+        for lp in locked_points:
+            locked_set.add((lp.get('path_idx', -1), lp.get('point_idx', -1)))
+        log(f"Locked {len(locked_set)} points from snapping (ignore marker endpoints)")
 
     # Convert to numpy for faster math
     paths = []
@@ -497,6 +601,10 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
             for path_idx, path in enumerate(paths):
                 pts = path['points']
                 for pt_idx in range(len(pts)):
+                    # Skip locked points (ignore marker endpoints)
+                    if (path_idx, pt_idx) in locked_set:
+                        continue
+                        
                     point = Point(pts[pt_idx])
                     candidates = tree.query(point.buffer(snap_threshold))
 

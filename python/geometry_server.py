@@ -26,6 +26,7 @@ import argparse
 from geometry_engine import (
     find_connections,
     detect_intersections,
+    find_crossovers,
     build_connection_groups,
     snap_anchors,
     orthogonalize_paths,
@@ -92,6 +93,8 @@ def process_request(request_data):
             result = build_connection_groups(paths, **params)
         elif operation == 'detect_intersections':
             result = detect_intersections(paths, **params)
+        elif operation == 'find_crossovers':
+            result = find_crossovers(paths, **params)
         elif operation == 'snap_anchors':
             result = snap_anchors(paths, **params)
         else:
