@@ -65,12 +65,236 @@ $.global.MDUX_DEBUG = {
 // ============================================================================
 // PYTHON GEOMETRY BRIDGE - High-performance geometry operations
 // ============================================================================
-// Include Python bridge for 100-1000x faster connection detection
-//@include "python-bridge.jsx"
-// ============================================================================
-
-// Flag to control Python acceleration (set to false to use pure ExtendScript)
 $.global.MDUX_USE_PYTHON = true;
+$.global.MDUX_PYTHON_FALLBACK = false;  // Set to true to enable slow ExtendScript fallback
+
+// Inline Python Bridge - File-based communication (Socket not available in CEP)
+var PythonBridge = (function() {
+    var ENGINE_SCRIPT = "geometry_engine.py";
+    var WATCH_FOLDER = Folder.temp.fsName + "/mdux_watch";
+    var serverAvailable = null; // null = unknown, true/false = tested
+
+    // Safe debug function
+    function pyDebug(msg) {
+        try {
+            if ($.global.addDebug && typeof $.global.addDebug === 'function') {
+                $.global.addDebug(msg);
+            } else if (typeof addDebug === 'function') {
+                addDebug(msg);
+            }
+        } catch (e) {
+            try { $.writeln("[PYBRIDGE] " + msg); } catch (e2) { }
+        }
+    }
+
+    function getEnginePath() {
+        try {
+            var deployedPath = "C:/Users/Chris/AppData/Roaming/Adobe/CEP/extensions/Magic-Ductwork-Panel/python/" + ENGINE_SCRIPT;
+            if (new File(deployedPath).exists) return deployedPath;
+            var devPath = "e:/Work/Work/Custom Sketchup, Illustrator and Photoshop Scripts and Extensions/Illustrator/Extensions/Magic-Ductwork-Panel/python/" + ENGINE_SCRIPT;
+            if (new File(devPath).exists) return devPath;
+            return null;
+        } catch (e) { return null; }
+    }
+
+    function ensureWatchFolder() {
+        var folder = new Folder(WATCH_FOLDER);
+        if (!folder.exists) folder.create();
+        return folder.exists;
+    }
+
+    function pathsToJson(pathItems) {
+        var paths = [];
+        for (var i = 0; i < pathItems.length; i++) {
+            var p = pathItems[i];
+            if (!p) continue;
+            var points = [];
+            try {
+                var pp = p.pathPoints;
+                for (var j = 0; j < pp.length; j++) {
+                    points.push({ x: pp[j].anchor[0], y: pp[j].anchor[1] });
+                }
+            } catch (e) { }
+            var pathData = { id: i, points: points };
+            try { pathData.layerName = p.layer ? p.layer.name : null; } catch (e) { }
+            paths.push(pathData);
+        }
+        return paths;
+    }
+
+    function writeJsonFile(filePath, data) {
+        var file = new File(filePath);
+        file.encoding = "UTF-8";
+        file.open('w');
+        file.write(JSON.stringify(data));
+        file.close();
+        return file.exists;
+    }
+
+    function readJsonFile(filePath) {
+        var file = new File(filePath);
+        if (!file.exists) return null;
+        file.encoding = "UTF-8";
+        file.open('r');
+        var content = file.read();
+        file.close();
+        try { return JSON.parse(content); } catch (e) { return null; }
+    }
+
+    /**
+     * Check if server is running by looking for its heartbeat file
+     */
+    function checkServerHealth() {
+        ensureWatchFolder();
+        var statusFile = new File(WATCH_FOLDER + "/server_status.json");
+        if (!statusFile.exists) {
+            pyDebug("[PYBRIDGE] No server_status.json found");
+            return false;
+        }
+        var status = readJsonFile(statusFile.fsName);
+        if (!status) {
+            pyDebug("[PYBRIDGE] Could not read server_status.json");
+            return false;
+        }
+        // Check if status is recent (within last 10 seconds)
+        var now = new Date().getTime();
+        var statusTime = status.timestamp || 0;
+        var age = now - statusTime;
+        if (age > 10000) {
+            pyDebug("[PYBRIDGE] Server status stale: " + age + "ms old");
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Execute operation via file-based communication with persistent server
+     */
+    function executeViaServer(operation, pathItems, params) {
+        var startTime = new Date().getTime();
+        var requestId = "req_" + startTime + "_" + Math.floor(Math.random() * 10000);
+
+        pyDebug("[PYBRIDGE] File request: " + operation + " (" + pathItems.length + " paths, id=" + requestId + ")");
+        ensureWatchFolder();
+
+        var inputPath = WATCH_FOLDER + "/" + requestId + "_input.json";
+        var outputPath = WATCH_FOLDER + "/" + requestId + "_output.json";
+
+        // Write request file
+        var requestData = {
+            operation: operation,
+            request_id: requestId,
+            paths: pathsToJson(pathItems),
+            params: params || {}
+        };
+
+        if (!writeJsonFile(inputPath, requestData)) {
+            pyDebug("[PYBRIDGE] ERROR: Failed to write input file");
+            return null;
+        }
+        pyDebug("[PYBRIDGE] Wrote input file, waiting for response...");
+
+        // Wait for output file (server will process and create it)
+        var maxWait = 60000; // 60 second timeout
+        var pollInterval = 20; // Check every 20ms (faster polling)
+        var waited = 0;
+
+        while (waited < maxWait) {
+            $.sleep(pollInterval);
+            waited += pollInterval;
+
+            // Update progress window if available (keeps UI responsive)
+            if (waited % 200 === 0 && $.global.MDUX_PROGRESS_WIN) {
+                try { $.global.MDUX_PROGRESS_WIN.update(); } catch (e) { }
+            }
+
+            // Check for output file (create fresh File object to avoid caching)
+            if (new File(outputPath).exists) {
+                $.sleep(30); // Brief pause for file write to complete
+                var result = readJsonFile(outputPath);
+
+                // Cleanup files
+                try { new File(inputPath).remove(); } catch (e) { }
+                try { new File(outputPath).remove(); } catch (e) { }
+
+                var elapsed = new Date().getTime() - startTime;
+                if (result) {
+                    pyDebug("[PYBRIDGE] Response in " + elapsed + "ms (processing: " + (result.time_ms || "?") + "ms)");
+                    return result;
+                } else {
+                    pyDebug("[PYBRIDGE] ERROR: Could not parse output file");
+                    return null;
+                }
+            }
+        }
+
+        // Timeout
+        try { new File(inputPath).remove(); } catch (e) { }
+        pyDebug("[PYBRIDGE] ERROR: Server timeout after " + maxWait + "ms");
+        return null;
+    }
+
+    /**
+     * Main execution function
+     */
+    function executePython(operation, pathItems, params) {
+        pyDebug("[PYBRIDGE] === Starting " + operation + " with " + pathItems.length + " paths ===");
+
+        // Check server availability
+        if (serverAvailable === null) {
+            serverAvailable = checkServerHealth();
+            pyDebug("[PYBRIDGE] Server check: " + (serverAvailable ? "RUNNING" : "NOT RUNNING"));
+        }
+
+        if (serverAvailable) {
+            var result = executeViaServer(operation, pathItems, params);
+            if (result) {
+                pyDebug("[PYBRIDGE] SUCCESS: " + (result.paths ? result.paths.length : 0) + " paths");
+                if (result.error) {
+                    pyDebug("[PYBRIDGE] Server error: " + result.error);
+                    return null;
+                }
+                return result;
+            }
+            serverAvailable = null;
+            pyDebug("[PYBRIDGE] Request failed, server may be down");
+        }
+
+        pyDebug("[PYBRIDGE] Server not available - Python acceleration disabled");
+        return null;
+    }
+
+    return {
+        findConnections: function(p, d) { return executePython('find_connections', p, { max_dist: d || 10 }); },
+        buildGroups: function(p, d) { return executePython('build_groups', p, { max_dist: d || 10 }); },
+        orthogonalize: function(p, t) { return executePython('orthogonalize', p, { snap_threshold: t || 5, steep_min: 17, steep_max: 70 }); },
+        isAvailable: function() {
+            if (serverAvailable === null) {
+                serverAvailable = checkServerHealth();
+            }
+            if (serverAvailable) {
+                pyDebug("[PYBRIDGE] isAvailable: YES - server running");
+                return true;
+            }
+            var ep = getEnginePath();
+            pyDebug("[PYBRIDGE] isAvailable: Server not running, engine=" + (ep ? "found" : "missing"));
+            return false;
+        },
+        checkServer: function() {
+            serverAvailable = checkServerHealth();
+            return serverAvailable;
+        },
+        resetServerStatus: function() {
+            serverAvailable = null;
+        },
+        getWatchFolder: function() {
+            return WATCH_FOLDER;
+        },
+        _getEnginePath: getEnginePath
+    };
+})();
+$.global.PythonBridge = PythonBridge;
+// ============================================================================
 
 // Emergency Shim: Define yieldToUI globally to prevent ReferenceError if any calls remain.
 // This function intentionally does nothing.
@@ -8605,6 +8829,24 @@ function setStaticTextColor(control, rgbArray) {
                 // If file logging fails, at least we have in-memory log
             }
         }
+        // Expose addDebug to global scope for PythonBridge IIFE
+        $.global.addDebug = addDebug;
+
+        // Diagnostic: Check PythonBridge availability now that addDebug exists
+        addDebug("[PYBRIDGE-INIT] Checking PythonBridge availability...");
+        addDebug("[PYBRIDGE-INIT] MDUX_USE_PYTHON=" + $.global.MDUX_USE_PYTHON);
+        addDebug("[PYBRIDGE-INIT] typeof PythonBridge=" + typeof PythonBridge);
+        if (typeof PythonBridge !== 'undefined') {
+            addDebug("[PYBRIDGE-INIT] Calling isAvailable()...");
+            try {
+                var pyAvail = PythonBridge.isAvailable();
+                addDebug("[PYBRIDGE-INIT] isAvailable() returned: " + pyAvail);
+            } catch (pyErr) {
+                addDebug("[PYBRIDGE-INIT] isAvailable() threw error: " + pyErr);
+            }
+        } else {
+            addDebug("[PYBRIDGE-INIT] PythonBridge is undefined!");
+        }
 
         function showDebugDialog() {
             if (GLOBAL_DEBUG_LOG.length === 0) return;
@@ -8670,8 +8912,10 @@ function setStaticTextColor(control, rgbArray) {
                 pathInfo.preferredSize = [300, 20];
 
                 progressWin.show();
+                $.global.MDUX_PROGRESS_WIN = progressWin; // Store globally for Python bridge polling
             } catch (e) {
                 progressWin = null; // If window creation fails, continue without progress
+                $.global.MDUX_PROGRESS_WIN = null;
             }
         }
 
@@ -8704,6 +8948,7 @@ function setStaticTextColor(control, rgbArray) {
                     progressWin.close();
                 } catch (e) { }
                 progressWin = null;
+                $.global.MDUX_PROGRESS_WIN = null;
             }
         }
 
@@ -9983,8 +10228,11 @@ function setStaticTextColor(control, rgbArray) {
         function findAllConnections(pathItems, maxDist, ignoredAnchorsOut) {
             ignoredAnchorsOut = ignoredAnchorsOut || [];
 
-            // Try Python acceleration first
-            if ($.global.MDUX_USE_PYTHON && typeof PythonBridge !== 'undefined' && PythonBridge.isAvailable()) {
+            // Minimum paths threshold - Python startup overhead (~7s) isn't worth it for small groups
+            var MIN_PATHS_FOR_PYTHON = 20;
+
+            // Try Python acceleration first (only for larger path sets)
+            if ($.global.MDUX_USE_PYTHON && typeof PythonBridge !== 'undefined' && PythonBridge.isAvailable() && pathItems.length >= MIN_PATHS_FOR_PYTHON) {
                 addDebug("[PYTHON] Attempting Python-accelerated connection detection for " + pathItems.length + " paths");
                 var startTime = new Date().getTime();
 
@@ -13331,35 +13579,47 @@ function setStaticTextColor(control, rgbArray) {
 
         // Fall back to ExtendScript orthogonalization if Python didn't work
         if (!pythonOrthoSuccess) {
-            addDebug("[ORTHO] Using ExtendScript orthogonalization (this may take several minutes)...");
-            updateProgress("Orthogonalizing paths (ExtendScript)...");
+            // Check if fallback is disabled (for debugging)
+            if (!$.global.MDUX_PYTHON_FALLBACK) {
+                addDebug("[ORTHO] ERROR: Python orthogonalization failed and fallback is disabled");
+                addDebug("[ORTHO] ABORTING - check debug log for [PYBRIDGE] errors");
+                // Force flush the debug log NOW before showing alert
+                try { flushDebugLog(); } catch (e) { }
+                alert("Python acceleration failed - ABORTING.\n\nDebug log written. Check for [PYBRIDGE] messages.\n\nCommon issues:\n- Python not in system PATH\n- geometry_engine.py not found");
+                // Close progress window and abort
+                try { if (progressWin) progressWin.close(); } catch (e) { }
+                return;  // EXIT IMMEDIATELY
+            } else {
+                addDebug("[ORTHO] Using ExtendScript orthogonalization (this may take several minutes)...");
+                updateProgress("Orthogonalizing paths (ExtendScript)...");
 
-            // BATCH PROCESSING: Process paths in chunks to prevent UI lockup
-            var ORTHO_BATCH_SIZE = 25; // Process 25 paths at a time
-            var iteration = 0;
-            var changed = true;
-            while (changed && iteration < MAX_ITER) {
-                iteration++;
-                changed = false;
-                addDebug("[Orthogonalize Iteration " + iteration + "] Starting with " + geometryPaths.length + " paths");
-                var allSegments = buildSegmentsForPaths(geometryPaths);
-                if (snapAnchors(geometryPaths, allSegments)) changed = true;
+                // BATCH PROCESSING: Process paths in chunks to prevent UI lockup
+                var ORTHO_BATCH_SIZE = 25; // Process 25 paths at a time
+                var iteration = 0;
+                var changed = true;
+                while (changed && iteration < MAX_ITER) {
+                    iteration++;
+                    changed = false;
+                    addDebug("[Orthogonalize Iteration " + iteration + "] Starting with " + geometryPaths.length + " paths");
+                    var allSegments = buildSegmentsForPaths(geometryPaths);
+                    if (snapAnchors(geometryPaths, allSegments)) changed = true;
 
-                // Process in batches
-                for (var i = 0; i < geometryPaths.length; i++) {
-                    if (orthogonalizePath(geometryPaths[i], preOrthoConnections.pairs)) changed = true;
+                    // Process in batches
+                    for (var i = 0; i < geometryPaths.length; i++) {
+                        if (orthogonalizePath(geometryPaths[i], preOrthoConnections.pairs)) changed = true;
 
-                    // Update progress between batches (lightweight - no app.redraw)
-                    if (i > 0 && i % ORTHO_BATCH_SIZE === 0) {
-                        if (progressWin && progressLabel) {
-                            try {
-                                progressLabel.text = "Orthogonalizing... " + i + "/" + geometryPaths.length;
-                                progressWin.update();
-                            } catch (e) { }
+                        // Update progress between batches (lightweight - no app.redraw)
+                        if (i > 0 && i % ORTHO_BATCH_SIZE === 0) {
+                            if (progressWin && progressLabel) {
+                                try {
+                                    progressLabel.text = "Orthogonalizing... " + i + "/" + geometryPaths.length;
+                                    progressWin.update();
+                                } catch (e) { }
+                            }
                         }
                     }
+                    if (restoreEndpointConnections(preOrthoConnections)) changed = true;
                 }
-                if (restoreEndpointConnections(preOrthoConnections)) changed = true;
             }
         }
 

@@ -645,20 +645,24 @@ OPERATIONS = {
 
 
 def main():
-    if len(sys.argv) < 2:
-        print("Usage: python geometry_engine.py <operation>", file=sys.stderr)
-        print(f"Operations: {', '.join(OPERATIONS.keys())}", file=sys.stderr)
-        sys.exit(1)
+    import argparse
 
-    operation = sys.argv[1]
+    parser = argparse.ArgumentParser(description='Geometry engine for Magic Ductwork')
+    parser.add_argument('operation', help='Operation to perform', choices=list(OPERATIONS.keys()))
+    parser.add_argument('--input', '-i', help='Input JSON file (default: stdin)')
+    parser.add_argument('--output', '-o', help='Output JSON file (default: stdout)')
 
-    if operation not in OPERATIONS:
-        print(f"Unknown operation: {operation}", file=sys.stderr)
-        sys.exit(1)
+    args = parser.parse_args()
+    operation = args.operation
 
     try:
-        # Read input from stdin
-        input_data = json.load(sys.stdin)
+        # Read input from file or stdin
+        if args.input:
+            with open(args.input, 'r', encoding='utf-8') as f:
+                input_data = json.load(f)
+        else:
+            input_data = json.load(sys.stdin)
+
         paths = input_data.get('paths', [])
         params = input_data.get('params', {})
 
@@ -670,12 +674,20 @@ def main():
         else:
             result = OPERATIONS[operation](paths)
 
-        # Output result as JSON
-        json.dump(result, sys.stdout)
+        # Output result to file or stdout
+        if args.output:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(result, f)
+        else:
+            json.dump(result, sys.stdout)
 
     except Exception as e:
         error_result = {'error': str(e), 'operation': operation}
-        json.dump(error_result, sys.stdout)
+        if args.output:
+            with open(args.output, 'w', encoding='utf-8') as f:
+                json.dump(error_result, f)
+        else:
+            json.dump(error_result, sys.stdout)
         log(f"Error: {e}")
         sys.exit(1)
 
