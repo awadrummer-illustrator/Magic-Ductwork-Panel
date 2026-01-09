@@ -15,6 +15,10 @@ jsx/debug.log
 # Dependencies
 node_modules/
 
+# Python cache
+__pycache__/
+*.pyc
+
 # Deployment instructions (not part of extension)
 DEPLOYMENT_INSTRUCTIONS.md
 index.html.bak
