@@ -181,11 +181,11 @@
 
     function scheduleSkipOrthoRefresh() {
         console.log('[JS] scheduleSkipOrthoRefresh called');
-        evalScript('MDUX_debugLog("[JS] scheduleSkipOrthoRefresh called")');
+        // PERF: Removed debug logging to prevent blocking ExtendScript calls
         if (skipOrthoRefreshTimer) clearTimeout(skipOrthoRefreshTimer);
         skipOrthoRefreshTimer = setTimeout(() => {
             console.log('[JS] scheduleSkipOrthoRefresh timeout fired, calling refresh functions');
-            evalScript('MDUX_debugLog("[JS] scheduleSkipOrthoRefresh timeout fired")');
+            // PERF: Removed debug logging to prevent blocking ExtendScript calls
             refreshSkipOrthoState().catch(() => { });
             refreshRotationOverrideState().catch(() => { });
             refreshSelectionTransformState().catch(() => { });
@@ -1030,17 +1030,17 @@
     async function refreshSelectionTransformState() {
         console.log('[JS] refreshSelectionTransformState called, teDragActive=', teDragActive, 'teIsBusy=', teIsBusy);
         if (teDragActive || teIsBusy) {
-            await evalScript('MDUX_debugLog("[JS] refreshSelectionTransformState skipped: teDragActive=" + ' + teDragActive + ' + ", teIsBusy=" + ' + teIsBusy + ')');
+            // PERF: Removed debug logging to prevent blocking ExtendScript calls
             return;
         }
 
-        await evalScript('MDUX_debugLog("[JS] refreshSelectionTransformState proceeding...")');
+        // PERF: Removed debug logging to prevent blocking ExtendScript calls
 
         try {
             await ensureBridgeLoaded();
         } catch (e) {
             console.error('Bridge load failed in refreshSelectionTransformState:', e);
-            await evalScript('MDUX_debugLog("[JS] Bridge load failed in refreshSelectionTransformState: ' + (e ? e.message || e.toString() : 'unknown') + '")');
+            // PERF: Removed debug logging to prevent blocking ExtendScript calls
             return;
         }
 
@@ -1048,7 +1048,7 @@
             const raw = await evalScript('MDUX_getSelectionTransformState()');
             console.log('[JS] refreshSelectionTransformState raw:', raw);
             if (!raw) {
-                await evalScript('MDUX_debugLog("[JS] MDUX_getSelectionTransformState returned null/empty")');
+                // PERF: Removed debug logging to prevent blocking ExtendScript calls
                 return;
             }
             const res = JSON.parse(raw);
@@ -1304,6 +1304,12 @@
 
     reloadBtn.addEventListener('click', () => window.location.reload());
 
+    // Refresh button (top right)
+    const refreshBtnTop = document.getElementById('refresh-btn-top');
+    if (refreshBtnTop) {
+        refreshBtnTop.addEventListener('click', () => window.location.reload());
+    }
+
     // Add keyboard shortcut for reloading (F5)
     window.addEventListener('keydown', (e) => {
         if (e.key === 'F5') {
@@ -1506,23 +1512,45 @@
             refreshRotationOverrideState().catch(function () { });
             refreshDocScale().catch(function () { });
 
-            csInterface.evalScript('MDUX_debugLog("[INIT] About to create polling interval...")', function() {});
+            // SMART POLLING: Only refresh when selection actually changes
+            // afterSelectionChanged event doesn't fire reliably in Illustrator CEP
+            // Research shows polling is the standard approach for CEP extensions
+            // OPTIMIZATION: Check selection hash first (fast), only do full refresh if changed
+            let pollInProgress = false;
+            let lastSelectionHash = '';
 
-            // Poll every 2 seconds to update selection transform state and rotation override
             const pollInterval = setInterval(function() {
-                csInterface.evalScript('MDUX_debugLog("[POLL] tick")', function() {
-                    refreshSelectionTransformState().catch(function() {});
-                    refreshRotationOverrideState().catch(function() {});
+                // Don't poll if previous poll still running
+                if (pollInProgress) return;
+
+                pollInProgress = true;
+
+                // FAST CHECK: Get simple selection signature (count + first item)
+                // This is MUCH faster than full metadata read
+                evalScript('(function(){try{var s=app.activeDocument.selection;if(!s||s.length===0)return"empty";return s.length+"|"+(s[0].typename||"");}catch(e){return"nodoc";}})()').then(function(hash) {
+                    if (hash === lastSelectionHash) {
+                        // Selection unchanged, skip expensive refresh
+                        pollInProgress = false;
+                        return;
+                    }
+
+                    // Selection changed! Update hash and do full refresh
+                    lastSelectionHash = hash;
+                    return Promise.all([
+                        refreshSelectionTransformState().catch(function() {}),
+                        refreshRotationOverrideState().catch(function() {})
+                    ]);
+                }).catch(function() {
+                    // Error in check, just skip this poll cycle
+                }).finally(function() {
+                    pollInProgress = false;
                 });
-            }, 2000);
+            }, 1000); // 1 second - fast updates, but only does expensive work if selection changed
 
-            csInterface.evalScript('MDUX_debugLog("[INIT] Polling interval created, ID=' + pollInterval + '")', function() {});
-
-            // Also refresh when panel gets focus
+            // Also refresh when panel gets focus (removed blocking debug log)
             window.addEventListener('focus', function() {
-                csInterface.evalScript('MDUX_debugLog("[FOCUS] Panel got focus")', function() {
-                    refreshSelectionTransformState().catch(function() {});
-                });
+                refreshSelectionTransformState().catch(function() {});
+                refreshRotationOverrideState().catch(function() {});
             });
 
             csInterface.evalScript('MDUX_debugLog("[INIT] Init complete!")', function() {});

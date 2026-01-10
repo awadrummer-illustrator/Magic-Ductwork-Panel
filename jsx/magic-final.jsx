@@ -195,11 +195,18 @@ var PythonBridge = (function() {
         pyDebug("[PYBRIDGE] Wrote input file, waiting for response...");
 
         // Wait for output file (server will process and create it)
-        var maxWait = 60000; // 60 second timeout
+        var maxWait = 10000; // 10 second timeout (reduced from 60s to prevent long freezes)
         var pollInterval = 20; // Check every 20ms (faster polling)
         var waited = 0;
 
         while (waited < maxWait) {
+            // Check for cancellation FIRST (before any blocking operations)
+            if ($.global.MDUX_PROGRESS_CANCELLED) {
+                pyDebug("[PYBRIDGE] CANCELLED by user during Python wait");
+                try { new File(inputPath).remove(); } catch (e) { }
+                throw new Error("Processing cancelled by user");
+            }
+
             $.sleep(pollInterval);
             waited += pollInterval;
 
@@ -228,9 +235,11 @@ var PythonBridge = (function() {
             }
         }
 
-        // Timeout
+        // Timeout - cleanup and mark server as unavailable
         try { new File(inputPath).remove(); } catch (e) { }
         pyDebug("[PYBRIDGE] ERROR: Server timeout after " + maxWait + "ms");
+        pyDebug("[PYBRIDGE] Server may have crashed - marking as unavailable");
+        serverAvailable = false; // Mark server as dead to skip future attempts
         return null;
     }
 
@@ -3599,20 +3608,37 @@ function setStaticTextColor(control, rgbArray) {
             for (var i = 0; i < idList.length; i++) {
                 if (idList[i]) remaining[idList[i]] = true;
             }
+
+            // PERFORMANCE: Only search ductwork layers instead of entire document
+            var ductworkLayerNames = [
+                "Green Ductwork", "Light Green Ductwork", "Blue Ductwork",
+                "Orange Ductwork", "Light Orange Ductwork"
+            ];
+
             try {
-                for (var pi = 0; pi < doc.pathItems.length; pi++) {
-                    var candidate = doc.pathItems[pi];
-                    if (!candidate) continue;
-                    var cid = getEmoryCenterlineId(candidate);
-                    if (cid && remaining[cid]) {
-                        results.push(candidate);
-                        delete remaining[cid];
-                        var still = false;
-                        for (var key in remaining) {
-                            still = true;
-                            break;
+                for (var layerIdx = 0; layerIdx < ductworkLayerNames.length; layerIdx++) {
+                    var layer = null;
+                    try {
+                        layer = doc.layers.getByName(ductworkLayerNames[layerIdx]);
+                    } catch (e) {
+                        continue;
+                    }
+                    if (!layer || !layer.pathItems) continue;
+
+                    for (var pi = 0; pi < layer.pathItems.length; pi++) {
+                        var candidate = layer.pathItems[pi];
+                        if (!candidate) continue;
+                        var cid = getEmoryCenterlineId(candidate);
+                        if (cid && remaining[cid]) {
+                            results.push(candidate);
+                            delete remaining[cid];
+                            var still = false;
+                            for (var key in remaining) {
+                                still = true;
+                                break;
+                            }
+                            if (!still) return results; // Early exit when all found
                         }
-                        if (!still) break;
                     }
                 }
             } catch (e) { }
@@ -7764,25 +7790,46 @@ function setStaticTextColor(control, rgbArray) {
                                         var doc = app.activeDocument;
                                         var fbConnTol = Math.max(2, (scaledGapDistance || 2) * 2.0);
                                         var fbTol2 = fbConnTol * fbConnTol;
-                                        for (var pi = 0; pi < doc.pathItems.length; pi++) {
-                                            var pItem = doc.pathItems[pi];
-                                            if (!pItem) continue;
-                                            try { if (pItem === path) continue; } catch (eSame4) { }
-                                            var layerName = (pItem.layer && pItem.layer.name) ? pItem.layer.name : null;
-                                            var colName = getColorNameForLayer(layerName);
-                                            if (colName !== 'Blue Ductwork' && colName !== 'Green Ductwork') continue;
+
+                                        // PERFORMANCE: Only check Blue/Green ductwork layers instead of entire document
+                                        var checkLayers = ["Blue Ductwork", "Green Ductwork"];
+                                        for (var layerIdx = 0; layerIdx < checkLayers.length; layerIdx++) {
+                                            var checkLayer = null;
                                             try {
-                                                var ppts = pItem.pathPoints;
-                                                for (var ppi = 0; ppi < ppts.length; ppi++) {
-                                                    var ap = ppts[ppi].anchor;
-                                                    var dx2 = ap[0] - segmentStart.x;
-                                                    var dy2 = ap[1] - segmentStart.y;
-                                                    if ((dx2 * dx2 + dy2 * dy2) <= fbTol2) {
-                                                        startIsValidJunction = true;
-                                                        break;
+                                                checkLayer = doc.layers.getByName(checkLayers[layerIdx]);
+                                            } catch (e) {
+                                                continue;
+                                            }
+                                            if (!checkLayer || !checkLayer.pathItems) continue;
+
+                                            for (var pi = 0; pi < checkLayer.pathItems.length; pi++) {
+                                                var pItem = checkLayer.pathItems[pi];
+                                                if (!pItem) continue;
+                                                try { if (pItem === path) continue; } catch (eSame4) { }
+
+                                                // PERFORMANCE: Spatial bounding box pre-filter
+                                                try {
+                                                    var bounds = pItem.geometricBounds; // [left, top, right, bottom]
+                                                    if (segmentStart.x < bounds[0] - fbConnTol || segmentStart.x > bounds[2] + fbConnTol ||
+                                                        segmentStart.y > bounds[1] + fbConnTol || segmentStart.y < bounds[3] - fbConnTol) {
+                                                        continue; // Path is too far away
                                                     }
-                                                }
-                                            } catch (ePts3) { }
+                                                } catch (eBounds) { }
+
+                                                try {
+                                                    var ppts = pItem.pathPoints;
+                                                    for (var ppi = 0; ppi < ppts.length; ppi++) {
+                                                        var ap = ppts[ppi].anchor;
+                                                        var dx2 = ap[0] - segmentStart.x;
+                                                        var dy2 = ap[1] - segmentStart.y;
+                                                        if ((dx2 * dx2 + dy2 * dy2) <= fbTol2) {
+                                                            startIsValidJunction = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                } catch (ePts3) { }
+                                                if (startIsValidJunction) break;
+                                            }
                                             if (startIsValidJunction) break;
                                         }
                                     }
@@ -8114,35 +8161,50 @@ function setStaticTextColor(control, rgbArray) {
                             } catch (eConnCheck) { }
 
                             // Fallback: sometimes the connections table can miss endpoints
-                            // — scan document pathItems for any path (other than this one) that has
-                            // an anchor near seg.end and is on a Blue Ductwork layer.
+                            // — scan Blue Ductwork layer for any path (other than this one) that has
+                            // an anchor near seg.end
                             try {
                                 if (!suppressCornerBecauseConnectedBlue && typeof app !== 'undefined' && app && app.documents && app.documents.length) {
                                     var doc = app.activeDocument;
                                     var fbConnTol = Math.max(2, (scaledGapDistance || 2) * 2.0);
                                     var fbTol2 = fbConnTol * fbConnTol;
-                                    for (var pi = 0; pi < doc.pathItems.length; pi++) {
-                                        var pItem = doc.pathItems[pi];
-                                        if (!pItem) continue;
-                                        // skip the same path object if possible
-                                        try { if (pItem === path) continue; } catch (eSame) { }
-                                        var layerName = (pItem.layer && pItem.layer.name) ? pItem.layer.name : null;
-                                        var colName = getColorNameForLayer(layerName);
-                                        if (colName !== 'Blue Ductwork') continue;
-                                        try {
-                                            var ppts = pItem.pathPoints;
-                                            for (var ppi = 0; ppi < ppts.length; ppi++) {
-                                                var ap = ppts[ppi].anchor;
-                                                var dx2 = ap[0] - seg.end.x;
-                                                var dy2 = ap[1] - seg.end.y;
-                                                if ((dx2 * dx2 + dy2 * dy2) <= fbTol2) {
-                                                    suppressCornerBecauseConnectedBlue = true;
-                                                    try { addDebug('[Emory] Fallback suppression: found blue pathItem endpoint near seg.end at index ' + pi + ', point ' + ppi); } catch (eDbg2) { }
-                                                    break;
+
+                                    // PERFORMANCE: Only check Blue Ductwork layer instead of entire document
+                                    var blueLayer = null;
+                                    try {
+                                        blueLayer = doc.layers.getByName("Blue Ductwork");
+                                    } catch (e) { }
+
+                                    if (blueLayer && blueLayer.pathItems) {
+                                        for (var pi = 0; pi < blueLayer.pathItems.length; pi++) {
+                                            var pItem = blueLayer.pathItems[pi];
+                                            if (!pItem) continue;
+                                            try { if (pItem === path) continue; } catch (eSame) { }
+
+                                            // PERFORMANCE: Spatial bounding box pre-filter
+                                            try {
+                                                var bounds = pItem.geometricBounds; // [left, top, right, bottom]
+                                                if (seg.end.x < bounds[0] - fbConnTol || seg.end.x > bounds[2] + fbConnTol ||
+                                                    seg.end.y > bounds[1] + fbConnTol || seg.end.y < bounds[3] - fbConnTol) {
+                                                    continue; // Path is too far away
                                                 }
-                                            }
-                                        } catch (ePts) { }
-                                        if (suppressCornerBecauseConnectedBlue) break;
+                                            } catch (eBounds) { }
+
+                                            try {
+                                                var ppts = pItem.pathPoints;
+                                                for (var ppi = 0; ppi < ppts.length; ppi++) {
+                                                    var ap = ppts[ppi].anchor;
+                                                    var dx2 = ap[0] - seg.end.x;
+                                                    var dy2 = ap[1] - seg.end.y;
+                                                    if ((dx2 * dx2 + dy2 * dy2) <= fbTol2) {
+                                                        suppressCornerBecauseConnectedBlue = true;
+                                                        try { addDebug('[Emory] Fallback suppression: found blue pathItem endpoint near seg.end at index ' + pi + ', point ' + ppi); } catch (eDbg2) { }
+                                                        break;
+                                                    }
+                                                }
+                                            } catch (ePts) { }
+                                            if (suppressCornerBecauseConnectedBlue) break;
+                                        }
                                     }
                                 }
                             } catch (eFallback) { }
@@ -8992,7 +9054,7 @@ function setStaticTextColor(control, rgbArray) {
             // Only show progress for larger selections
             if (pathCount < 15) return;
             try {
-                progressWin = new Window('palette', 'Processing Ductwork...', undefined, { closeButton: false });
+                progressWin = new Window('palette', 'Processing Ductwork...', undefined, { closeButton: true });
                 progressWin.orientation = 'column';
                 progressWin.alignChildren = ['fill', 'top'];
 
@@ -9005,6 +9067,23 @@ function setStaticTextColor(control, rgbArray) {
                 var pathInfo = progressWin.add('statictext', undefined, 'Processing ' + pathCount + ' paths');
                 pathInfo.preferredSize = [300, 20];
 
+                // Add Cancel button
+                var buttonGroup = progressWin.add('group');
+                buttonGroup.orientation = 'row';
+                buttonGroup.alignChildren = ['center', 'center'];
+                var cancelBtn = buttonGroup.add('button', undefined, 'Cancel');
+                cancelBtn.preferredSize = [100, 25];
+                cancelBtn.onClick = function() {
+                    $.global.MDUX_PROGRESS_CANCELLED = true;
+                    progressWin.close();
+                };
+
+                // Handle window close button
+                progressWin.onClose = function() {
+                    $.global.MDUX_PROGRESS_CANCELLED = true;
+                };
+
+                $.global.MDUX_PROGRESS_CANCELLED = false;
                 progressWin.show();
                 $.global.MDUX_PROGRESS_WIN = progressWin; // Store globally for Python bridge polling
             } catch (e) {
@@ -9014,6 +9093,11 @@ function setStaticTextColor(control, rgbArray) {
         }
 
         function updateProgress(stepName) {
+            // Check if user cancelled
+            if ($.global.MDUX_PROGRESS_CANCELLED) {
+                throw new Error("Processing cancelled by user");
+            }
+
             currentStep++;
             if (progressWin && progressLabel && progressBar) {
                 try {
@@ -9106,6 +9190,35 @@ function setStaticTextColor(control, rgbArray) {
         if (allPaths.length === 0) {
             alert("No valid path items.");
             return;
+        }
+
+        // CRITICAL: Calculate and store selection bounds EARLY for use in STEP 2 and STEP 7
+        // This must happen BEFORE paths are processed/compounded
+        $.global.MDUX_SELECTION_BOUNDS = {
+            minX: Infinity,
+            minY: Infinity,
+            maxX: -Infinity,
+            maxY: -Infinity
+        };
+        try {
+            for (var boundsIdx = 0; boundsIdx < allPaths.length; boundsIdx++) {
+                try {
+                    var bPath = allPaths[boundsIdx];
+                    if (!bPath || !bPath.pathPoints) continue;
+                    for (var bpIdx = 0; bpIdx < bPath.pathPoints.length; bpIdx++) {
+                        var bAnchor = bPath.pathPoints[bpIdx].anchor;
+                        if (bAnchor[0] < $.global.MDUX_SELECTION_BOUNDS.minX) $.global.MDUX_SELECTION_BOUNDS.minX = bAnchor[0];
+                        if (bAnchor[0] > $.global.MDUX_SELECTION_BOUNDS.maxX) $.global.MDUX_SELECTION_BOUNDS.maxX = bAnchor[0];
+                        if (bAnchor[1] < $.global.MDUX_SELECTION_BOUNDS.minY) $.global.MDUX_SELECTION_BOUNDS.minY = bAnchor[1];
+                        if (bAnchor[1] > $.global.MDUX_SELECTION_BOUNDS.maxY) $.global.MDUX_SELECTION_BOUNDS.maxY = bAnchor[1];
+                    }
+                } catch (ePathBounds) { }
+            }
+            addDebug("[SELECTION-BOUNDS] Calculated early: [" +
+                $.global.MDUX_SELECTION_BOUNDS.minX.toFixed(1) + "," + $.global.MDUX_SELECTION_BOUNDS.minY.toFixed(1) + "] to [" +
+                $.global.MDUX_SELECTION_BOUNDS.maxX.toFixed(1) + "," + $.global.MDUX_SELECTION_BOUNDS.maxY.toFixed(1) + "]");
+        } catch (eBounds) {
+            addDebug("[SELECTION-BOUNDS] Error calculating: " + eBounds);
         }
 
         // Initialize progress dialog for larger selections
@@ -10805,6 +10918,14 @@ function setStaticTextColor(control, rgbArray) {
                                 var dy = aPos[1] - bPos[1];
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist >= MIN_DIST && dist <= ENDPOINT_TOLERANCE) {
+                                    // SKIP if either endpoint has an ignore marker (don't extend ignored endpoints)
+                                    var hasIgnoreMarkerA = isNearIgnoredAnchor(aPos, existingIgnoredAnchors);
+                                    var hasIgnoreMarkerB = isNearIgnoredAnchor(bPos, existingIgnoredAnchors);
+                                    if (hasIgnoreMarkerA || hasIgnoreMarkerB) {
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Endpoint-to-endpoint SKIPPED (ignore marker): path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
+                                        continue;
+                                    }
+
                                     var midPt = [(aPos[0] + bPos[0]) / 2, (aPos[1] + bPos[1]) / 2];
                                     var hasConnectionMarker3 = (connectionMarkers.length > 0 &&
                                                                  (isNearIgnoredAnchor(aPos, connectionMarkers) ||
@@ -12036,11 +12157,24 @@ function setStaticTextColor(control, rgbArray) {
 
 
         // --- NEW: REMOVE PLACED ART AND ANCHORS THAT ALIGN WITH IGNORED POINTS ---
-        function removeConflictingArtAndAnchors(ignoredAnchors) {
+        function removeConflictingArtAndAnchors(ignoredAnchors, selectionBounds) {
             var targetLayers = [
                 "Thermostats", "Units", "Secondary Exhaust", "Exhaust Registers",
                 "Orange Register", "Rectangular Registers", "Square Registers"
             ];
+
+            // Calculate expanded selection bounds for proximity check (add 50pt buffer)
+            var PROXIMITY_BUFFER = 50;
+            var hasValidBounds = selectionBounds &&
+                typeof selectionBounds.minX === 'number' && isFinite(selectionBounds.minX);
+
+            if (hasValidBounds) {
+                addDebug("[CONFLICT-REMOVE] Selection bounds: [" +
+                    selectionBounds.minX.toFixed(1) + "," + selectionBounds.minY.toFixed(1) + "] to [" +
+                    selectionBounds.maxX.toFixed(1) + "," + selectionBounds.maxY.toFixed(1) + "]");
+            } else {
+                addDebug("[CONFLICT-REMOVE] WARNING: No valid selection bounds - will check entire document");
+            }
 
             for (var layerIdx = 0; layerIdx < targetLayers.length; layerIdx++) {
                 var layerName = targetLayers[layerIdx];
@@ -12071,6 +12205,17 @@ function setStaticTextColor(control, rgbArray) {
                                 for (var j = path.pathPoints.length - 1; j >= 0; j--) {
                                     try {
                                         var anchor = [path.pathPoints[j].anchor[0], path.pathPoints[j].anchor[1]];
+
+                                        // BOUNDS CHECK: Only remove if within selection area
+                                        if (hasValidBounds) {
+                                            if (anchor[0] < selectionBounds.minX - PROXIMITY_BUFFER ||
+                                                anchor[0] > selectionBounds.maxX + PROXIMITY_BUFFER ||
+                                                anchor[1] < selectionBounds.minY - PROXIMITY_BUFFER ||
+                                                anchor[1] > selectionBounds.maxY + PROXIMITY_BUFFER) {
+                                                continue; // Outside selection area, skip
+                                            }
+                                        }
+
                                         // Check if this anchor aligns with any ignored point
                                         for (var k = 0; k < ignoredAnchors.length; k++) {
                                             if (dist(anchor, ignoredAnchors[k]) <= IGNORED_DIST) {
@@ -12100,6 +12245,16 @@ function setStaticTextColor(control, rgbArray) {
                                 var centerY = group.top - (group.height / 2);
                                 var centerPoint = [centerX, centerY];
 
+                                // BOUNDS CHECK: Only remove if within selection area
+                                if (hasValidBounds) {
+                                    if (centerPoint[0] < selectionBounds.minX - PROXIMITY_BUFFER ||
+                                        centerPoint[0] > selectionBounds.maxX + PROXIMITY_BUFFER ||
+                                        centerPoint[1] < selectionBounds.minY - PROXIMITY_BUFFER ||
+                                        centerPoint[1] > selectionBounds.maxY + PROXIMITY_BUFFER) {
+                                        continue; // Outside selection area, skip
+                                    }
+                                }
+
                                 // Check if center aligns with any ignored point
                                 for (var n = 0; n < ignoredAnchors.length; n++) {
                                     if (dist(centerPoint, ignoredAnchors[n]) <= IGNORED_DIST) {
@@ -12120,6 +12275,16 @@ function setStaticTextColor(control, rgbArray) {
                                     var centerX = symbol.left + (symbol.width / 2);
                                     var centerY = symbol.top - (symbol.height / 2);
                                     var centerPoint = [centerX, centerY];
+
+                                    // BOUNDS CHECK: Only remove if within selection area
+                                    if (hasValidBounds) {
+                                        if (centerPoint[0] < selectionBounds.minX - PROXIMITY_BUFFER ||
+                                            centerPoint[0] > selectionBounds.maxX + PROXIMITY_BUFFER ||
+                                            centerPoint[1] < selectionBounds.minY - PROXIMITY_BUFFER ||
+                                            centerPoint[1] > selectionBounds.maxY + PROXIMITY_BUFFER) {
+                                            continue; // Outside selection area, skip
+                                        }
+                                    }
 
                                     // Check if center aligns with any ignored point
                                     for (var q = 0; q < ignoredAnchors.length; q++) {
@@ -12142,6 +12307,16 @@ function setStaticTextColor(control, rgbArray) {
                                     var centerX = text.left + (text.width / 2);
                                     var centerY = text.top - (text.height / 2);
                                     var centerPoint = [centerX, centerY];
+
+                                    // BOUNDS CHECK: Only remove if within selection area
+                                    if (hasValidBounds) {
+                                        if (centerPoint[0] < selectionBounds.minX - PROXIMITY_BUFFER ||
+                                            centerPoint[0] > selectionBounds.maxX + PROXIMITY_BUFFER ||
+                                            centerPoint[1] < selectionBounds.minY - PROXIMITY_BUFFER ||
+                                            centerPoint[1] > selectionBounds.maxY + PROXIMITY_BUFFER) {
+                                            continue; // Outside selection area, skip
+                                        }
+                                    }
 
                                     // Check if center aligns with any ignored point
                                     for (var s = 0; s < ignoredAnchors.length; s++) {
@@ -13198,7 +13373,7 @@ function setStaticTextColor(control, rgbArray) {
         // DELETE that anchor and ADD a vertex point on one of the intersecting lines
         try {
             var SNAP_TO_INTERSECTION_DIST = 0.5; // tolerance in points
-            var anchorsDeleted = 0;
+            var anchorsSnapped = 0;
             var verticesAdded = 0;
 
             // Only process blue ductwork paths for intersection snapping
@@ -13280,7 +13455,18 @@ function setStaticTextColor(control, rgbArray) {
                                         var anchorA = ptsA[ancA].anchor;
                                         var distA = Math.sqrt(Math.pow(anchorA[0] - intPt[0], 2) + Math.pow(anchorA[1] - intPt[1], 2));
                                         if (distA > 0.01 && distA <= SNAP_TO_INTERSECTION_DIST) {
-                                            misalignedAnchors.push({ path: pathA, anchorIdx: ancA, dist: distA });
+                                            // IMPORTANT: Skip if this is an endpoint - endpoints at intersections are CONNECTION POINTS
+                                            var isEndpointA = (ancA === 0 || ancA === ptsA.length - 1);
+                                            addDebug("[FR-003] Found misaligned anchor on pathA: [" + anchorA[0].toFixed(2) + "," + anchorA[1].toFixed(2) +
+                                                     "] dist=" + distA.toFixed(3) + ", isEndpoint=" + isEndpointA);
+                                            if (isEndpointA) {
+                                                addDebug("[FR-003] SKIPPED - endpoint anchors are connection points, must not be deleted");
+                                            } else if (ptsA.length > 2) {
+                                                misalignedAnchors.push({ path: pathA, anchorIdx: ancA, dist: distA });
+                                                addDebug("[FR-003] Added to deletion list (internal anchor, safe to delete)");
+                                            } else {
+                                                addDebug("[FR-003] SKIPPED - path has only " + ptsA.length + " point(s)");
+                                            }
                                         }
                                     }
 
@@ -13288,7 +13474,18 @@ function setStaticTextColor(control, rgbArray) {
                                         var anchorB = ptsB[ancB].anchor;
                                         var distB = Math.sqrt(Math.pow(anchorB[0] - intPt[0], 2) + Math.pow(anchorB[1] - intPt[1], 2));
                                         if (distB > 0.01 && distB <= SNAP_TO_INTERSECTION_DIST) {
-                                            misalignedAnchors.push({ path: pathB, anchorIdx: ancB, dist: distB });
+                                            // IMPORTANT: Skip if this is an endpoint - endpoints at intersections are CONNECTION POINTS
+                                            var isEndpointB = (ancB === 0 || ancB === ptsB.length - 1);
+                                            addDebug("[FR-003] Found misaligned anchor on pathB: [" + anchorB[0].toFixed(2) + "," + anchorB[1].toFixed(2) +
+                                                     "] dist=" + distB.toFixed(3) + ", isEndpoint=" + isEndpointB);
+                                            if (isEndpointB) {
+                                                addDebug("[FR-003] SKIPPED - endpoint anchors are connection points, must not be deleted");
+                                            } else if (ptsB.length > 2) {
+                                                misalignedAnchors.push({ path: pathB, anchorIdx: ancB, dist: distB });
+                                                addDebug("[FR-003] Added to deletion list (internal anchor, safe to delete)");
+                                            } else {
+                                                addDebug("[FR-003] SKIPPED - path has only " + ptsB.length + " point(s)");
+                                            }
                                         }
                                     }
 
@@ -13313,25 +13510,27 @@ function setStaticTextColor(control, rgbArray) {
                 for (var fixIdx = 0; fixIdx < intersectionsToFix.length; fixIdx++) {
                     var fix = intersectionsToFix[fixIdx];
 
-                    // Delete misaligned anchors (process in reverse order to maintain indices)
-                    fix.misalignedAnchors.sort(function(a, b) { return b.anchorIdx - a.anchorIdx; });
-
-                    for (var delIdx = 0; delIdx < fix.misalignedAnchors.length; delIdx++) {
-                        var toDelete = fix.misalignedAnchors[delIdx];
+                    // SNAP misaligned anchors to exact intersection (preserves all connections)
+                    for (var snapIdx = 0; snapIdx < fix.misalignedAnchors.length; snapIdx++) {
+                        var toSnap = fix.misalignedAnchors[snapIdx];
                         try {
-                            var delPts = toDelete.path.pathPoints;
-                            var oldAnchor = delPts[toDelete.anchorIdx].anchor;
-                            addDebug("[FR-003] Deleting misaligned anchor [" + oldAnchor[0].toFixed(2) + "," + oldAnchor[1].toFixed(2) +
-                                     "] (dist=" + toDelete.dist.toFixed(3) + " from intersection)");
-                            delPts[toDelete.anchorIdx].remove();
-                            anchorsDeleted++;
-                        } catch (eDelete) {
-                            addDebug("[FR-003] Error deleting anchor: " + eDelete);
+                            var snapPts = toSnap.path.pathPoints;
+                            var oldAnchor = snapPts[toSnap.anchorIdx].anchor;
+
+                            // SNAP: Move anchor to exact intersection point (preserves all connections)
+                            snapPts[toSnap.anchorIdx].anchor = [fix.intPt[0], fix.intPt[1]];
+
+                            addDebug("[FR-003] SNAPPED anchor from [" + oldAnchor[0].toFixed(2) + "," + oldAnchor[1].toFixed(2) +
+                                     "] to intersection [" + fix.intPt[0].toFixed(2) + "," + fix.intPt[1].toFixed(2) +
+                                     "] (was " + toSnap.dist.toFixed(3) + "pt away)");
+                            anchorsSnapped++;
+                        } catch (eSnap) {
+                            addDebug("[FR-003] Error snapping anchor: " + eSnap);
                         }
                     }
 
-                    // Add vertex on pathA at the intersection point (if no proper vertex exists)
-                    if (!fix.hasProperVertex) {
+                    // Add vertex on pathA at the intersection point (only if no vertex exists after snapping)
+                    if (!fix.hasProperVertex && fix.misalignedAnchors.length === 0) {
                         try {
                             // Add new point to pathA at the intersection
                             // Insert between segA and segA+1
@@ -13363,12 +13562,23 @@ function setStaticTextColor(control, rgbArray) {
                             var newPointData = allAnchors.pop(); // Remove from end
                             allAnchors.splice(insertAfterIdx + 1, 0, newPointData); // Insert at correct position
 
-                            // Clear all points and re-add in correct order
-                            while (targetPts.length > 0) {
+                            // Clear all points except the first one (Illustrator won't allow removing the last point)
+                            // Delete from the end backwards, stopping at 1 point
+                            while (targetPts.length > 1) {
                                 targetPts[targetPts.length - 1].remove();
                             }
 
-                            for (var readdIdx = 0; readdIdx < allAnchors.length; readdIdx++) {
+                            // Update the first point with the first anchor data
+                            if (allAnchors.length > 0) {
+                                var firstPtData = allAnchors[0];
+                                targetPts[0].anchor = firstPtData.anchor;
+                                targetPts[0].leftDirection = firstPtData.leftDir;
+                                targetPts[0].rightDirection = firstPtData.rightDir;
+                                try { targetPts[0].pointType = firstPtData.pointType; } catch (ePtType) { }
+                            }
+
+                            // Add the remaining points
+                            for (var readdIdx = 1; readdIdx < allAnchors.length; readdIdx++) {
                                 var ptData = allAnchors[readdIdx];
                                 var addedPt = targetPts.add();
                                 addedPt.anchor = ptData.anchor;
@@ -13385,8 +13595,8 @@ function setStaticTextColor(control, rgbArray) {
                     }
                 }
 
-                if (anchorsDeleted > 0 || verticesAdded > 0) {
-                    addDebug("[FR-003] Deleted " + anchorsDeleted + " misaligned anchor(s), added " + verticesAdded + " vertex point(s)");
+                if (anchorsSnapped > 0 || verticesAdded > 0) {
+                    addDebug("[FR-003] Snapped " + anchorsSnapped + " misaligned anchor(s) to intersection, added " + verticesAdded + " new vertex point(s)");
                 }
             }
         } catch (eFR003) {
@@ -14817,7 +15027,9 @@ function setStaticTextColor(control, rgbArray) {
         }
 
         if (ignoredAnchors.length > 0) {
-            removeConflictingArtAndAnchors(ignoredAnchors);
+            // Use global selection bounds calculated at start (before paths were processed)
+            var selectionBounds = $.global.MDUX_SELECTION_BOUNDS || null;
+            removeConflictingArtAndAnchors(ignoredAnchors, selectionBounds);
         }
 
         // Consolidate any pre-existing Unit anchors before new placement
@@ -17840,7 +18052,8 @@ function setStaticTextColor(control, rgbArray) {
             }
         }
 
-        doc.selection = null;
+        // IMPORTANT: Do NOT clear selection here! STEP 7 needs it for proximity filtering
+        // Selection will be cleared after STEP 7 completes
 
         // STEP 7: Call the next script in the workflow (embedded version of 03 - Place Ductwork at Points.jsx)
         updateProgress("Placing components...");
@@ -18109,6 +18322,16 @@ function setStaticTextColor(control, rgbArray) {
                     addDebug("Use Emory Assets: " + USE_EMORY_ASSETS);
                     addDebug("");
 
+                    // Use global selection bounds calculated at start (before paths were processed)
+                    var selectionBounds_placement = $.global.MDUX_SELECTION_BOUNDS || null;
+                    if (selectionBounds_placement) {
+                        addDebug("[PLACEMENT-BOUNDS] Using global bounds: [" +
+                            selectionBounds_placement.minX.toFixed(1) + "," + selectionBounds_placement.minY.toFixed(1) + "] to [" +
+                            selectionBounds_placement.maxX.toFixed(1) + "," + selectionBounds_placement.maxY.toFixed(1) + "]");
+                    } else {
+                        addDebug("[PLACEMENT-BOUNDS] WARNING: No global bounds available - will check entire document");
+                    }
+
                     // PERF: Cache ignored anchors ONCE before processing all component types (Gemini optimization)
                     var CACHED_IGNORED_ANCHORS = [];
                     var possibleLayerNames = ["Ignore", "Ignored", "ignore", "ignored"];
@@ -18159,12 +18382,37 @@ function setStaticTextColor(control, rgbArray) {
                         addDebug("[PERF] Cached " + CACHED_IGNORED_ANCHORS.length + " ignored anchors (collected once, reused 8x)");
                     }
 
+                    // UNIT PRIORITY: Collect existing Unit positions BEFORE processing registers
+                    // This allows Units to take priority over registers at shared anchor points
+                    var EXISTING_UNIT_POSITIONS = [];
+                    try {
+                        var unitsLayer = getLayerByName_local(docParam, "Units");
+                        if (unitsLayer && !unitsLayer.locked) {
+                            for (var upi = 0; upi < docParam.placedItems.length; upi++) {
+                                try {
+                                    var unitItem = docParam.placedItems[upi];
+                                    if (unitItem.layer === unitsLayer && unitItem.name.indexOf("Unit") !== -1) {
+                                        var ugb = unitItem.geometricBounds;
+                                        var ucx = (ugb[0] + ugb[2]) / 2;
+                                        var ucy = (ugb[1] + ugb[3]) / 2;
+                                        EXISTING_UNIT_POSITIONS.push([ucx, ucy]);
+                                    }
+                                } catch (e) { }
+                            }
+                            if (EXISTING_UNIT_POSITIONS.length > 0) {
+                                addDebug("[UNIT PRIORITY] Found " + EXISTING_UNIT_POSITIONS.length + " existing Units - registers will skip these positions");
+                            }
+                        }
+                    } catch (eUnits) {
+                        addDebug("[UNIT PRIORITY] Error collecting Unit positions: " + eUnits);
+                    }
+
                     for (var i = 0; i < COMPONENT_TYPES.length; i++) {
-                        placeComponentAtAnchorPoints_local(docParam, COMPONENT_TYPES[i], globalScale, selectedPaths, CACHED_IGNORED_ANCHORS);
+                        placeComponentAtAnchorPoints_local(docParam, COMPONENT_TYPES[i], globalScale, selectedPaths, CACHED_IGNORED_ANCHORS, selectionBounds_placement, EXISTING_UNIT_POSITIONS);
                     }
                 }
 
-                function placeComponentAtAnchorPoints_local(docParam, type, globalScale, selectedPaths, cachedIgnoredAnchors) {
+                function placeComponentAtAnchorPoints_local(docParam, type, globalScale, selectedPaths, cachedIgnoredAnchors, selectionBounds, existingUnitPositions) {
                     var layer = getLayerByName_local(docParam, type.layer);
                     if (!layer || layer.locked) {
                         addDebug("[" + type.name + "] Layer '" + type.layer + "' not found or locked");
@@ -18182,6 +18430,11 @@ function setStaticTextColor(control, rgbArray) {
                     var anchorPts = collectAnchorPoints_local(docParam, layer, selectedPaths);
                     addDebug("[" + type.name + "] Collected " + anchorPts.length + " anchor points");
 
+                    // UNIT PRIORITY: Check if this is a register type (not Unit/Thermostat)
+                    var isRegisterType = (type.name.indexOf("Register") !== -1);
+                    var unitPositions = existingUnitPositions || [];
+                    var UNIT_PROXIMITY_THRESHOLD = 10.0; // If Unit is within 10pt, skip register placement
+
                     // PERF: Use cached ignored anchors instead of re-collecting (Gemini optimization)
                     var ignoredAnchors = cachedIgnoredAnchors || [];
                     var IGNORED_DIST_LOCAL = 4;
@@ -18194,6 +18447,10 @@ function setStaticTextColor(control, rgbArray) {
 
                     if (!layer.locked) {
                         var removedCount = 0;
+                        var PROXIMITY_BUFFER_PLACEMENT = 50;
+                        var hasValidBounds = selectionBounds &&
+                            typeof selectionBounds.minX === 'number' && isFinite(selectionBounds.minX);
+
                         for (var pi = docParam.placedItems.length - 1; pi >= 0; pi--) {
                             var itm = docParam.placedItems[pi];
                             try {
@@ -18202,6 +18459,16 @@ function setStaticTextColor(control, rgbArray) {
                                     var centerX = (gb[0] + gb[2]) / 2;
                                     var centerY = (gb[1] + gb[3]) / 2;
                                     var centerPos = [centerX, centerY];
+
+                                    // BOUNDS CHECK: Only remove if within selection area (with 50pt buffer)
+                                    if (hasValidBounds) {
+                                        if (centerX < selectionBounds.minX - PROXIMITY_BUFFER_PLACEMENT ||
+                                            centerX > selectionBounds.maxX + PROXIMITY_BUFFER_PLACEMENT ||
+                                            centerY < selectionBounds.minY - PROXIMITY_BUFFER_PLACEMENT ||
+                                            centerY > selectionBounds.maxY + PROXIMITY_BUFFER_PLACEMENT) {
+                                            continue; // Outside selection area, skip
+                                        }
+                                    }
 
                                     // Remove if near ignored anchor
                                     var isIgnored = false;
@@ -18462,6 +18729,24 @@ function setStaticTextColor(control, rgbArray) {
                         var rotation = info.rotation;
                         var key = a[0].toFixed(2) + "_" + a[1].toFixed(2);
 
+                        // UNIT PRIORITY: Skip register placement if a Unit already exists at this position
+                        if (isRegisterType && unitPositions.length > 0) {
+                            var hasUnitNearby = false;
+                            for (var uIdx = 0; uIdx < unitPositions.length; uIdx++) {
+                                var udx = a[0] - unitPositions[uIdx][0];
+                                var udy = a[1] - unitPositions[uIdx][1];
+                                var uDistSq = udx * udx + udy * udy;
+                                if (uDistSq <= UNIT_PROXIMITY_THRESHOLD * UNIT_PROXIMITY_THRESHOLD) {
+                                    hasUnitNearby = true;
+                                    break;
+                                }
+                            }
+                            if (hasUnitNearby) {
+                                addDebug("[" + type.name + "] SKIPPED anchor " + key + " - Unit takes priority at this location");
+                                continue; // Skip this anchor
+                            }
+                        }
+
                         // Check if this location has custom transforms
                         var customScale = null;
                         var baseRotation = null;
@@ -18513,17 +18798,29 @@ function setStaticTextColor(control, rgbArray) {
                             targetItem = existingItems[key];
                             createdNew = false;
 
-                            // Update file link - this preserves custom rotations and scaling (works like manual relink)
+                            // PERF: Only update file link if it's different (expensive operation)
+                            var needsUpdate = false;
                             try {
-                                targetItem.file = file;
-                                addDebug("[" + type.name + "] Updated file link at " + key + " (preserving custom transforms)");
-                                if (type.layer === "Units") {
-                                    UNIT_DEBUG.push("ACTION: Updated existing unit - preserving transforms");
+                                if (!targetItem.file || targetItem.file.fsName !== file.fsName) {
+                                    needsUpdate = true;
                                 }
                             } catch (e) {
-                                addDebug("[" + type.name + "] Failed to update file link at " + key + ": " + e);
-                                if (type.layer === "Units") {
-                                    UNIT_DEBUG.push("ERROR: Failed to update file link: " + e);
+                                needsUpdate = true; // If we can't check, assume it needs update
+                            }
+
+                            if (needsUpdate) {
+                                // Update file link - this preserves custom rotations and scaling (works like manual relink)
+                                try {
+                                    targetItem.file = file;
+                                    addDebug("[" + type.name + "] Updated file link at " + key + " (preserving custom transforms)");
+                                    if (type.layer === "Units") {
+                                        UNIT_DEBUG.push("ACTION: Updated existing unit - preserving transforms");
+                                    }
+                                } catch (e) {
+                                    addDebug("[" + type.name + "] Failed to update file link at " + key + ": " + e);
+                                    if (type.layer === "Units") {
+                                        UNIT_DEBUG.push("ERROR: Failed to update file link: " + e);
+                                    }
                                 }
                             }
                         } else if (!layer.locked) {
@@ -18707,25 +19004,37 @@ function setStaticTextColor(control, rgbArray) {
                         addDebug("[ANCHOR COLLECTION] Found " + ignoredAnchors.length + " ignored anchors across " + ignoredLayers.length + " layers");
                     }
 
-                    // Helper to check if point is ignored (within IGNORED_DIST of any ignored anchor)
-                    function isPointIgnored_local(pos) {
-                        var closestDist = Infinity;
-                        var closestIgnored = null;
-                        for (var i = 0; i < ignoredAnchors.length; i++) {
-                            var dx = pos[0] - ignoredAnchors[i][0];
-                            var dy = pos[1] - ignoredAnchors[i][1];
-                            var dist = Math.sqrt(dx * dx + dy * dy);
-                            if (dist < closestDist) {
-                                closestDist = dist;
-                                closestIgnored = ignoredAnchors[i];
-                            }
-                            if (dist <= IGNORED_DIST_LOCAL) {
-                                addDebug("[IGNORE CHECK] Point " + pos[0].toFixed(2) + "," + pos[1].toFixed(2) + " is " + dist.toFixed(2) + "px from ignored " + ignoredAnchors[i][0].toFixed(2) + "," + ignoredAnchors[i][1].toFixed(2) + " - FILTERED");
-                                return true;
+                    // PERF: Pre-filter ignored anchors to only those near selection bounds
+                    var filteredIgnoredAnchors = [];
+                    var selBounds = $.global.MDUX_SELECTION_BOUNDS;
+                    var IGNORE_BUFFER = 100; // Only check ignored markers within 100pt of selection
+                    if (selBounds && ignoredAnchors.length > 0) {
+                        for (var iIdx = 0; iIdx < ignoredAnchors.length; iIdx++) {
+                            var ign = ignoredAnchors[iIdx];
+                            if (ign[0] >= selBounds.minX - IGNORE_BUFFER &&
+                                ign[0] <= selBounds.maxX + IGNORE_BUFFER &&
+                                ign[1] >= selBounds.minY - IGNORE_BUFFER &&
+                                ign[1] <= selBounds.maxY + IGNORE_BUFFER) {
+                                filteredIgnoredAnchors.push(ign);
                             }
                         }
-                        if (closestIgnored && closestDist < 20) {
-                            addDebug("[IGNORE CHECK] Point " + pos[0].toFixed(2) + "," + pos[1].toFixed(2) + " closest ignored is " + closestDist.toFixed(2) + "px away at " + closestIgnored[0].toFixed(2) + "," + closestIgnored[1].toFixed(2) + " - NOT filtered (threshold is " + IGNORED_DIST_LOCAL + "px)");
+                        if (filteredIgnoredAnchors.length < ignoredAnchors.length) {
+                            addDebug("[ANCHOR COLLECTION] Filtered " + ignoredAnchors.length + " ignored anchors down to " + filteredIgnoredAnchors.length + " near selection");
+                        }
+                    } else {
+                        filteredIgnoredAnchors = ignoredAnchors;
+                    }
+
+                    // Helper to check if point is ignored (within IGNORED_DIST of any ignored anchor)
+                    // PERF: Removed debug logging from hot path - this is called hundreds of times
+                    function isPointIgnored_local(pos) {
+                        for (var i = 0; i < filteredIgnoredAnchors.length; i++) {
+                            var dx = pos[0] - filteredIgnoredAnchors[i][0];
+                            var dy = pos[1] - filteredIgnoredAnchors[i][1];
+                            var distSq = dx * dx + dy * dy; // Use squared distance to avoid sqrt
+                            if (distSq <= (IGNORED_DIST_LOCAL * IGNORED_DIST_LOCAL)) {
+                                return true;
+                            }
                         }
                         return false;
                     }
@@ -19051,6 +19360,9 @@ function setStaticTextColor(control, rgbArray) {
             alert("Main processing complete, but the embedded 'Place Ductwork at Points' routine failed: " + e);
         }
 
+        // Clear selection after STEP 7 component placement is complete
+        doc.selection = null;
+
         // STEP 8: Apply graphic styles AFTER everything else is completely done
         // *** USING ENHANCED ROBUST VERSION ***
         updateProgress("Applying styles...");
@@ -19306,14 +19618,21 @@ function setStaticTextColor(control, rgbArray) {
 
     } catch (scriptError) {
         // Catch ANY error from the entire script
-        addDebug("");
-        addDebug("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-        addDebug("FATAL ERROR: " + scriptError);
-        addDebug("Stack: " + (scriptError.stack || "N/A"));
-        addDebug("Line: " + (scriptError.line || "N/A"));
-        addDebug("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-        alert("Error: " + scriptError);
+        if (scriptError.message && scriptError.message.indexOf("cancelled by user") !== -1) {
+            addDebug("=== PROCESSING CANCELLED BY USER ===");
+            // Don't show alert for user cancellation
+        } else {
+            addDebug("");
+            addDebug("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            addDebug("FATAL ERROR: " + scriptError);
+            addDebug("Stack: " + (scriptError.stack || "N/A"));
+            addDebug("Line: " + (scriptError.line || "N/A"));
+            addDebug("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+            alert("Error: " + scriptError);
+        }
     } finally {
+        // Always close progress window, even if error or cancellation
+        try { closeProgress(); } catch (e) {}
         // Debug dialog - uncomment to show debug output at end of script
         // try { showDebugDialog(); } catch (e) {}
     }
