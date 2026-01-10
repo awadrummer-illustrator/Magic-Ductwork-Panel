@@ -351,6 +351,7 @@ var PRE_ORTHO_PREFIX = "MD:PREORTHO="; // marker prefix for storing pre-orthogon
 var PRE_SCALE_PREFIX = "MD:PRESCALE="; // marker prefix for storing pre-scale metadata
 var CENTERLINE_NOTE_TAG = "MD:CENTERLINE"; // marker to identify processed centerlines
 var CENTERLINE_ID_PREFIX = "MD:CLID="; // marker prefix for per-centerline unique id
+var GAP_DIST_PREFIX = "MD:GAPDIST="; // marker prefix for storing dynamic gap distance
 
 // ========================================
 // HELPER: DYNAMIC LOG FILE PATH
@@ -2148,6 +2149,99 @@ function clearPreScaleData(item) {
         filtered.push(tokens[i]);
     }
     writeNoteTokens(item, filtered);
+}
+
+// ========================================
+// GAP DISTANCE STORAGE (for stroke-width-based tolerances)
+// ========================================
+
+function storeGapDistance(connectionDist, tTolerance) {
+    // Store gap distances on a hidden text item in the document for persistence
+    try {
+        var activeDoc = app.activeDocument;
+        if (!activeDoc) return;
+
+        // Find or create hidden metadata text item
+        var metadataItem = null;
+        for (var i = 0; i < activeDoc.textFrames.length; i++) {
+            var tf = activeDoc.textFrames[i];
+            if (tf.note && tf.note.indexOf("MDUX_METADATA") >= 0) {
+                metadataItem = tf;
+                break;
+            }
+        }
+
+        if (!metadataItem) {
+            // Create hidden text item for metadata
+            metadataItem = activeDoc.textFrames.add();
+            metadataItem.contents = "MDUX_METADATA";
+            metadataItem.hidden = true;
+            metadataItem.note = "MDUX_METADATA";
+        }
+
+        // Store gap distances in note
+        var tokens = readNoteTokens(metadataItem);
+        var gapData = {
+            connectionDist: connectionDist,
+            tTolerance: tTolerance,
+            timestamp: new Date().getTime()
+        };
+        var encoded = encodeURIComponent(JSON.stringify(gapData));
+        var tag = GAP_DIST_PREFIX + encoded;
+
+        // Replace existing or add new
+        var replaced = false;
+        for (var i = 0; i < tokens.length; i++) {
+            if (tokens[i] && tokens[i].indexOf(GAP_DIST_PREFIX) === 0) {
+                tokens[i] = tag;
+                replaced = true;
+                break;
+            }
+        }
+        if (!replaced) {
+            tokens.push(tag);
+        }
+
+        writeNoteTokens(metadataItem, tokens);
+        addDebug("[GAP-DIST] Stored CONNECTION_DIST=" + connectionDist.toFixed(2) + ", T_TOLERANCE=" + tTolerance.toFixed(2));
+    } catch (e) {
+        addDebug("[GAP-DIST] ERROR storing gap distance: " + e);
+    }
+}
+
+function readStoredGapDistance() {
+    // Read stored gap distances from hidden metadata text item
+    try {
+        var activeDoc = app.activeDocument;
+        if (!activeDoc) return null;
+
+        // Find metadata text item
+        for (var i = 0; i < activeDoc.textFrames.length; i++) {
+            var tf = activeDoc.textFrames[i];
+            if (tf.note && tf.note.indexOf("MDUX_METADATA") >= 0) {
+                var tokens = readNoteTokens(tf);
+                for (var j = 0; j < tokens.length; j++) {
+                    var token = tokens[j];
+                    if (token && token.indexOf(GAP_DIST_PREFIX) === 0) {
+                        try {
+                            var payload = token.substring(GAP_DIST_PREFIX.length);
+                            var decoded = decodeURIComponent(payload);
+                            var data = JSON.parse(decoded);
+                            if (data.connectionDist && data.tTolerance) {
+                                addDebug("[GAP-DIST] Retrieved stored CONNECTION_DIST=" + data.connectionDist.toFixed(2) + ", T_TOLERANCE=" + data.tTolerance.toFixed(2));
+                                return data;
+                            }
+                        } catch (e) {
+                            addDebug("[GAP-DIST] ERROR parsing stored gap distance: " + e);
+                        }
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        addDebug("[GAP-DIST] ERROR reading gap distance: " + e);
+    }
+    return null;
 }
 
 function applyScaleToItem(item, percent) {
@@ -9561,6 +9655,20 @@ function setStaticTextColor(control, rgbArray) {
                 var pathLayerName = "";
                 try { pathLayerName = path.layer ? path.layer.name : "unknown"; } catch (e) { pathLayerName = "unknown"; }
 
+                // CRITICAL: Never snap ignore markers - they mark exact positions that must be preserved
+                var ignoreLayerNames = ["Ignore", "Ignored", "ignore", "ignored"];
+                var isIgnoreLayer = false;
+                for (var iln = 0; iln < ignoreLayerNames.length; iln++) {
+                    if (pathLayerName === ignoreLayerNames[iln]) {
+                        isIgnoreLayer = true;
+                        break;
+                    }
+                }
+                if (isIgnoreLayer) {
+                    addDebug("[snapAnchors] SKIPPING path on Ignored layer - preserve exact position");
+                    continue;
+                }
+
                 var pts = path.pathPoints;
                 if (pts.length === 0) continue;
                 var buffer = [];
@@ -10229,9 +10337,10 @@ function setStaticTextColor(control, rgbArray) {
         // This wrapper function uses Python for 100-1000x faster processing
         // Falls back to ExtendScript if Python is unavailable
         // =====================================================================
-        function findAllConnections(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors) {
+        function findAllConnections(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors, tTolerance) {
             ignoredAnchorsOut = ignoredAnchorsOut || [];
             existingIgnoredAnchors = existingIgnoredAnchors || [];
+            tTolerance = tTolerance || 3; // Default T-junction tolerance if not provided
 
             // Minimum paths threshold - Python startup overhead (~7s) isn't worth it for small groups
             var MIN_PATHS_FOR_PYTHON = 20;
@@ -10242,7 +10351,7 @@ function setStaticTextColor(control, rgbArray) {
                 var startTime = new Date().getTime();
 
                 try {
-                    var pyResult = PythonBridge.findConnections(pathItems, maxDist);
+                    var pyResult = PythonBridge.findConnections(pathItems, maxDist, tTolerance);
 
                     if (pyResult && pyResult.connections && !pyResult.error) {
                         // Map Python indices back to actual path objects
@@ -10275,17 +10384,17 @@ function setStaticTextColor(control, rgbArray) {
             }
 
             // Fall back to original ExtendScript implementation
-            return findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors);
+            return findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors, tTolerance);
         }
 
         // Original ExtendScript implementation (renamed from findAllConnections)
-        function findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors) {
+        function findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors, tTolerance) {
             var connections = [];
             var seen = {};
             var ANGLE_THRESHOLD_DEG = 20;
             var MIN_DIST = 0.5; // Minimum distance - paths closer than this are likely duplicates
-            var T_JUNCTION_DIST = 3; // Tolerance for T-junction detection (point-to-segment) - real branches are drawn very close
-            var PATH_ANCHOR_TOLERANCE = 10; // Distance threshold for path vertex at intersection check
+            var T_JUNCTION_DIST = tTolerance || 3; // Tolerance for T-junction detection (dynamic or default 3pt)
+            var PATH_ANCHOR_TOLERANCE = 1.5; // Distance threshold for path vertex at intersection check (accounts for float drift)
             var DEBUG_CONNECTIONS = $.global.MDUX_DEBUG && $.global.MDUX_DEBUG.CONNECTIONS; // References global config
             ignoredAnchorsOut = ignoredAnchorsOut || []; // Array to collect intersection points to ignore
             existingIgnoredAnchors = existingIgnoredAnchors || []; // Array of existing ignored anchors to skip
@@ -10349,6 +10458,115 @@ function setStaticTextColor(control, rgbArray) {
                 }
                 return false;
             }
+
+            // Helper to separate Ignored layer markers into two categories:
+            // - ignorePart: markers within 4pt of any path endpoint (block component placement only, NOT connections)
+            // - connectionMarkers: markers NOT near endpoints (FORCE connections at intersections)
+            function categorizeIgnoredAnchors(ignoredAnchors, pathItems) {
+                var ENDPOINT_PROXIMITY = 4; // Distance to consider "near an endpoint"
+                var ignorePart = [];
+                var connectionMarkers = []; // Markers NOT near endpoints are connection markers (force connections)
+
+                for (var igIdx = 0; igIdx < ignoredAnchors.length; igIdx++) {
+                    var igPt = ignoredAnchors[igIdx];
+                    var isNearEndpoint = false;
+
+                    // Check if this ignored anchor is near any path endpoint
+                    for (var pathIdx = 0; pathIdx < pathItems.length && !isNearEndpoint; pathIdx++) {
+                        var path = pathItems[pathIdx];
+                        var pts = path.pathPoints;
+                        if (!pts || pts.length < 2) continue;
+
+                        // Check first and last points (endpoints)
+                        var ep1 = pts[0].anchor;
+                        var ep2 = pts[pts.length - 1].anchor;
+
+                        var dist1 = Math.sqrt(Math.pow(igPt[0] - ep1[0], 2) + Math.pow(igPt[1] - ep1[1], 2));
+                        var dist2 = Math.sqrt(Math.pow(igPt[0] - ep2[0], 2) + Math.pow(igPt[1] - ep2[1], 2));
+
+                        if (dist1 <= ENDPOINT_PROXIMITY || dist2 <= ENDPOINT_PROXIMITY) {
+                            isNearEndpoint = true;
+                        }
+                    }
+
+                    if (isNearEndpoint) {
+                        ignorePart.push(igPt);
+                    } else {
+                        // NOT near endpoint = connection marker (forces connections at intersections)
+                        connectionMarkers.push(igPt);
+                    }
+                }
+
+                if (DEBUG_CONNECTIONS) {
+                    addDebug("[CONN-DEBUG] Categorized " + ignoredAnchors.length + " markers: " + ignorePart.length + " ignorePart, " + connectionMarkers.length + " connectionMarkers");
+                }
+
+                return {ignorePart: ignorePart, connectionMarkers: connectionMarkers};
+            }
+
+            // Helper to check if there's a connection marker near a point
+            // Connection markers are small paths (like points or tiny circles) that users place
+            // to mark where connections should be forced even without vertices
+            function hasConnectionMarkerNear(pt, allPaths, pathsToExclude, tolerance) {
+                var MARKER_TOLERANCE = tolerance || 6; // Default 6pt
+                var MAX_MARKER_SIZE = 10; // Markers should be small (< 10pt bounding box)
+
+                try {
+                    var activeDoc = app.activeDocument;
+                    if (!activeDoc || !activeDoc.pathItems) return false;
+
+                    // Check all paths in document for small marker paths
+                    for (var pi = 0; pi < activeDoc.pathItems.length; pi++) {
+                        var path = activeDoc.pathItems[pi];
+
+                        // Skip the paths we're checking for connections
+                        var skipThis = false;
+                        for (var ex = 0; ex < pathsToExclude.length; ex++) {
+                            if (path === pathsToExclude[ex]) {
+                                skipThis = true;
+                                break;
+                            }
+                        }
+                        if (skipThis) continue;
+
+                        // Check if this is a small path (potential marker)
+                        try {
+                            var bounds = path.geometricBounds; // [left, top, right, bottom]
+                            var width = bounds[2] - bounds[0];
+                            var height = bounds[1] - bounds[3];
+
+                            // If path is small enough to be a marker
+                            if (width < MAX_MARKER_SIZE && height < MAX_MARKER_SIZE) {
+                                // Check if any point of this marker path is near our target point
+                                var pts = path.pathPoints;
+                                for (var pti = 0; pti < pts.length; pti++) {
+                                    var dx = pts[pti].anchor[0] - pt[0];
+                                    var dy = pts[pti].anchor[1] - pt[1];
+                                    var d = Math.sqrt(dx * dx + dy * dy);
+                                    if (d <= MARKER_TOLERANCE) {
+                                        addDebug("[CONN-MARKER] Found connection marker near [" + pt[0].toFixed(1) + "," + pt[1].toFixed(1) + "]");
+                                        return true;
+                                    }
+                                }
+                            }
+                        } catch(e) {
+                            // Skip paths without geometric bounds
+                        }
+                    }
+                } catch (e) {
+                    // Fail silently
+                }
+
+                return false;
+            }
+
+            // === CATEGORIZE IGNORED LAYER MARKERS ===
+            // Separate markers on Ignored layer into two types:
+            // - ignorePart: near endpoints (block component placement only, NOT connections)
+            // - connectionMarkers: NOT near endpoints (FORCE connections at intersections)
+            var categorized = categorizeIgnoredAnchors(existingIgnoredAnchors, pathItems);
+            var connectionMarkers = categorized.connectionMarkers; // Force connections at intersections
+            var ignorePartMarkers = categorized.ignorePart; // Don't block connections, only block component placement
 
             // === SPATIAL HASHING FOR O(n) PERFORMANCE ===
             // Build a grid where each cell is T_JUNCTION_DIST sized
@@ -10505,12 +10723,20 @@ function setStaticTextColor(control, rgbArray) {
                                 var dy = ptsA[ai].anchor[1] - res.pt[1];
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist < bestTJDist) { bestTJDist = dist; bestTJt = res.t; }
-                                if (dist >= MIN_DIST && dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
+                                if (dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
                                     // Skip T-junctions at exactly 4.25pt - this is the carve-out gap distance
                                     // and almost certainly indicates a false connection to a carved path endpoint
                                     var CARVE_GAP_DIST = 4.25;
                                     var CARVE_GAP_TOL = 0.5;
-                                    if (Math.abs(dist - CARVE_GAP_DIST) < CARVE_GAP_TOL) {
+                                    var hasConnectionMarker = (connectionMarkers.length > 0 &&
+                                                                (isNearIgnoredAnchor([ptsA[ai].anchor[0], ptsA[ai].anchor[1]], connectionMarkers) ||
+                                                                 isNearIgnoredAnchor(res.pt, connectionMarkers)));
+
+                                    // FORCE connection if connection marker present (overrides all other checks)
+                                    if (hasConnectionMarker) {
+                                        connected = true;
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction FORCED (connection marker): path " + i + " point -> path " + j + " segment, dist=" + dist.toFixed(2));
+                                    } else if (Math.abs(dist - CARVE_GAP_DIST) < CARVE_GAP_TOL) {
                                         if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction SKIPPED (carve-gap distance): path " + i + " point -> path " + j + " segment, dist=" + dist.toFixed(2));
                                     // Check if this T-junction point is at a crossover (intersection without vertex)
                                     } else if (isNearCrossover(res.pt, ptsA, ptsB, T_JUNCTION_DIST)) {
@@ -10533,11 +10759,19 @@ function setStaticTextColor(control, rgbArray) {
                                 var dy = ptsB[bi].anchor[1] - res.pt[1];
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist < bestTJDist) { bestTJDist = dist; bestTJt = res.t; }
-                                if (dist >= MIN_DIST && dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
+                                if (dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
                                     // Skip T-junctions at exactly 4.25pt - this is the carve-out gap distance
                                     var CARVE_GAP_DIST2 = 4.25;
                                     var CARVE_GAP_TOL2 = 0.5;
-                                    if (Math.abs(dist - CARVE_GAP_DIST2) < CARVE_GAP_TOL2) {
+                                    var hasConnectionMarker2 = (connectionMarkers.length > 0 &&
+                                                                 (isNearIgnoredAnchor([ptsB[bi].anchor[0], ptsB[bi].anchor[1]], connectionMarkers) ||
+                                                                  isNearIgnoredAnchor(res.pt, connectionMarkers)));
+
+                                    // FORCE connection if connection marker present (overrides all other checks)
+                                    if (hasConnectionMarker2) {
+                                        connected = true;
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction FORCED (connection marker): path " + j + " point -> path " + i + " segment, dist=" + dist.toFixed(2));
+                                    } else if (Math.abs(dist - CARVE_GAP_DIST2) < CARVE_GAP_TOL2) {
                                         if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] T-junction SKIPPED (carve-gap distance): path " + j + " point -> path " + i + " segment, dist=" + dist.toFixed(2));
                                     // Check if this T-junction point is at a crossover (intersection without vertex)
                                     } else if (isNearCrossover(res.pt, ptsA, ptsB, T_JUNCTION_DIST)) {
@@ -10571,18 +10805,22 @@ function setStaticTextColor(control, rgbArray) {
                                 var dy = aPos[1] - bPos[1];
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist >= MIN_DIST && dist <= ENDPOINT_TOLERANCE) {
-                                    // Check if either endpoint is near an ignored anchor (user marked to skip)
-                                    if (existingIgnoredAnchors.length > 0 && (isNearIgnoredAnchor(aPos, existingIgnoredAnchors) || isNearIgnoredAnchor(bPos, existingIgnoredAnchors))) {
-                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Endpoint-to-endpoint SKIPPED (ignored anchor): path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
+                                    var midPt = [(aPos[0] + bPos[0]) / 2, (aPos[1] + bPos[1]) / 2];
+                                    var hasConnectionMarker3 = (connectionMarkers.length > 0 &&
+                                                                 (isNearIgnoredAnchor(aPos, connectionMarkers) ||
+                                                                  isNearIgnoredAnchor(bPos, connectionMarkers) ||
+                                                                  isNearIgnoredAnchor(midPt, connectionMarkers)));
+
+                                    // FORCE connection if connection marker present (overrides crossover check)
+                                    if (hasConnectionMarker3) {
+                                        connected = true;
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Endpoint-to-endpoint FORCED (connection marker): path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
                                     // Check if these endpoints are near a crossover (intersection without vertex)
+                                    } else if (isNearCrossover(midPt, ptsA, ptsB, ENDPOINT_TOLERANCE)) {
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Endpoint-to-endpoint SKIPPED (crossover): path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
                                     } else {
-                                        var midPt = [(aPos[0] + bPos[0]) / 2, (aPos[1] + bPos[1]) / 2];
-                                        if (isNearCrossover(midPt, ptsA, ptsB, ENDPOINT_TOLERANCE)) {
-                                            if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Endpoint-to-endpoint SKIPPED (crossover): path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
-                                        } else {
-                                            connected = true;
-                                            if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Extended endpoint-to-endpoint: path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
-                                        }
+                                        connected = true;
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Extended endpoint-to-endpoint: path " + i + " <-> path " + j + ", dist=" + dist.toFixed(2));
                                     }
                                 }
                             }
@@ -10602,22 +10840,34 @@ function setStaticTextColor(control, rgbArray) {
                                     ptsB[bi + 1].anchor[0], ptsB[bi + 1].anchor[1]
                                 );
                                 if (intersectPt) {
-                                    // Check if this intersection is near an existing ignored anchor
-                                    if (existingIgnoredAnchors.length > 0 && isNearIgnoredAnchor(intersectPt, existingIgnoredAnchors)) {
-                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Intersection SKIPPED (ignored anchor) at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "]");
+                                    // Check if there's a connection marker at this intersection (FORCES connection)
+                                    var hasConnectionMarker4 = (connectionMarkers.length > 0 && isNearIgnoredAnchor(intersectPt, connectionMarkers));
+                                    var hasMarker = hasConnectionMarkerNear(intersectPt, pathItems, [pathA, pathB]);
+
+                                    // FORCE connection if connection marker present (overrides vertex check)
+                                    if (hasConnectionMarker4 || hasMarker) {
+                                        connected = true;
+                                        if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Intersection FORCED (connection marker) at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "]");
                                     } else {
                                         // Check if either path has a vertex (path point) at this intersection
                                         var pathAHasVertex = pathHasVertexNearPoint(ptsA, intersectPt);
                                         var pathBHasVertex = pathHasVertexNearPoint(ptsB, intersectPt);
+
                                         if (pathAHasVertex || pathBHasVertex) {
-                                            // Path vertex exists at intersection - these paths are connected here
+                                            // Path vertex exists - these paths are connected here
                                             connected = true;
                                             // Add to ignored anchors so no component gets placed here
                                             ignoredAnchorsOut.push([intersectPt[0], intersectPt[1]]);
-                                            if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Connected at intersection [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - path vertex present, added to ignore list");
+                                            if (DEBUG_CONNECTIONS) {
+                                                if (hasMarker) {
+                                                    addDebug("[CONN-DEBUG] Connected at intersection [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - connection marker present, added to ignore list");
+                                                } else {
+                                                    addDebug("[CONN-DEBUG] Connected at intersection [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - path vertex present, added to ignore list");
+                                                }
+                                            }
                                         } else {
-                                            // No path vertex at intersection - these are separate runs (crossover)
-                                            if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping intersection at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - no path vertex (crossover)");
+                                            // No path vertex and no marker at intersection - these are separate runs (crossover)
+                                            if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping intersection at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - no path vertex or marker (crossover)");
                                         }
                                     }
                                 }
@@ -13213,9 +13463,106 @@ function setStaticTextColor(control, rgbArray) {
             addDebug("[COMPOUND-RELEASE] Error: " + ePreRelease);
         }
 
+        // STEP 0.5: Collect ignore markers and associate with endpoints BEFORE orthogonalization
+        // This allows us to move them WITH their endpoints during ortho to maintain relative position
+        var ignoreMarkerAssociations = [];
+        try {
+            var ignoredLayer = findLayerByNameDeep("Ignored");
+            if (!ignoredLayer) ignoredLayer = findLayerByNameDeep("Ignore");
+
+            if (ignoredLayer) {
+                addDebug("[IGNORE-MARKER-PRESERVE] Collecting ignore markers from Ignored layer");
+
+                // Collect all single-point paths from Ignored layer
+                for (var imIdx = 0; imIdx < ignoredLayer.pathItems.length; imIdx++) {
+                    try {
+                        var markerPath = ignoredLayer.pathItems[imIdx];
+                        if (!markerPath || !markerPath.pathPoints || markerPath.pathPoints.length !== 1) continue;
+
+                        var markerPos = markerPath.pathPoints[0].anchor;
+                        var nearestEndpoint = null;
+                        var nearestDist = Infinity;
+                        var nearestPath = null;
+                        var nearestIsStart = false;
+
+                        // Find nearest ductwork path endpoint
+                        for (var apIdx = 0; apIdx < allPaths.length; apIdx++) {
+                            var checkPath = allPaths[apIdx];
+                            if (!checkPath || !checkPath.pathPoints || checkPath.pathPoints.length < 2) continue;
+
+                            // Skip if this is another ignore marker
+                            if (checkPath.layer && (checkPath.layer.name === "Ignored" || checkPath.layer.name === "Ignore")) continue;
+
+                            var startPos = checkPath.pathPoints[0].anchor;
+                            var endPos = checkPath.pathPoints[checkPath.pathPoints.length - 1].anchor;
+
+                            var distToStart = Math.sqrt(Math.pow(markerPos[0] - startPos[0], 2) + Math.pow(markerPos[1] - startPos[1], 2));
+                            var distToEnd = Math.sqrt(Math.pow(markerPos[0] - endPos[0], 2) + Math.pow(markerPos[1] - endPos[1], 2));
+
+                            if (distToStart < nearestDist) {
+                                nearestDist = distToStart;
+                                nearestEndpoint = [startPos[0], startPos[1]];
+                                nearestPath = checkPath;
+                                nearestIsStart = true;
+                            }
+                            if (distToEnd < nearestDist) {
+                                nearestDist = distToEnd;
+                                nearestEndpoint = [endPos[0], endPos[1]];
+                                nearestPath = checkPath;
+                                nearestIsStart = false;
+                            }
+                        }
+
+                        // Only associate if within 6pt (slightly more than ignorePart threshold of 4pt)
+                        if (nearestDist <= 6) {
+                            var dx = markerPos[0] - nearestEndpoint[0];
+                            var dy = markerPos[1] - nearestEndpoint[1];
+
+                            ignoreMarkerAssociations.push({
+                                markerPath: markerPath,
+                                associatedPath: nearestPath,
+                                isStartEndpoint: nearestIsStart,
+                                relativeX: dx,
+                                relativeY: dy,
+                                originalDist: nearestDist
+                            });
+
+                            addDebug("[IGNORE-MARKER-PRESERVE] Associated marker at [" + markerPos[0].toFixed(1) + "," + markerPos[1].toFixed(1) + "] with endpoint (dist=" + nearestDist.toFixed(2) + "pt)");
+                        }
+                    } catch (eMarker) {
+                        addDebug("[IGNORE-MARKER-PRESERVE] Error processing marker: " + eMarker);
+                    }
+                }
+
+                addDebug("[IGNORE-MARKER-PRESERVE] Found " + ignoreMarkerAssociations.length + " ignore markers near endpoints");
+            }
+        } catch (eIgnorePreserve) {
+            addDebug("[IGNORE-MARKER-PRESERVE] Error: " + eIgnorePreserve);
+        }
+
         // STEP 1: Process selected paths (snap, orthogonalize)
         updateProgress("Orthogonalizing paths...");
-        var geometryPaths = allPaths.slice();
+        var geometryPaths = [];
+        // CRITICAL: Exclude Ignored layer paths from orthogonalization
+        // They should maintain their exact positions (ignore markers, connection markers)
+        for (var allPathIdx = 0; allPathIdx < allPaths.length; allPathIdx++) {
+            var checkPath = allPaths[allPathIdx];
+            var isIgnoredLayer = false;
+            try {
+                var layerName = checkPath.layer ? checkPath.layer.name : null;
+                if (layerName && (layerName === "Ignored" || layerName === "Ignore" || layerName === "ignored" || layerName === "ignore")) {
+                    isIgnoredLayer = true;
+                }
+            } catch (e) {}
+
+            if (!isIgnoredLayer) {
+                geometryPaths.push(checkPath);
+            } else {
+                addDebug("[GEOMETRY-PATHS] Excluding path on Ignored layer from orthogonalization");
+            }
+        }
+        addDebug("[GEOMETRY-PATHS] Filtered " + allPaths.length + " paths -> " + geometryPaths.length + " paths for orthogonalization (excluded Ignored layer)");
+
         BLUE_BRANCH_CONNECTIONS = [];
         for (var gpClear = 0; gpClear < geometryPaths.length; gpClear++) {
             clearBlueRightAngleBranch(geometryPaths[gpClear]);
@@ -13321,6 +13668,9 @@ function setStaticTextColor(control, rgbArray) {
         }
 
         var preOrthoConnections = collectEndpointConnections(geometryPaths, RECONNECT_CAPTURE_DIST);
+
+        // NOTE: T-junction detection moved to AFTER cleanup (so ORTHO_IGNORE_MARKER_PATHS is populated)
+        // See T-junction detection code after line 13975
 
         // PERFORMANCE: Skip per-path logging - just log summary
         addDebug("[Orthogonalize] Processing " + geometryPaths.length + " paths");
@@ -13509,7 +13859,7 @@ function setStaticTextColor(control, rgbArray) {
                         // Add the OPPOSITE endpoint (end) for unit placement
                         oppositeEndpointPathRefs.push({ path: cleanPath, endpoint: "end" });
                         // Store for orthogonalization - ignore marker is at intIdx, endpoint is at index 0
-                        ORTHO_IGNORE_MARKER_PATHS.push({ path: cleanPath, endpoint: "start", ignoreMarkerIndex: intIdx });
+                        ORTHO_IGNORE_MARKER_PATHS.push({ path: cleanPath, endpoint: "start", ignoreMarkerIndex: intIdx, originalDistance: distToStart });
                         addDebug("[CLEANUP] Path " + cleanIdx + ": Will read endpoint coordinates AFTER orthogonalization");
                     } else if (distToEnd <= ENDPOINT_INTERNAL_THRESHOLD) {
                         addDebug("[CLEANUP] Path " + cleanIdx + ": Internal anchor at [" + intAnchor[0].toFixed(1) + "," + intAnchor[1].toFixed(1) + "] is " + distToEnd.toFixed(1) + "pt from end - PRESERVING anchor, marking end endpoint to ignore");
@@ -13519,7 +13869,7 @@ function setStaticTextColor(control, rgbArray) {
                         // Add the OPPOSITE endpoint (start) for unit placement
                         oppositeEndpointPathRefs.push({ path: cleanPath, endpoint: "start" });
                         // Store for orthogonalization - ignore marker is at intIdx, endpoint is at last index
-                        ORTHO_IGNORE_MARKER_PATHS.push({ path: cleanPath, endpoint: "end", ignoreMarkerIndex: intIdx });
+                        ORTHO_IGNORE_MARKER_PATHS.push({ path: cleanPath, endpoint: "end", ignoreMarkerIndex: intIdx, originalDistance: distToEnd });
                         addDebug("[CLEANUP] Path " + cleanIdx + ": Will read endpoint coordinates AFTER orthogonalization");
                     }
                 }
@@ -13537,6 +13887,97 @@ function setStaticTextColor(control, rgbArray) {
             addDebug("[CLEANUP] Deferred " + oppositeEndpointPathRefs.length + " opposite endpoint(s) for unit placement");
         }
 
+        // *** DETECT T-JUNCTIONS BEFORE ORTHOGONALIZATION ***
+        // Must happen AFTER cleanup so ORTHO_IGNORE_MARKER_PATHS is populated
+        // Store endpoint-to-segment T-junctions so we can restore them after ortho
+        var preOrthoTJunctions = [];
+        var T_JUNCTION_TOLERANCE = 3; // Same as connection detection
+        addDebug("[PRE-ORTHO-TJ] Detecting T-junctions before orthogonalization");
+
+        for (var tjPathAIdx = 0; tjPathAIdx < geometryPaths.length; tjPathAIdx++) {
+            var tjPathA = geometryPaths[tjPathAIdx];
+            if (!tjPathA || !tjPathA.pathPoints || tjPathA.pathPoints.length < 2) continue;
+
+            var tjPtsA = tjPathA.pathPoints;
+
+            // Check each endpoint of pathA
+            for (var tjEpIdx = 0; tjEpIdx < 2; tjEpIdx++) {
+                var tjEndpointIdx = (tjEpIdx === 0) ? 0 : tjPtsA.length - 1;
+                var tjEndpoint = tjPtsA[tjEndpointIdx].anchor;
+
+                // Check against all OTHER paths' segments
+                for (var tjPathBIdx = 0; tjPathBIdx < geometryPaths.length; tjPathBIdx++) {
+                    if (tjPathBIdx === tjPathAIdx) continue; // Skip same path
+
+                    var tjPathB = geometryPaths[tjPathBIdx];
+                    if (!tjPathB || !tjPathB.pathPoints || tjPathB.pathPoints.length < 2) continue;
+
+                    var tjPtsB = tjPathB.pathPoints;
+
+                    // Check each segment of pathB
+                    for (var tjSegIdx = 0; tjSegIdx < tjPtsB.length - 1; tjSegIdx++) {
+                        var tjSegStart = tjPtsB[tjSegIdx].anchor;
+                        var tjSegEnd = tjPtsB[tjSegIdx + 1].anchor;
+
+                        // Calculate closest point on segment to endpoint
+                        var tjSegDx = tjSegEnd[0] - tjSegStart[0];
+                        var tjSegDy = tjSegEnd[1] - tjSegStart[1];
+                        var tjSegLenSq = tjSegDx * tjSegDx + tjSegDy * tjSegDy;
+
+                        if (tjSegLenSq < 0.001) continue; // Skip zero-length segments
+
+                        var tjT = ((tjEndpoint[0] - tjSegStart[0]) * tjSegDx + (tjEndpoint[1] - tjSegStart[1]) * tjSegDy) / tjSegLenSq;
+
+                        // Only consider points that project onto the segment (not endpoints)
+                        if (tjT > 0.001 && tjT < 0.999) {
+                            var tjClosestX = tjSegStart[0] + tjT * tjSegDx;
+                            var tjClosestY = tjSegStart[1] + tjT * tjSegDy;
+
+                            var tjDx = tjEndpoint[0] - tjClosestX;
+                            var tjDy = tjEndpoint[1] - tjClosestY;
+                            var tjDist = Math.sqrt(tjDx * tjDx + tjDy * tjDy);
+
+                            if (tjDist <= T_JUNCTION_TOLERANCE) {
+                                // Found a T-junction! Check if segment path has ignore marker
+                                var segmentHasIgnoreMarker = null;
+                                var distMarkerToTJunction = null;
+                                for (var imCheckIdx = 0; imCheckIdx < ORTHO_IGNORE_MARKER_PATHS.length; imCheckIdx++) {
+                                    if (ORTHO_IGNORE_MARKER_PATHS[imCheckIdx].path === tjPathB) {
+                                        segmentHasIgnoreMarker = ORTHO_IGNORE_MARKER_PATHS[imCheckIdx];
+
+                                        // Calculate distance from ignore marker to T-junction point
+                                        var markerPos = tjPtsB[segmentHasIgnoreMarker.ignoreMarkerIndex].anchor;
+                                        var mToTX = tjClosestX - markerPos[0];
+                                        var mToTY = tjClosestY - markerPos[1];
+                                        distMarkerToTJunction = Math.sqrt(mToTX * mToTX + mToTY * mToTY);
+
+                                        addDebug("[PRE-ORTHO-TJ] Segment has ignore marker at index " + segmentHasIgnoreMarker.ignoreMarkerIndex + ", distance to T-junction: " + distMarkerToTJunction.toFixed(2) + "pt");
+                                        break;
+                                    }
+                                }
+
+                                // Store the T-junction
+                                preOrthoTJunctions.push({
+                                    endpointPath: tjPathA,
+                                    endpointIndex: tjEndpointIdx,
+                                    segmentPath: tjPathB,
+                                    segmentIndex: tjSegIdx,
+                                    originalDist: tjDist,
+                                    originalT: tjT,
+                                    segmentIgnoreMarker: segmentHasIgnoreMarker,  // null or {path, endpoint, ignoreMarkerIndex, originalDistance}
+                                    distMarkerToTJunction: distMarkerToTJunction  // Distance from ignore marker to T-junction point
+                                });
+
+                                addDebug("[PRE-ORTHO-TJ] Found T-junction: endpoint at [" + tjEndpoint[0].toFixed(1) + "," + tjEndpoint[1].toFixed(1) + "] -> segment (dist=" + tjDist.toFixed(2) + "pt, t=" + tjT.toFixed(3) + ")");
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        addDebug("[PRE-ORTHO-TJ] Found " + preOrthoTJunctions.length + " T-junction(s) before orthogonalization");
+
         // =====================================================================
         // PYTHON-ACCELERATED ORTHOGONALIZATION
         // =====================================================================
@@ -13550,32 +13991,39 @@ function setStaticTextColor(control, rgbArray) {
             addDebug("[PYTHON-ORTHO] Attempting Python-accelerated orthogonalization for " + geometryPaths.length + " paths");
             var orthoStartTime = new Date().getTime();
 
-            // Build locked points list from ORTHO_IGNORE_MARKER_PATHS
-            // These are endpoints with ignore markers that should NOT be snapped
-            var lockedPointsForPython = [];
-            for (var lpIdx = 0; lpIdx < ORTHO_IGNORE_MARKER_PATHS.length; lpIdx++) {
-                var imInfo = ORTHO_IGNORE_MARKER_PATHS[lpIdx];
-                // Find the path index in geometryPaths
-                for (var gpIdx = 0; gpIdx < geometryPaths.length; gpIdx++) {
-                    if (geometryPaths[gpIdx] === imInfo.path) {
-                        var pointIdx = (imInfo.endpoint === "start") ? 0 : geometryPaths[gpIdx].pathPoints.length - 1;
-                        lockedPointsForPython.push({ path_idx: gpIdx, point_idx: pointIdx });
-                        addDebug("[PYTHON-ORTHO] Locking point: path " + gpIdx + ", point " + pointIdx + " (ignore marker endpoint)");
+            // EXCLUDE paths with ignore markers from Python processing entirely
+            // Python's SNAP_THRESHOLD (3pt) will snap the marker and endpoint together (they're only 1.1pt apart)
+            // Instead, only send paths WITHOUT ignore markers to Python
+            var pathsForPython = [];
+            var excludedPaths = [];
+            for (var pyPathIdx = 0; pyPathIdx < geometryPaths.length; pyPathIdx++) {
+                var hasIgnoreMarker = false;
+                for (var checkIdx = 0; checkIdx < ORTHO_IGNORE_MARKER_PATHS.length; checkIdx++) {
+                    if (ORTHO_IGNORE_MARKER_PATHS[checkIdx].path === geometryPaths[pyPathIdx]) {
+                        hasIgnoreMarker = true;
+                        excludedPaths.push(pyPathIdx);
+                        addDebug("[PYTHON-ORTHO] EXCLUDING path " + pyPathIdx + " (has ignore marker - already processed correctly)");
                         break;
                     }
                 }
+                if (!hasIgnoreMarker) {
+                    pathsForPython.push(geometryPaths[pyPathIdx]);
+                }
             }
+
+            var lockedPointsForPython = [];
 
             try {
                 updateProgress("Orthogonalizing paths (Python)...");
-                var pyOrthoResult = PythonBridge.orthogonalize(geometryPaths, SNAP_THRESHOLD, lockedPointsForPython);
+                addDebug("[PYTHON-ORTHO] Sending " + pathsForPython.length + " paths to Python (excluded " + excludedPaths.length + " paths with ignore markers)");
+                var pyOrthoResult = PythonBridge.orthogonalize(pathsForPython, SNAP_THRESHOLD, lockedPointsForPython);
 
                 if (pyOrthoResult && pyOrthoResult.paths && !pyOrthoResult.error) {
                     // Apply Python results back to Illustrator paths
                     var appliedCount = 0;
                     for (var pyIdx = 0; pyIdx < pyOrthoResult.paths.length; pyIdx++) {
                         var pyPath = pyOrthoResult.paths[pyIdx];
-                        var targetPath = geometryPaths[pyPath.id];
+                        var targetPath = pathsForPython[pyPath.id];
 
                         if (!targetPath || !targetPath.pathPoints) continue;
 
@@ -13592,12 +14040,10 @@ function setStaticTextColor(control, rgbArray) {
 
                                     // Only update if position changed
                                     if (Math.abs(oldAnchor[0] - newX) > 0.01 || Math.abs(oldAnchor[1] - newY) > 0.01) {
-                                        // Move anchor and handles together
-                                        var dx = newX - oldAnchor[0];
-                                        var dy = newY - oldAnchor[1];
+                                        // Reset anchor and handles to create corner points (no curves)
                                         pts[ptIdx].anchor = [newX, newY];
-                                        pts[ptIdx].leftDirection = [pts[ptIdx].leftDirection[0] + dx, pts[ptIdx].leftDirection[1] + dy];
-                                        pts[ptIdx].rightDirection = [pts[ptIdx].rightDirection[0] + dx, pts[ptIdx].rightDirection[1] + dy];
+                                        pts[ptIdx].leftDirection = [newX, newY];
+                                        pts[ptIdx].rightDirection = [newX, newY];
                                     }
                                 }
                                 appliedCount++;
@@ -13612,6 +14058,172 @@ function setStaticTextColor(control, rgbArray) {
                     addDebug("[PYTHON-ORTHO] Python stats: " + pyOrthoResult.iterations + " iterations, " +
                              pyOrthoResult.total_snaps + " snaps, " + pyOrthoResult.total_ortho_changes + " ortho changes");
                     pythonOrthoSuccess = true;
+
+                    // POST-PYTHON-ORTHO: Adjust ignore marker segments to preserve original distance
+                    // BUT ONLY if we didn't exclude the paths (if excluded, they weren't sent to Python)
+                    if (ORTHO_IGNORE_MARKER_PATHS.length > 0) {
+                        if (excludedPaths.length > 0) {
+                            addDebug("[POST-PYTHON-ORTHO] SKIPPING adjustment - ignore marker paths were excluded from Python (already correct from previous processing)");
+                        } else {
+                            addDebug("[POST-PYTHON-ORTHO] Adjusting " + ORTHO_IGNORE_MARKER_PATHS.length + " ignore marker segment(s)");
+                            for (var imAdjIdx = 0; imAdjIdx < ORTHO_IGNORE_MARKER_PATHS.length; imAdjIdx++) {
+                            var imAdj = ORTHO_IGNORE_MARKER_PATHS[imAdjIdx];
+                            try {
+                                var adjPath = imAdj.path;
+                                var adjPts = adjPath.pathPoints;
+                                if (!adjPts || adjPts.length < 3) continue;
+
+                                var markerIdx = imAdj.ignoreMarkerIndex;
+                                var originalDist = imAdj.originalDistance; // Stored during cleanup
+
+                                if (imAdj.endpoint === "end" && markerIdx > 0 && markerIdx < adjPts.length - 1) {
+                                    // Ignore marker at markerIdx, endpoint at end
+                                    // After Python ortho, the segment FROM MARKER TO END should be horizontal, vertical, or 45-degree
+                                    var markerPt = adjPts[markerIdx].anchor;
+                                    var endpointPt = adjPts[adjPts.length - 1].anchor;
+
+                                    // Determine if the segment FROM MARKER TO END is horizontal, vertical, or 45-degree
+                                    var toEndDx = endpointPt[0] - markerPt[0];
+                                    var toEndDy = endpointPt[1] - markerPt[1];
+                                    var toEndAbsDx = Math.abs(toEndDx);
+                                    var toEndAbsDy = Math.abs(toEndDy);
+
+                                    var newEndX, newEndY;
+                                    var segDirection = "";
+
+                                    // Check if 45-degree diagonal (dx ≈ dy)
+                                    var ratio = (toEndAbsDx > 0.001) ? (toEndAbsDy / toEndAbsDx) : 0;
+                                    if (ratio >= 0.8 && ratio <= 1.25) {
+                                        // 45-degree diagonal segment
+                                        segDirection = "diagonal";
+                                        var diagonalDist = originalDist / Math.sqrt(2); // Distance along each axis for 45-degree
+
+                                        // Extend in the same diagonal direction
+                                        if (toEndDx > 0 && toEndDy > 0) {
+                                            // Upper-right
+                                            newEndX = markerPt[0] + diagonalDist;
+                                            newEndY = markerPt[1] + diagonalDist;
+                                        } else if (toEndDx > 0 && toEndDy < 0) {
+                                            // Lower-right
+                                            newEndX = markerPt[0] + diagonalDist;
+                                            newEndY = markerPt[1] - diagonalDist;
+                                        } else if (toEndDx < 0 && toEndDy > 0) {
+                                            // Upper-left
+                                            newEndX = markerPt[0] - diagonalDist;
+                                            newEndY = markerPt[1] + diagonalDist;
+                                        } else {
+                                            // Lower-left
+                                            newEndX = markerPt[0] - diagonalDist;
+                                            newEndY = markerPt[1] - diagonalDist;
+                                        }
+                                    } else if (toEndAbsDx > toEndAbsDy) {
+                                        // Segment is HORIZONTAL - extend horizontally
+                                        segDirection = "horizontal";
+                                        newEndY = markerPt[1]; // Same Y as marker
+                                        // Determine direction: check which side current endpoint is on
+                                        if (endpointPt[0] > markerPt[0]) {
+                                            newEndX = markerPt[0] + originalDist; // Extend right
+                                        } else {
+                                            newEndX = markerPt[0] - originalDist; // Extend left
+                                        }
+                                    } else {
+                                        // Segment is VERTICAL - extend vertically
+                                        segDirection = "vertical";
+                                        newEndX = markerPt[0]; // Same X as marker
+                                        // Determine direction: check which side current endpoint is on
+                                        if (endpointPt[1] > markerPt[1]) {
+                                            newEndY = markerPt[1] + originalDist; // Extend up
+                                        } else {
+                                            newEndY = markerPt[1] - originalDist; // Extend down
+                                        }
+                                    }
+
+                                    // Set anchor position AND reset handles to prevent curves
+                                    var endPt = adjPts[adjPts.length - 1];
+                                    endPt.anchor = [newEndX, newEndY];
+                                    endPt.leftDirection = [newEndX, newEndY];
+                                    endPt.rightDirection = [newEndX, newEndY];
+
+                                    var actualDist = Math.sqrt(Math.pow(newEndX - markerPt[0], 2) + Math.pow(newEndY - markerPt[1], 2));
+                                    addDebug("[POST-PYTHON-ORTHO] Adjusted endpoint from [" + endpointPt[0].toFixed(1) + "," + endpointPt[1].toFixed(1) + "] to [" + newEndX.toFixed(1) + "," + newEndY.toFixed(1) + "] (dist=" + actualDist.toFixed(2) + "pt, target=" + originalDist.toFixed(2) + "pt, direction=" + segDirection + ")");
+                                } else if (imAdj.endpoint === "start" && markerIdx > 0 && markerIdx < adjPts.length - 1) {
+                                    // Ignore marker at markerIdx, endpoint at start
+                                    // After Python ortho, the segment FROM START TO MARKER should be horizontal or vertical
+                                    var startPt = adjPts[0].anchor;
+                                    var markerPt2 = adjPts[markerIdx].anchor;
+
+                                    // Determine if the segment FROM MARKER TO START is horizontal, vertical, or 45-degree
+                                    // (This is the segment we're adjusting, not the next segment!)
+                                    var toStartDx = startPt[0] - markerPt2[0];
+                                    var toStartDy = startPt[1] - markerPt2[1];
+                                    var toStartAbsDx = Math.abs(toStartDx);
+                                    var toStartAbsDy = Math.abs(toStartDy);
+
+                                    var newStartX, newStartY;
+                                    var segDirection = "";
+
+                                    // Check if 45-degree diagonal (dx ≈ dy)
+                                    var ratio = (toStartAbsDx > 0.001) ? (toStartAbsDy / toStartAbsDx) : 0;
+                                    if (ratio >= 0.8 && ratio <= 1.25) {
+                                        // 45-degree diagonal segment
+                                        segDirection = "diagonal";
+                                        var diagonalDist = originalDist / Math.sqrt(2); // Distance along each axis for 45-degree
+
+                                        // Extend in the same diagonal direction
+                                        if (toStartDx > 0 && toStartDy > 0) {
+                                            // Upper-right
+                                            newStartX = markerPt2[0] + diagonalDist;
+                                            newStartY = markerPt2[1] + diagonalDist;
+                                        } else if (toStartDx > 0 && toStartDy < 0) {
+                                            // Lower-right
+                                            newStartX = markerPt2[0] + diagonalDist;
+                                            newStartY = markerPt2[1] - diagonalDist;
+                                        } else if (toStartDx < 0 && toStartDy > 0) {
+                                            // Upper-left
+                                            newStartX = markerPt2[0] - diagonalDist;
+                                            newStartY = markerPt2[1] + diagonalDist;
+                                        } else {
+                                            // Lower-left
+                                            newStartX = markerPt2[0] - diagonalDist;
+                                            newStartY = markerPt2[1] - diagonalDist;
+                                        }
+                                    } else if (toStartAbsDx > toStartAbsDy) {
+                                        // Segment is HORIZONTAL - extend horizontally
+                                        segDirection = "horizontal";
+                                        newStartY = markerPt2[1]; // Same Y as marker
+                                        // Determine direction: check which side current endpoint is on
+                                        if (startPt[0] > markerPt2[0]) {
+                                            newStartX = markerPt2[0] + originalDist; // Extend right
+                                        } else {
+                                            newStartX = markerPt2[0] - originalDist; // Extend left
+                                        }
+                                    } else {
+                                        // Segment is VERTICAL - extend vertically
+                                        segDirection = "vertical";
+                                        newStartX = markerPt2[0]; // Same X as marker
+                                        // Determine direction: check which side current endpoint is on
+                                        if (startPt[1] > markerPt2[1]) {
+                                            newStartY = markerPt2[1] + originalDist; // Extend up
+                                        } else {
+                                            newStartY = markerPt2[1] - originalDist; // Extend down
+                                        }
+                                    }
+
+                                    // Set anchor position AND reset handles to prevent curves
+                                    var startPtObj = adjPts[0];
+                                    startPtObj.anchor = [newStartX, newStartY];
+                                    startPtObj.leftDirection = [newStartX, newStartY];
+                                    startPtObj.rightDirection = [newStartX, newStartY];
+
+                                    var actualDist2 = Math.sqrt(Math.pow(newStartX - markerPt2[0], 2) + Math.pow(newStartY - markerPt2[1], 2));
+                                    addDebug("[POST-PYTHON-ORTHO] Adjusted endpoint from [" + startPt[0].toFixed(1) + "," + startPt[1].toFixed(1) + "] to [" + newStartX.toFixed(1) + "," + newStartY.toFixed(1) + "] (dist=" + actualDist2.toFixed(2) + "pt, target=" + originalDist.toFixed(2) + "pt, direction=" + segDirection + ")");
+                                }
+                            } catch (eAdjIgnore) {
+                                addDebug("[POST-PYTHON-ORTHO] Error adjusting ignore marker segment: " + eAdjIgnore);
+                            }
+                            }
+                        }
+                    }
                 } else {
                     addDebug("[PYTHON-ORTHO] No valid result, falling back to ExtendScript");
                     if (pyOrthoResult && pyOrthoResult.error) {
@@ -13669,7 +14281,9 @@ function setStaticTextColor(control, rgbArray) {
             }
         }
 
-        restoreEndpointConnections(collectEndpointConnections(geometryPaths, CONNECTION_DIST));
+        // DISABLED: This was snapping endpoints AFTER POST-PYTHON-ORTHO, undoing ignore marker adjustments
+        // T-junction restoration (POST-ORTHO-TJ) already handles all endpoint connections properly
+        // restoreEndpointConnections(collectEndpointConnections(geometryPaths, CONNECTION_DIST));
 
         // *** POST-ORTHO: READ ACTUAL ENDPOINT COORDINATES FROM PATH REFERENCES ***
         // Now that paths are orthogonalized, read the CURRENT endpoint positions
@@ -13697,6 +14311,123 @@ function setStaticTextColor(control, rgbArray) {
                 }
             }
             addDebug("[POST-ORTHO-IGNORE] Collected " + endpointsToIgnore.length + " endpoint(s) to ignore (using POST-ortho coordinates)");
+        }
+
+        // *** POST-ORTHO: MOVE IGNORE MARKERS TO MAINTAIN RELATIVE POSITION ***
+        // Now that paths are orthogonalized, update ignorePart marker positions to maintain distance from endpoints
+        if (ignoreMarkerAssociations.length > 0) {
+            addDebug("\n=== POST-ORTHO: UPDATING IGNORE MARKER POSITIONS ===");
+            var movedCount = 0;
+            for (var imaIdx = 0; imaIdx < ignoreMarkerAssociations.length; imaIdx++) {
+                var assoc = ignoreMarkerAssociations[imaIdx];
+                try {
+                    var associatedPath = assoc.associatedPath;
+                    var markerPath = assoc.markerPath;
+
+                    // Get NEW endpoint position after orthogonalization
+                    var pathPts = associatedPath.pathPoints;
+                    if (!pathPts || pathPts.length < 2) continue;
+
+                    var newEndpointPos;
+                    if (assoc.isStartEndpoint) {
+                        newEndpointPos = [pathPts[0].anchor[0], pathPts[0].anchor[1]];
+                    } else {
+                        newEndpointPos = [pathPts[pathPts.length - 1].anchor[0], pathPts[pathPts.length - 1].anchor[1]];
+                    }
+
+                    // Calculate NEW marker position maintaining relative offset
+                    var newMarkerX = newEndpointPos[0] + assoc.relativeX;
+                    var newMarkerY = newEndpointPos[1] + assoc.relativeY;
+
+                    // Move marker to new position
+                    markerPath.pathPoints[0].anchor = [newMarkerX, newMarkerY];
+                    movedCount++;
+
+                    addDebug("[IGNORE-MARKER-MOVE] Moved marker to [" + newMarkerX.toFixed(1) + "," + newMarkerY.toFixed(1) + "] to maintain " + assoc.originalDist.toFixed(2) + "pt offset from endpoint");
+                } catch (eMoveMarker) {
+                    addDebug("[IGNORE-MARKER-MOVE] Error moving marker: " + eMoveMarker);
+                }
+            }
+            addDebug("[IGNORE-MARKER-MOVE] Moved " + movedCount + " ignore markers to maintain relative position");
+        }
+
+        // *** POST-ORTHO: RESTORE T-JUNCTION CONNECTIONS ***
+        // Snap endpoints back to segments to maintain connections that existed before ortho
+        if (preOrthoTJunctions.length > 0) {
+            addDebug("\n=== POST-ORTHO: RESTORING T-JUNCTION CONNECTIONS ===");
+            var restoredCount = 0;
+
+            for (var tjRestoreIdx = 0; tjRestoreIdx < preOrthoTJunctions.length; tjRestoreIdx++) {
+                var tjRestore = preOrthoTJunctions[tjRestoreIdx];
+
+                try {
+                    var endpointPath = tjRestore.endpointPath;
+                    var segmentPath = tjRestore.segmentPath;
+
+                    // Check if SEGMENT path has an ignore marker (stored during PRE-ORTHO-TJ detection)
+                    var segmentIgnoreMarker = tjRestore.segmentIgnoreMarker;
+
+                    // Get CURRENT positions after orthogonalization
+                    var epPts = endpointPath.pathPoints;
+                    var segPts = segmentPath.pathPoints;
+
+                    if (!epPts || epPts.length <= tjRestore.endpointIndex) continue;
+                    if (!segPts || segPts.length <= tjRestore.segmentIndex + 1) continue;
+
+                    var currentEndpoint = epPts[tjRestore.endpointIndex].anchor;
+                    var currentSegStart = segPts[tjRestore.segmentIndex].anchor;
+                    var currentSegEnd = segPts[tjRestore.segmentIndex + 1].anchor;
+
+                    // Calculate closest point on CURRENT segment
+                    var segDx = currentSegEnd[0] - currentSegStart[0];
+                    var segDy = currentSegEnd[1] - currentSegStart[1];
+                    var segLenSq = segDx * segDx + segDy * segDy;
+
+                    if (segLenSq < 0.001) continue; // Skip zero-length segments
+
+                    var t = ((currentEndpoint[0] - currentSegStart[0]) * segDx + (currentEndpoint[1] - currentSegStart[1]) * segDy) / segLenSq;
+
+                    // Clamp t to [0, 1] to stay on segment
+                    if (t < 0) t = 0;
+                    if (t > 1) t = 1;
+
+                    var snapX = currentSegStart[0] + t * segDx;
+                    var snapY = currentSegStart[1] + t * segDy;
+
+                    // Calculate current distance
+                    var currentDx = currentEndpoint[0] - snapX;
+                    var currentDy = currentEndpoint[1] - snapY;
+                    var currentDist = Math.sqrt(currentDx * currentDx + currentDy * currentDy);
+
+                    // Only snap if distance is reasonable (within 10pt)
+                    // This prevents snapping to wrong segments if paths moved significantly
+                    if (currentDist <= 10) {
+                        // Calculate the delta we're about to apply
+                        var deltaX = snapX - currentEndpoint[0];
+                        var deltaY = snapY - currentEndpoint[1];
+
+                        // Apply the snap
+                        epPts[tjRestore.endpointIndex].anchor = [snapX, snapY];
+                        restoredCount++;
+
+                        addDebug("[POST-ORTHO-TJ] Snapped endpoint from [" + currentEndpoint[0].toFixed(1) + "," + currentEndpoint[1].toFixed(1) + "] to [" + snapX.toFixed(1) + "," + snapY.toFixed(1) + "] (was " + currentDist.toFixed(2) + "pt away, now 0pt)");
+
+                        // If SEGMENT path has an ignore marker, POST-PYTHON-ORTHO has already adjusted
+                        // the marker/endpoint positions correctly. We should NOT re-adjust them here
+                        // because recalculating the snap point from the already-adjusted endpoint
+                        // will give incorrect positions. Just skip this adjustment.
+                        if (segmentIgnoreMarker !== null && tjRestore.distMarkerToTJunction !== null) {
+                            addDebug("[POST-ORTHO-TJ] Segment has ignore marker - skipping marker/endpoint adjustment (already handled by POST-PYTHON-ORTHO)");
+                        }
+                    } else {
+                        addDebug("[POST-ORTHO-TJ] SKIPPED snapping (distance " + currentDist.toFixed(2) + "pt too large, paths moved significantly)");
+                    }
+                } catch (eTJRestore) {
+                    addDebug("[POST-ORTHO-TJ] Error restoring T-junction: " + eTJRestore);
+                }
+            }
+
+            addDebug("[POST-ORTHO-TJ] Restored " + restoredCount + " of " + preOrthoTJunctions.length + " T-junction(s)");
         }
 
         // Also read opposite endpoints for unit placement
@@ -16207,10 +16938,58 @@ function setStaticTextColor(control, rgbArray) {
                 }
             }
 
+            // *** STROKE-WIDTH-BASED CONNECTION TOLERANCES ***
+            // Helper: Constrain value to range
+            function clamp(v, lo, hi) {
+                return Math.max(lo, Math.min(hi, v));
+            }
+
+            // Helper: Get median stroke width from paths
+            function getMedianStrokeWidth(pathItems) {
+                var widths = [];
+                for (var i = 0; i < pathItems.length; i++) {
+                    try {
+                        widths.push(pathItems[i].strokeWidth);
+                    } catch(e) {}
+                }
+                if (widths.length === 0) return 1;
+                widths.sort(function(a,b){return a-b;});
+                var mid = Math.floor(widths.length / 2);
+                return widths[mid];
+            }
+
+            // Calculate dynamic tolerances based on stroke width (adapts to scale slider)
+            var dynamicConnectionDist = CONNECTION_DIST; // Default from global constant
+            var dynamicTTolerance = 3; // Default T-junction tolerance (3pt)
+
+            if (layerPaths.length > 0) {
+                // Try to use stored gap distance first (persists across runs)
+                var storedGap = readStoredGapDistance();
+                var medianStroke = getMedianStrokeWidth(layerPaths);
+
+                if (storedGap && storedGap.connectionDist && storedGap.tTolerance) {
+                    // Use stored values (assumes stroke widths haven't changed significantly)
+                    dynamicConnectionDist = storedGap.connectionDist;
+                    dynamicTTolerance = storedGap.tTolerance;
+                    addDebug("[TOLERANCE] Using stored values: CONNECTION_DIST=" + dynamicConnectionDist.toFixed(2) +
+                             ", T_TOLERANCE=" + dynamicTTolerance.toFixed(2));
+                } else {
+                    // Calculate from current stroke widths
+                    dynamicConnectionDist = clamp(medianStroke * 6, 5, 15);
+                    dynamicTTolerance = clamp(medianStroke * 1.5, 0.75, 8);
+                    addDebug("[TOLERANCE] Calculated from median stroke=" + medianStroke.toFixed(2) +
+                             ": CONNECTION_DIST=" + dynamicConnectionDist.toFixed(2) +
+                             ", T_TOLERANCE=" + dynamicTTolerance.toFixed(2));
+
+                    // Store for future runs
+                    storeGapDistance(dynamicConnectionDist, dynamicTTolerance);
+                }
+            }
+
             if (layerPaths.length > 1) {
                 // Array to collect intersection points where paths connect (should not get components)
                 var intersectionIgnorePoints = [];
-                var connections = findAllConnections(layerPaths, CONNECTION_DIST, intersectionIgnorePoints, ignoredAnchors);
+                var connections = findAllConnections(layerPaths, dynamicConnectionDist, intersectionIgnorePoints, ignoredAnchors, dynamicTTolerance);
 
                 // Add intersection ignore points to main ignoredAnchors list
                 if (intersectionIgnorePoints.length > 0) {
