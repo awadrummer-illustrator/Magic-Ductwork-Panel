@@ -14059,14 +14059,41 @@ function setStaticTextColor(control, rgbArray) {
                              pyOrthoResult.total_snaps + " snaps, " + pyOrthoResult.total_ortho_changes + " ortho changes");
                     pythonOrthoSuccess = true;
 
+                    // EXTENDSCRIPT-ORTHO for excluded paths: Paths with ignore markers were excluded from Python
+                    // to prevent SNAP_THRESHOLD from collapsing the tiny marker-to-endpoint segment.
+                    // However, the REST of the path still needs orthogonalization.
+                    // Run ExtendScript orthogonalization on excluded paths, then POST-PYTHON-ORTHO will adjust the tiny segment.
+                    if (excludedPaths.length > 0) {
+                        addDebug("[EXTENDSCRIPT-ORTHO] Orthogonalizing " + excludedPaths.length + " excluded path(s) using ExtendScript");
+                        var excludedPathItems = [];
+                        for (var exIdx = 0; exIdx < excludedPaths.length; exIdx++) {
+                            excludedPathItems.push(geometryPaths[excludedPaths[exIdx]]);
+                        }
+
+                        // Run ExtendScript orthogonalization
+                        var esIteration = 0;
+                        var esChanged = true;
+                        var ES_MAX_ITER = 50; // Limit iterations for excluded paths
+                        while (esChanged && esIteration < ES_MAX_ITER) {
+                            esIteration++;
+                            esChanged = false;
+                            addDebug("[EXTENDSCRIPT-ORTHO Iteration " + esIteration + "] Processing " + excludedPathItems.length + " excluded paths");
+                            var esSegments = buildSegmentsForPaths(excludedPathItems);
+                            if (snapAnchors(excludedPathItems, esSegments)) esChanged = true;
+
+                            for (var esPathIdx = 0; esPathIdx < excludedPathItems.length; esPathIdx++) {
+                                if (orthogonalizePath(excludedPathItems[esPathIdx], preOrthoConnections.pairs)) esChanged = true;
+                            }
+                            if (restoreEndpointConnections(preOrthoConnections)) esChanged = true;
+                        }
+                        addDebug("[EXTENDSCRIPT-ORTHO] Completed in " + esIteration + " iterations");
+                    }
+
                     // POST-PYTHON-ORTHO: Adjust ignore marker segments to preserve original distance
-                    // BUT ONLY if we didn't exclude the paths (if excluded, they weren't sent to Python)
+                    // This runs on ALL paths with ignore markers (including excluded paths that were just orthogonalized with ExtendScript)
                     if (ORTHO_IGNORE_MARKER_PATHS.length > 0) {
-                        if (excludedPaths.length > 0) {
-                            addDebug("[POST-PYTHON-ORTHO] SKIPPING adjustment - ignore marker paths were excluded from Python (already correct from previous processing)");
-                        } else {
-                            addDebug("[POST-PYTHON-ORTHO] Adjusting " + ORTHO_IGNORE_MARKER_PATHS.length + " ignore marker segment(s)");
-                            for (var imAdjIdx = 0; imAdjIdx < ORTHO_IGNORE_MARKER_PATHS.length; imAdjIdx++) {
+                        addDebug("[POST-PYTHON-ORTHO] Adjusting " + ORTHO_IGNORE_MARKER_PATHS.length + " ignore marker segment(s)");
+                        for (var imAdjIdx = 0; imAdjIdx < ORTHO_IGNORE_MARKER_PATHS.length; imAdjIdx++) {
                             var imAdj = ORTHO_IGNORE_MARKER_PATHS[imAdjIdx];
                             try {
                                 var adjPath = imAdj.path;
@@ -14220,7 +14247,6 @@ function setStaticTextColor(control, rgbArray) {
                                 }
                             } catch (eAdjIgnore) {
                                 addDebug("[POST-PYTHON-ORTHO] Error adjusting ignore marker segment: " + eAdjIgnore);
-                            }
                             }
                         }
                     }
@@ -15625,9 +15651,9 @@ function setStaticTextColor(control, rgbArray) {
 
                 // Start of auto-carve processing for this color
                 var colorPathsForAutoCarveRaw = getPathsOnLayerSelected(acColorSrc.layer) || [];
-                if (colorPathsForAutoCarveRaw.length < 2) {
-                    addDebug("[AUTO-CARVE] " + acColorSrc.name + ": Less than 2 paths, skipping");
-                    continue; // Need at least 2 paths to have an intersection
+                if (colorPathsForAutoCarveRaw.length < 1) {
+                    addDebug("[AUTO-CARVE] " + acColorSrc.name + ": No paths, skipping");
+                    continue; // Need at least 1 path (can have self-intersections)
                 }
 
                 // Extract paths from compound paths and include regular paths
