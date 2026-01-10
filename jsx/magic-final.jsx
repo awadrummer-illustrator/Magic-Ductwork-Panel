@@ -58,7 +58,8 @@ $.global.MDUX_DEBUG = {
     CONNECTIONS: true,          // Log path connection detection details
     INTERSECTIONS: true,        // Log intersection vertex detection
     COMPOUNDING: true,          // Log compounding operations
-    COMPONENTS: true            // Log component placement (units, registers, etc.)
+    COMPONENTS: true,           // Log component placement (units, registers, etc.)
+    OVERLAP_DETECTION: true     // Visual indicators for overlapping/collinear paths
 };
 // ============================================================================
 
@@ -15303,7 +15304,8 @@ function setStaticTextColor(control, rgbArray) {
 
         for (var ivColorIdx = 0; ivColorIdx < ALL_DUCTWORK_SOURCES.length; ivColorIdx++) {
             var ivSource = ALL_DUCTWORK_SOURCES[ivColorIdx];
-            var colorPathsForIntersect = filterPathsToProcessable(getPathsOnLayerSelected(ivSource.layer));
+            // Use getSelectedPathsOnLayer() to respect groups in selection
+            var colorPathsForIntersect = filterPathsToProcessable(getSelectedPathsOnLayer(ivSource.layer));
             if (colorPathsForIntersect.length < 2) continue;
 
             addDebug("[INTERSECT-VERTEX] Checking " + ivSource.name + ": " + colorPathsForIntersect.length + " paths");
@@ -15401,6 +15403,20 @@ function setStaticTextColor(control, rgbArray) {
         // and carve out those segments to prevent overlap (each color processes its own register type)
         addDebug("\n=== REGISTER CARVE-OUT (ALL COLORS) ===");
 
+        // Helper function: Filter SELECTED_PATHS by layer name
+        function getSelectedPathsOnLayer(layerName) {
+            var filtered = [];
+            for (var spIdx = 0; spIdx < SELECTED_PATHS.length; spIdx++) {
+                try {
+                    var spPath = SELECTED_PATHS[spIdx];
+                    if (spPath && spPath.layer && spPath.layer.name === layerName) {
+                        filtered.push(spPath);
+                    }
+                } catch (e) { }
+            }
+            return filtered;
+        }
+
         if (!ENABLE_REGISTER_CARVE) {
             addDebug("[REGISTER-CARVE] SKIPPED - checkbox not enabled");
             updateProgress("Register carve skipped...");
@@ -15438,8 +15454,8 @@ function setStaticTextColor(control, rgbArray) {
             }
             addDebug("[REGISTER-CARVE] " + rcColorSrc.name + ": Found " + registerCenters.length + " " + rcRegisterLayerName + " position(s)");
 
-            // Get SELECTED ductwork paths for this color only - do not touch unselected paths
-            var colorPathsForCarveRaw = getPathsOnLayerSelected(rcColorSrc.layer) || [];
+            // Get selected ductwork paths for this color (respects groups in selection)
+            var colorPathsForCarveRaw = getSelectedPathsOnLayer(rcColorSrc.layer) || [];
 
             // Extract paths from compound paths and include regular paths
             var colorPathsForCarve = [];
@@ -15862,7 +15878,8 @@ function setStaticTextColor(control, rgbArray) {
                 var acColorSrc = ALL_DUCTWORK_SOURCES[acColorIdx];
 
                 // Start of auto-carve processing for this color
-                var colorPathsForAutoCarveRaw = getPathsOnLayerSelected(acColorSrc.layer) || [];
+                // Use getSelectedPathsOnLayer() to respect groups in selection
+                var colorPathsForAutoCarveRaw = getSelectedPathsOnLayer(acColorSrc.layer) || [];
                 if (colorPathsForAutoCarveRaw.length < 1) {
                     addDebug("[AUTO-CARVE] " + acColorSrc.name + ": No paths, skipping");
                     continue; // Need at least 1 path (can have self-intersections)
@@ -16572,7 +16589,8 @@ function setStaticTextColor(control, rgbArray) {
         for (var irColorIdx = 0; irColorIdx < ALL_DUCTWORK_SOURCES.length; irColorIdx++) {
             var irColorSrc = ALL_DUCTWORK_SOURCES[irColorIdx];
             var irRegisterLayerName = getRegisterLayerForDuctwork(irColorSrc.name);
-            var colorPathsForRegisters = getPathsOnLayerSelected(irColorSrc.layer) || [];
+            // Use getSelectedPathsOnLayer() to respect groups in selection
+            var colorPathsForRegisters = getSelectedPathsOnLayer(irColorSrc.layer) || [];
             if (colorPathsForRegisters.length === 0) {
                 addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": No paths, skipping");
                 continue;
@@ -19490,6 +19508,7 @@ function setStaticTextColor(control, rgbArray) {
         // Ensure the desired block of ductwork layers exist and are in the exact order shown in the UI
         function ensureFinalLayerBlockOrder() {
             var desired = [
+                "OVERLAP_DETECTION",
                 "Scale Factor Container Layer",
                 "Frame",
                 "Ignored",
@@ -19613,6 +19632,413 @@ function setStaticTextColor(control, rgbArray) {
         try {
             registerMDUXExports();
         } catch (e) { }
+
+        // ============================================================================
+        // OVERLAP DETECTION & VISUALIZATION SYSTEM
+        // Detects and visualizes overlapping/collinear paths for debugging
+        // ============================================================================
+        if ($.global.MDUX_DEBUG.OVERLAP_DETECTION) {
+            try {
+                addDebug("=== OVERLAP DETECTION START ===");
+
+                // Helper: Calculate distance between two points
+                function distanceBetweenPoints(p1, p2) {
+                    var dx = p2[0] - p1[0];
+                    var dy = p2[1] - p1[1];
+                    return Math.sqrt(dx * dx + dy * dy);
+                }
+
+                // Helper: Calculate distance from point to line segment
+                function distancePointToSegment(pt, segStart, segEnd) {
+                    var px = pt[0], py = pt[1];
+                    var x1 = segStart[0], y1 = segStart[1];
+                    var x2 = segEnd[0], y2 = segEnd[1];
+
+                    var dx = x2 - x1;
+                    var dy = y2 - y1;
+                    var segLenSq = dx * dx + dy * dy;
+
+                    if (segLenSq < 0.0001) return distanceBetweenPoints(pt, segStart);
+
+                    var t = ((px - x1) * dx + (py - y1) * dy) / segLenSq;
+                    t = Math.max(0, Math.min(1, t));
+
+                    var projX = x1 + t * dx;
+                    var projY = y1 + t * dy;
+
+                    return distanceBetweenPoints(pt, [projX, projY]);
+                }
+
+                // Helper: Check if two segments are collinear
+                function areSegmentsCollinear(seg1Start, seg1End, seg2Start, seg2End, angleTolerance) {
+                    var dx1 = seg1End[0] - seg1Start[0];
+                    var dy1 = seg1End[1] - seg1Start[1];
+                    var dx2 = seg2End[0] - seg2Start[0];
+                    var dy2 = seg2End[1] - seg2Start[1];
+
+                    var len1 = Math.sqrt(dx1 * dx1 + dy1 * dy1);
+                    var len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2);
+
+                    if (len1 < 0.1 || len2 < 0.1) return false;
+
+                    // Normalize vectors
+                    dx1 = dx1 / len1; dy1 = dy1 / len1;
+                    dx2 = dx2 / len2; dy2 = dy2 / len2;
+
+                    // Calculate dot product (angle between vectors)
+                    var dotProduct = Math.abs(dx1 * dx2 + dy1 * dy2);
+
+                    // If dot product close to 1, vectors are parallel
+                    return dotProduct > Math.cos(angleTolerance * Math.PI / 180);
+                }
+
+                // Helper: Project point onto line direction and get distance along line
+                function projectPointOnLine(point, lineStart, lineEnd) {
+                    var dx = lineEnd[0] - lineStart[0];
+                    var dy = lineEnd[1] - lineStart[1];
+                    var len = Math.sqrt(dx * dx + dy * dy);
+
+                    if (len < 0.0001) return 0;
+
+                    // Normalize direction
+                    var dirX = dx / len;
+                    var dirY = dy / len;
+
+                    // Project point onto line
+                    var pointDx = point[0] - lineStart[0];
+                    var pointDy = point[1] - lineStart[1];
+
+                    return pointDx * dirX + pointDy * dirY;
+                }
+
+                // Helper: Check if two segments ACTUALLY overlap (not just touch or cross)
+                function doSegmentsOverlap(seg1Start, seg1End, seg2Start, seg2End, distTolerance, angleTolerance) {
+                    // First check if they're collinear (parallel)
+                    if (!areSegmentsCollinear(seg1Start, seg1End, seg2Start, seg2End, angleTolerance)) {
+                        return null;
+                    }
+
+                    // Check if segments are on the same line (not just parallel)
+                    // Check distance from seg2 endpoints to seg1 line
+                    var d1 = distancePointToSegment(seg2Start, seg1Start, seg1End);
+                    var d2 = distancePointToSegment(seg2End, seg1Start, seg1End);
+
+                    if (d1 > distTolerance && d2 > distTolerance) {
+                        return null; // Segments are parallel but too far apart
+                    }
+
+                    // Now check for actual overlap along the line direction
+                    // Project all 4 endpoints onto seg1's line to get 1D positions
+                    var proj1Start = 0; // seg1Start is our origin
+                    var proj1End = projectPointOnLine(seg1End, seg1Start, seg1End);
+                    var proj2Start = projectPointOnLine(seg2Start, seg1Start, seg1End);
+                    var proj2End = projectPointOnLine(seg2End, seg1Start, seg1End);
+
+                    // Normalize so smaller value is always first
+                    var seg1Min = Math.min(proj1Start, proj1End);
+                    var seg1Max = Math.max(proj1Start, proj1End);
+                    var seg2Min = Math.min(proj2Start, proj2End);
+                    var seg2Max = Math.max(proj2Start, proj2End);
+
+                    // Calculate overlap region on the 1D line
+                    var overlapStart = Math.max(seg1Min, seg2Min);
+                    var overlapEnd = Math.min(seg1Max, seg2Max);
+                    var overlapLength = overlapEnd - overlapStart;
+
+                    // Only flag as overlap if there's substantial overlap (more than 2pt)
+                    // This prevents flagging endpoint touches or T-junctions
+                    if (overlapLength < 2) {
+                        return null; // No significant overlap
+                    }
+
+                    // Calculate minimum distance between the two segments
+                    var minDist = Math.min(d1, d2);
+
+                    return {
+                        minDistance: minDist,
+                        overlapLength: overlapLength
+                    };
+                }
+
+                // Helper: Extract all paths from a layer (including compound paths)
+                function getAllPathsFromLayer(layer, layerName) {
+                    var paths = [];
+
+                    // Get regular pathItems
+                    try {
+                        addDebug("[Overlap] Layer " + layerName + " has " + layer.pathItems.length + " pathItems");
+                        for (var i = 0; i < layer.pathItems.length; i++) {
+                            try {
+                                var path = layer.pathItems[i];
+                                if (path.pathPoints && path.pathPoints.length >= 2) {
+                                    paths.push({path: path, layer: layerName, type: "PathItem"});
+                                }
+                            } catch (e) {
+                                addDebug("[Overlap] Error reading pathItem " + i + ": " + e);
+                            }
+                        }
+                    } catch (e) {
+                        addDebug("[Overlap] Error accessing pathItems: " + e);
+                    }
+
+                    // Get compound paths
+                    try {
+                        addDebug("[Overlap] Layer " + layerName + " has " + layer.compoundPathItems.length + " compoundPathItems");
+                        for (var i = 0; i < layer.compoundPathItems.length; i++) {
+                            try {
+                                var compound = layer.compoundPathItems[i];
+                                // CompoundPathItems contain multiple pathItems
+                                if (compound.pathItems && compound.pathItems.length > 0) {
+                                    for (var j = 0; j < compound.pathItems.length; j++) {
+                                        var path = compound.pathItems[j];
+                                        if (path.pathPoints && path.pathPoints.length >= 2) {
+                                            paths.push({path: path, layer: layerName, type: "CompoundPathItem"});
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                addDebug("[Overlap] Error reading compoundPathItem " + i + ": " + e);
+                            }
+                        }
+                    } catch (e) {
+                        addDebug("[Overlap] Error accessing compoundPathItems: " + e);
+                    }
+
+                    return paths;
+                }
+
+                // Helper: Check for overlaps within a single layer
+                function checkLayerOverlaps(layerPaths, distTolerance, angleTolerance) {
+                    var overlaps = [];
+
+                    // Compare all path pairs WITHIN THE SAME LAYER
+                    for (var i = 0; i < layerPaths.length; i++) {
+                        var pathA = layerPaths[i];
+                        var ptsA = pathA.path.pathPoints;
+
+                        for (var j = i + 1; j < layerPaths.length; j++) {
+                            var pathB = layerPaths[j];
+                            var ptsB = pathB.path.pathPoints;
+
+                            // Compare all segment pairs
+                            for (var segA = 0; segA < ptsA.length - 1; segA++) {
+                                var a1 = [ptsA[segA].anchor[0], ptsA[segA].anchor[1]];
+                                var a2 = [ptsA[segA + 1].anchor[0], ptsA[segA + 1].anchor[1]];
+
+                                for (var segB = 0; segB < ptsB.length - 1; segB++) {
+                                    var b1 = [ptsB[segB].anchor[0], ptsB[segB].anchor[1]];
+                                    var b2 = [ptsB[segB + 1].anchor[0], ptsB[segB + 1].anchor[1]];
+
+                                    var overlapInfo = doSegmentsOverlap(a1, a2, b1, b2, distTolerance, angleTolerance);
+
+                                    if (overlapInfo) {
+                                        overlaps.push({
+                                            pathA: pathA,
+                                            pathB: pathB,
+                                            segA: {start: a1, end: a2, index: segA},
+                                            segB: {start: b1, end: b2, index: segB},
+                                            minDistance: overlapInfo.minDistance,
+                                            overlapLength: overlapInfo.overlapLength
+                                        });
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    return overlaps;
+                }
+
+                // Main overlap detection function
+                function detectPathOverlaps() {
+                    var allOverlaps = [];
+
+                    var distTolerance = 3; // Points within 3px considered overlapping
+                    var angleTolerance = 5; // Segments within 5 degrees considered collinear
+
+                    addDebug("[Overlap] Detection parameters: distTolerance=" + distTolerance + "pt, angleTolerance=" + angleTolerance + "°");
+
+                    // Check Blue Ductwork layer (Blue vs Blue only)
+                    try {
+                        var blueDuctLayer = doc.layers.getByName("Blue Ductwork");
+                        if (blueDuctLayer) {
+                            var bluePaths = getAllPathsFromLayer(blueDuctLayer, "Blue Ductwork");
+                            addDebug("[Overlap] Checking " + bluePaths.length + " Blue paths against each other");
+                            var blueOverlaps = checkLayerOverlaps(bluePaths, distTolerance, angleTolerance);
+                            addDebug("[Overlap] Found " + blueOverlaps.length + " overlaps in Blue Ductwork");
+                            allOverlaps = allOverlaps.concat(blueOverlaps);
+                        }
+                    } catch (e) {
+                        addDebug("[Overlap] Error checking Blue Ductwork layer: " + e);
+                    }
+
+                    // Check Green Ductwork layer (Green vs Green only)
+                    try {
+                        var greenDuctLayer = doc.layers.getByName("Green Ductwork");
+                        if (greenDuctLayer) {
+                            var greenPaths = getAllPathsFromLayer(greenDuctLayer, "Green Ductwork");
+                            addDebug("[Overlap] Checking " + greenPaths.length + " Green paths against each other");
+                            var greenOverlaps = checkLayerOverlaps(greenPaths, distTolerance, angleTolerance);
+                            addDebug("[Overlap] Found " + greenOverlaps.length + " overlaps in Green Ductwork");
+                            allOverlaps = allOverlaps.concat(greenOverlaps);
+                        }
+                    } catch (e) {
+                        addDebug("[Overlap] Error checking Green Ductwork layer: " + e);
+                    }
+
+                    addDebug("[Overlap] Total overlaps found across all layers: " + allOverlaps.length);
+                    return allOverlaps;
+                }
+
+                // Create visual indicators for overlaps
+                function visualizeOverlaps(overlaps) {
+                    if (overlaps.length === 0) {
+                        addDebug("[Overlap] No overlapping paths detected");
+                        return;
+                    }
+
+                    addDebug("[Overlap] Found " + overlaps.length + " overlapping segments");
+
+                    // Create or get overlap detection layer
+                    var overlapLayer = null;
+                    try {
+                        overlapLayer = doc.layers.getByName("OVERLAP_DETECTION");
+                        addDebug("[Overlap] OVERLAP_DETECTION layer exists");
+                    } catch (e) {
+                        overlapLayer = doc.layers.add();
+                        overlapLayer.name = "OVERLAP_DETECTION";
+                        addDebug("[Overlap] Created new OVERLAP_DETECTION layer");
+                    }
+
+                    // CRITICAL: Ensure layer is visible and unlocked
+                    try {
+                        overlapLayer.visible = true;
+                        overlapLayer.locked = false;
+                        overlapLayer.printable = true;
+                        addDebug("[Overlap] Layer set to visible=" + overlapLayer.visible + ", locked=" + overlapLayer.locked);
+                    } catch (e) {
+                        addDebug("[Overlap] Error setting layer properties: " + e);
+                    }
+
+                    // Clear existing overlap indicators
+                    try {
+                        var itemCount = overlapLayer.pageItems.length;
+                        addDebug("[Overlap] Clearing " + itemCount + " existing items from layer");
+                        for (var i = itemCount - 1; i >= 0; i--) {
+                            overlapLayer.pageItems[i].remove();
+                        }
+                    } catch (e) {
+                        addDebug("[Overlap] Error clearing layer: " + e);
+                    }
+
+                    // Create visual indicators for each overlap
+                    for (var i = 0; i < overlaps.length; i++) {
+                        var overlap = overlaps[i];
+
+                        try {
+                            addDebug("[Overlap Visual " + (i + 1) + "] Starting visual creation...");
+                            addDebug("[Overlap Visual " + (i + 1) + "] SegA: [" + overlap.segA.start[0].toFixed(2) + "," + overlap.segA.start[1].toFixed(2) + "] to [" + overlap.segA.end[0].toFixed(2) + "," + overlap.segA.end[1].toFixed(2) + "]");
+                            addDebug("[Overlap Visual " + (i + 1) + "] SegB: [" + overlap.segB.start[0].toFixed(2) + "," + overlap.segB.start[1].toFixed(2) + "] to [" + overlap.segB.end[0].toFixed(2) + "," + overlap.segB.end[1].toFixed(2) + "]");
+
+                            // Create highlight line for segment A (magenta)
+                            addDebug("[Overlap Visual " + (i + 1) + "] Creating highlightA...");
+                            var highlightA = overlapLayer.pathItems.add();
+                            highlightA.stroked = true;
+                            highlightA.filled = false;
+                            highlightA.strokeColor = new RGBColor();
+                            highlightA.strokeColor.red = 255;
+                            highlightA.strokeColor.green = 0;
+                            highlightA.strokeColor.blue = 255;
+                            highlightA.strokeWidth = 8;
+                            highlightA.opacity = 70;
+
+                            highlightA.setEntirePath([overlap.segA.start, overlap.segA.end]);
+                            addDebug("[Overlap Visual " + (i + 1) + "] HighlightA created with " + highlightA.pathPoints.length + " points");
+
+                            // Create highlight line for segment B (cyan)
+                            addDebug("[Overlap Visual " + (i + 1) + "] Creating highlightB...");
+                            var highlightB = overlapLayer.pathItems.add();
+                            highlightB.stroked = true;
+                            highlightB.filled = false;
+                            highlightB.strokeColor = new RGBColor();
+                            highlightB.strokeColor.red = 0;
+                            highlightB.strokeColor.green = 255;
+                            highlightB.strokeColor.blue = 255;
+                            highlightB.strokeWidth = 6;
+                            highlightB.opacity = 70;
+
+                            highlightB.setEntirePath([overlap.segB.start, overlap.segB.end]);
+                            addDebug("[Overlap Visual " + (i + 1) + "] HighlightB created with " + highlightB.pathPoints.length + " points");
+
+                            // Add warning marker at midpoint
+                            var midX = (overlap.segA.start[0] + overlap.segA.end[0]) / 2;
+                            var midY = (overlap.segA.start[1] + overlap.segA.end[1]) / 2;
+                            addDebug("[Overlap Visual " + (i + 1) + "] Midpoint: [" + midX.toFixed(2) + "," + midY.toFixed(2) + "]");
+
+                            addDebug("[Overlap Visual " + (i + 1) + "] Creating marker ellipse...");
+                            var marker = overlapLayer.pathItems.ellipse(
+                                midY + 6,
+                                midX - 6,
+                                12,
+                                12
+                            );
+                            marker.filled = true;
+                            marker.fillColor = new RGBColor();
+                            marker.fillColor.red = 255;
+                            marker.fillColor.green = 0;
+                            marker.fillColor.blue = 0;
+                            marker.stroked = true;
+                            marker.strokeColor = new RGBColor();
+                            marker.strokeColor.red = 255;
+                            marker.strokeColor.green = 255;
+                            marker.strokeColor.blue = 255;
+                            marker.strokeWidth = 2;
+                            addDebug("[Overlap Visual " + (i + 1) + "] Marker created");
+
+                            // Add text label
+                            addDebug("[Overlap Visual " + (i + 1) + "] Creating text label...");
+                            var textRef = overlapLayer.textFrames.add();
+                            textRef.contents = "OVERLAP " + (i + 1) +
+                                "\nDist: " + overlap.minDistance.toFixed(2) + "pt" +
+                                "\nLen: " + overlap.overlapLength.toFixed(2) + "pt";
+                            textRef.textRange.characterAttributes.size = 10;
+                            textRef.textRange.characterAttributes.fillColor = new RGBColor();
+                            textRef.textRange.characterAttributes.fillColor.red = 255;
+                            textRef.textRange.characterAttributes.fillColor.green = 0;
+                            textRef.textRange.characterAttributes.fillColor.blue = 0;
+                            textRef.position = [midX + 10, midY - 5];
+                            addDebug("[Overlap Visual " + (i + 1) + "] Text label created");
+
+                            addDebug("[Overlap " + (i + 1) + "] " +
+                                overlap.pathA.layer + " seg#" + overlap.segA.index +
+                                " <-> " +
+                                overlap.pathB.layer + " seg#" + overlap.segB.index +
+                                " | Distance: " + overlap.minDistance.toFixed(2) + "pt" +
+                                " | Length: " + overlap.overlapLength.toFixed(2) + "pt");
+
+                            addDebug("[Overlap Visual " + (i + 1) + "] All elements created successfully!");
+
+                        } catch (e) {
+                            addDebug("[Overlap] ERROR creating visual indicator " + (i + 1) + ": " + e);
+                            addDebug("[Overlap] Error message: " + (e.message || "unknown"));
+                            addDebug("[Overlap] Error line: " + (e.line || "unknown"));
+                        }
+                    }
+
+                    addDebug("[Overlap] Created " + overlaps.length + " visual indicators on layer OVERLAP_DETECTION");
+                }
+
+                // Run detection and visualization
+                var detectedOverlaps = detectPathOverlaps();
+                visualizeOverlaps(detectedOverlaps);
+
+                addDebug("=== OVERLAP DETECTION COMPLETE ===");
+
+            } catch (overlapError) {
+                addDebug("[Overlap] Error in overlap detection: " + overlapError);
+            }
+        }
+        // ============================================================================
 
         addDebug("=== MAGIC DUCTWORK COMPLETE ===");
 
