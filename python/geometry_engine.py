@@ -639,9 +639,37 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
                 if abs(dx) < 0.001 and abs(dy) < 0.001:
                     continue
 
-                angle = abs(np.degrees(np.arctan2(dy, dx))) % 90
-                if angle > 45:
-                    angle = 90 - angle
+                # Calculate normalized angle (-90 to 90)
+                angle_deg = np.degrees(np.arctan2(dy, dx))
+                if angle_deg > 90:
+                    angle_deg = angle_deg - 180
+                elif angle_deg < -90:
+                    angle_deg = angle_deg + 180
+
+                # Check if within 10° of ±45° - snap to exactly 45°
+                if (35 <= angle_deg <= 55) or (-55 <= angle_deg <= -35):
+                    # Snap to 45° or -45°
+                    segment_length = np.sqrt(dx * dx + dy * dy)
+                    diagonal_component = segment_length / np.sqrt(2)
+
+                    # Preserve direction signs
+                    if angle_deg > 0:
+                        # Positive 45° - snap to exactly 45°
+                        new_dx = diagonal_component if dx > 0 else -diagonal_component
+                        new_dy = diagonal_component if dy > 0 else -diagonal_component
+                    else:
+                        # Negative 45° - snap to exactly -45°
+                        new_dx = diagonal_component if dx > 0 else -diagonal_component
+                        new_dy = -diagonal_component if dy < 0 else diagonal_component
+
+                    # Apply the snap
+                    pts[i + 1][0] = pts[i][0] + new_dx
+                    pts[i + 1][1] = pts[i][1] + new_dy
+                    changes_made = True
+                    total_ortho += 1
+                    continue
+
+                angle = abs(angle_deg)
 
                 # Skip steep angles (non-orthogonal by design)
                 if steep_min <= angle <= steep_max:
