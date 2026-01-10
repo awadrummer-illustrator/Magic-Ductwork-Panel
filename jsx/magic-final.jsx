@@ -8962,6 +8962,10 @@ function setStaticTextColor(control, rgbArray) {
         var ACTIVE_CENTERLINES = [];
         var CARVE_OUT_COMPOUNDS = []; // Track compound paths created during carve-out for styling
 
+
+        // Initialize trunk/branch naming counters (reset each run)
+        $.global.MDUX_NAME_COUNTERS = { trunk: 0, branch: 0 };
+        addDebug("[NAMING] Initialized naming counters");
         // Ductwork parts layers to exclude from path collection
         var DUCTWORK_PARTS_LAYERS = {
             "Units": true,
@@ -16756,6 +16760,185 @@ function setStaticTextColor(control, rgbArray) {
                 }
             }
         }
+
+            // *** TRUNK/BRANCH NAMING FEATURE ***
+            // Format: Trunk-#### and Branch-###(Trunk####)
+            // Numbers are serialized in processing order and preserved across re-runs
+            if (layerPaths.length > 0) {
+                addDebug("[NAMING] Starting naming for layer: " + layerName);
+
+                // Build path-to-component mapping
+                var pathToComponentIdx = {};
+                for (var compIdx = 0; compIdx < components.length; compIdx++) {
+                    var compPaths = components[compIdx];
+                    for (var cpIdx = 0; cpIdx < compPaths.length; cpIdx++) {
+                        try {
+                            pathToComponentIdx[compPaths[cpIdx]] = compIdx;
+                        } catch (e) {}
+                    }
+                }
+
+                // PASS 1: Identify TRUNKS (no connections) and preserve/assign names
+                var componentNames = {};
+                var trunkComponentIndices = [];
+
+                for (var compIdx = 0; compIdx < components.length; compIdx++) {
+                    var compPaths = components[compIdx];
+                    var hasConnections = false;
+
+                    for (var cpIdx = 0; cpIdx < compPaths.length; cpIdx++) {
+                        for (var connIdx = 0; connIdx < connections.length; connIdx++) {
+                            var conn = connections[connIdx];
+                            if (conn[0] === compPaths[cpIdx] || conn[1] === compPaths[cpIdx]) {
+                                hasConnections = true;
+                                break;
+                            }
+                        }
+                        if (hasConnections) break;
+                    }
+
+                    if (!hasConnections) {
+                        // Check if any path already has a Trunk name
+                        var existingName = null;
+                        for (var cpIdx = 0; cpIdx < compPaths.length; cpIdx++) {
+                            try {
+                                var pathName = compPaths[cpIdx].name;
+                                if (pathName && pathName.indexOf("Trunk-") === 0) {
+                                    existingName = pathName;
+                                    break;
+                                }
+                            } catch (e) {}
+                        }
+
+                        if (existingName) {
+                            componentNames[compIdx] = existingName;
+                            addDebug("[NAMING] Component " + compIdx + " preserved TRUNK name: " + existingName);
+                        } else {
+                            $.global.MDUX_NAME_COUNTERS.trunk++;
+                            var trunkNum = $.global.MDUX_NAME_COUNTERS.trunk;
+                            var trunkNumStr = ("0000" + trunkNum).substr(-4);
+                            var trunkName = "Trunk-" + trunkNumStr;
+                            componentNames[compIdx] = trunkName;
+                            addDebug("[NAMING] Component " + compIdx + " assigned TRUNK name: " + trunkName);
+                        }
+                        trunkComponentIndices.push(compIdx);
+                    }
+                }
+
+                // PASS 2: Identify BRANCHES and assign names with trunk prefix
+                for (var compIdx = 0; compIdx < components.length; compIdx++) {
+                    if (componentNames[compIdx]) continue; // Already named as trunk
+
+                    var compPaths = components[compIdx];
+
+                    // Find connected trunk via BFS
+                    var connectedTrunkIdx = null;
+                    var visited = {};
+                    visited[compIdx] = true;
+                    var toVisit = [compIdx];
+
+                    while (toVisit.length > 0 && connectedTrunkIdx === null) {
+                        var currentIdx = toVisit.shift();
+                        var currentPaths = components[currentIdx];
+
+                        for (var cpIdx = 0; cpIdx < currentPaths.length; cpIdx++) {
+                            for (var connIdx = 0; connIdx < connections.length; connIdx++) {
+                                var conn = connections[connIdx];
+                                var connectedPath = null;
+
+                                if (conn[0] === currentPaths[cpIdx]) connectedPath = conn[1];
+                                else if (conn[1] === currentPaths[cpIdx]) connectedPath = conn[0];
+
+                                if (connectedPath) {
+                                    var connectedCompIdx = pathToComponentIdx[connectedPath];
+                                    if (connectedCompIdx !== undefined && !visited[connectedCompIdx]) {
+                                        visited[connectedCompIdx] = true;
+
+                                        // Check if this is a trunk
+                                        for (var tIdx = 0; tIdx < trunkComponentIndices.length; tIdx++) {
+                                            if (trunkComponentIndices[tIdx] === connectedCompIdx) {
+                                                connectedTrunkIdx = connectedCompIdx;
+                                                break;
+                                            }
+                                        }
+
+                                        if (connectedTrunkIdx === null) toVisit.push(connectedCompIdx);
+                                    }
+                                }
+                            }
+                            if (connectedTrunkIdx !== null) break;
+                        }
+                    }
+
+                    // Generate branch name
+                    if (connectedTrunkIdx !== null && componentNames[connectedTrunkIdx]) {
+                        var trunkName = componentNames[connectedTrunkIdx];
+                        var trunkNum = trunkName.replace("Trunk-", "");
+
+                        // Check for existing branch name with this trunk
+                        var existingBranchName = null;
+                        for (var cpIdx = 0; cpIdx < compPaths.length; cpIdx++) {
+                            try {
+                                var pathName = compPaths[cpIdx].name;
+                                if (pathName && pathName.indexOf("Branch-") === 0 && pathName.indexOf("(Trunk" + trunkNum + ")") !== -1) {
+                                    existingBranchName = pathName;
+                                    break;
+                                }
+                            } catch (e) {}
+                        }
+
+                        if (existingBranchName) {
+                            componentNames[compIdx] = existingBranchName;
+                            addDebug("[NAMING] Component " + compIdx + " preserved BRANCH name: " + existingBranchName);
+                        } else {
+                            $.global.MDUX_NAME_COUNTERS.branch++;
+                            var branchNum = $.global.MDUX_NAME_COUNTERS.branch;
+                            var branchNumStr = ("000" + branchNum).substr(-3);
+                            var branchName = "Branch-" + branchNumStr + "(Trunk" + trunkNum + ")";
+                            componentNames[compIdx] = branchName;
+                            addDebug("[NAMING] Component " + compIdx + " assigned BRANCH name: " + branchName);
+                        }
+                    } else {
+                        // Orphaned - treat as trunk
+                        $.global.MDUX_NAME_COUNTERS.trunk++;
+                        var trunkNum = $.global.MDUX_NAME_COUNTERS.trunk;
+                        var trunkNumStr = ("0000" + trunkNum).substr(-4);
+                        componentNames[compIdx] = "Trunk-" + trunkNumStr;
+                        addDebug("[NAMING] Component " + compIdx + " orphaned, naming as TRUNK: " + componentNames[compIdx]);
+                    }
+                }
+
+                // PASS 3: Apply names to paths/compounds
+                for (var compIdx = 0; compIdx < components.length; compIdx++) {
+                    var compName = componentNames[compIdx];
+                    if (!compName) continue;
+
+                    var compPaths = components[compIdx];
+                    for (var cpIdx = 0; cpIdx < compPaths.length; cpIdx++) {
+                        try {
+                            var targetPath = compPaths[cpIdx];
+
+                            // Get compound parent if exists
+                            var pathToName = targetPath;
+                            try {
+                                if (targetPath.parent && targetPath.parent.typename === "CompoundPathItem") {
+                                    pathToName = targetPath.parent;
+                                }
+                            } catch (e) {}
+
+                            // Only name selected paths
+                            if (isPathSelected(targetPath)) {
+                                pathToName.name = compName;
+                                addDebug("[NAMING] Applied name: " + compName);
+                            }
+                        } catch (e) {
+                            addDebug("[NAMING] ERROR applying name: " + e);
+                        }
+                    }
+                }
+
+                addDebug("[NAMING] Completed naming for layer: " + layerName);
+            }
 
         // CROSSOVER POST-PROCESSING: Place ignore anchors at split endpoints
         // Combine early crossover segments with any found during compounding
