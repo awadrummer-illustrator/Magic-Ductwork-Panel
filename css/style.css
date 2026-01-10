@@ -471,3 +471,38 @@ footer:hover {
     transition: max-height 0.3s ease-out;
     overflow: hidden;
 }
+
+/* Refresh Button (Top Right) */
+.refresh-btn-top {
+    position: fixed;
+    top: 8px;
+    right: 8px;
+    z-index: 9999;
+    width: 24px;
+    height: 24px;
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid var(--primary-color);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.3);
+}
+
+.refresh-btn-top:hover {
+    background: rgba(0, 102, 255, 0.2);
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.5);
+    transform: rotate(90deg);
+}
+
+.refresh-btn-top:active {
+    transform: rotate(90deg) scale(0.95);
+}
+
+.refresh-btn-top svg {
+    color: var(--primary-color);
+    filter: drop-shadow(0 0 3px var(--primary-color));
+}
