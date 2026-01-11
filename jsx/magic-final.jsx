@@ -10305,22 +10305,38 @@ function setStaticTextColor(control, rgbArray) {
 
                         if (isIgnoreMarkerSegment && useAdjacentDirection === "prev" && i > 0) {
                             // Segment connects ignore marker to END - use previous segment direction
-                            var prevPt = pts[i - 1];
-                            var prevDx = curr.anchor[0] - prevPt.anchor[0];
-                            var prevDy = curr.anchor[1] - prevPt.anchor[1];
                             addDebug("[Orthogonalize Seg " + i + "] Ignore marker segment (to end) - using prev segment direction");
 
-                            var newX = next.anchor[0];
-                            var newY = next.anchor[1];
-                            if (Math.abs(prevDx) > Math.abs(prevDy)) {
-                                // Previous segment was horizontal, extend horizontally
-                                newY = curr.anchor[1];
-                                addDebug("[Orthogonalize Seg " + i + "] Extending horizontal from prev (newY = " + newY.toFixed(2) + ")");
-                            } else {
-                                // Previous segment was vertical, extend vertically
-                                newX = curr.anchor[0];
-                                addDebug("[Orthogonalize Seg " + i + "] Extending vertical from prev (newX = " + newX.toFixed(2) + ")");
+                            var markerAnchor = curr.anchor;
+                            var targetDist = ignoreMarkerInfo && typeof ignoreMarkerInfo.originalDistance === "number"
+                                ? ignoreMarkerInfo.originalDistance
+                                : Math.sqrt(Math.pow(next.anchor[0] - markerAnchor[0], 2) + Math.pow(next.anchor[1] - markerAnchor[1], 2));
+                            var segDx = 0;
+                            var segDy = 0;
+                            var segLen = 0;
+                            var prevIdx = i - 1;
+
+                            while (prevIdx >= 0) {
+                                var prevPt = pts[prevIdx].anchor;
+                                segDx = markerAnchor[0] - prevPt[0];
+                                segDy = markerAnchor[1] - prevPt[1];
+                                segLen = Math.sqrt((segDx * segDx) + (segDy * segDy));
+                                if (segLen >= 0.001) break;
+                                prevIdx--;
                             }
+
+                            if (segLen < 0.001) {
+                                // Fallback: use current marker-to-end direction if segment is degenerate.
+                                segDx = next.anchor[0] - markerAnchor[0];
+                                segDy = next.anchor[1] - markerAnchor[1];
+                                segLen = Math.sqrt((segDx * segDx) + (segDy * segDy));
+                            }
+                            if (segLen < 0.001 || targetDist <= 0) continue;
+
+                            var dirX = segDx / segLen;
+                            var dirY = segDy / segLen;
+                            var newX = markerAnchor[0] + (dirX * targetDist);
+                            var newY = markerAnchor[1] + (dirY * targetDist);
                             var isAlmostEqual = almostEqualPoints([newX, newY], next.anchor);
                             if (!isAlmostEqual) {
                                 next.anchor = [newX, newY];
@@ -10332,22 +10348,38 @@ function setStaticTextColor(control, rgbArray) {
                             next.rightDirection = next.anchor.slice();
                         } else if (isIgnoreMarkerSegment && useAdjacentDirection === "next" && pts.length > 2) {
                             // Segment connects START to ignore marker - use next segment direction
-                            var nextNext = pts[2];
-                            var nextDx = nextNext.anchor[0] - next.anchor[0];
-                            var nextDy = nextNext.anchor[1] - next.anchor[1];
                             addDebug("[Orthogonalize Seg " + i + "] Ignore marker segment (from start) - using next segment direction");
 
-                            var newX = curr.anchor[0];
-                            var newY = curr.anchor[1];
-                            if (Math.abs(nextDx) > Math.abs(nextDy)) {
-                                // Next segment is horizontal, move curr to match next's Y
-                                newY = next.anchor[1];
-                                addDebug("[Orthogonalize Seg " + i + "] Aligning to horizontal from next (newY = " + newY.toFixed(2) + ")");
-                            } else {
-                                // Next segment is vertical, move curr to match next's X
-                                newX = next.anchor[0];
-                                addDebug("[Orthogonalize Seg " + i + "] Aligning to vertical from next (newX = " + newX.toFixed(2) + ")");
+                            var markerAnchor = next.anchor;
+                            var targetDist = ignoreMarkerInfo && typeof ignoreMarkerInfo.originalDistance === "number"
+                                ? ignoreMarkerInfo.originalDistance
+                                : Math.sqrt(Math.pow(markerAnchor[0] - curr.anchor[0], 2) + Math.pow(markerAnchor[1] - curr.anchor[1], 2));
+                            var segDx = 0;
+                            var segDy = 0;
+                            var segLen = 0;
+                            var nextIdx = i + 2;
+
+                            while (nextIdx < pts.length) {
+                                var nextPt = pts[nextIdx].anchor;
+                                segDx = markerAnchor[0] - nextPt[0];
+                                segDy = markerAnchor[1] - nextPt[1];
+                                segLen = Math.sqrt((segDx * segDx) + (segDy * segDy));
+                                if (segLen >= 0.001) break;
+                                nextIdx++;
                             }
+
+                            if (segLen < 0.001) {
+                                // Fallback: use current marker-to-start direction if segment is degenerate.
+                                segDx = markerAnchor[0] - curr.anchor[0];
+                                segDy = markerAnchor[1] - curr.anchor[1];
+                                segLen = Math.sqrt((segDx * segDx) + (segDy * segDy));
+                            }
+                            if (segLen < 0.001 || targetDist <= 0) continue;
+
+                            var dirX = segDx / segLen;
+                            var dirY = segDy / segLen;
+                            var newX = markerAnchor[0] + (dirX * targetDist);
+                            var newY = markerAnchor[1] + (dirY * targetDist);
                             var isAlmostEqual = almostEqualPoints([newX, newY], curr.anchor);
                             if (!isAlmostEqual) {
                                 curr.anchor = [newX, newY];
@@ -15159,16 +15191,16 @@ function setStaticTextColor(control, rgbArray) {
             addDebug("[EARLY-XOVER] Stored " + EARLY_CROSSOVER_SEGMENTS.length + " crossover(s) for post-ortho splitting");
         }
 
-        // *** CLEANUP: REMOVE INTERNAL ANCHORS WITHIN 4PT OF ENDPOINTS ***
-        // If an internal anchor on a blue ductwork path is within 4pt of an endpoint,
+        // *** CLEANUP: REMOVE INTERNAL ANCHORS WITHIN ENDPOINT THRESHOLD ***
+        // If an internal anchor on a blue ductwork path is within ENDPOINT_INTERNAL_THRESHOLD of an endpoint,
         // remove the internal anchor and mark that endpoint to be ignored (no part placed there)
         // Also mark the OPPOSITE endpoint for unit placement
         // NOTE: We store PATH REFERENCES, not coordinates, because orthogonalization will move endpoints
         addDebug("\n=== INTERNAL ANCHOR CLEANUP (near endpoints) ===");
-        var ENDPOINT_INTERNAL_THRESHOLD = 4;
+        var ENDPOINT_INTERNAL_THRESHOLD = 6.5;
         var endpointPathRefs = []; // Store {path, endpoint: "start"|"end"} - will read coords AFTER ortho
         var oppositeEndpointPathRefs = []; // Store opposite endpoint refs for unit placement
-        var endpointsToIgnore = []; // Will be populated AFTER ortho with actual coordinates
+        var endpointsToIgnore = []; // Will be populated AFTER ortho with actual coordinates (endpoints + markers)
 
         addDebug("[CLEANUP] Checking " + bluePaths.length + " blue path(s) for internal anchors within " + ENDPOINT_INTERNAL_THRESHOLD + "pt of endpoints");
 
@@ -15478,66 +15510,42 @@ function setStaticTextColor(control, rgbArray) {
 
                                 if (imAdj.endpoint === "end" && markerIdx > 0 && markerIdx < adjPts.length - 1) {
                                     // Ignore marker at markerIdx, endpoint at end
-                                    // After Python ortho, the segment FROM MARKER TO END should be horizontal, vertical, or 45-degree
+                                    // After ortho, keep the marker-to-end segment collinear with the segment before it.
                                     var markerPt = adjPts[markerIdx].anchor;
                                     var endpointPt = adjPts[adjPts.length - 1].anchor;
-
-                                    // Determine if the segment FROM MARKER TO END is horizontal, vertical, or 45-degree
-                                    var toEndDx = endpointPt[0] - markerPt[0];
-                                    var toEndDy = endpointPt[1] - markerPt[1];
-                                    var toEndAbsDx = Math.abs(toEndDx);
-                                    var toEndAbsDy = Math.abs(toEndDy);
-
-                                    var newEndX, newEndY;
-                                    var segDirection = "";
-
-                                    // Check if 45-degree diagonal (dx ≈ dy)
-                                    var ratio = (toEndAbsDx > 0.001) ? (toEndAbsDy / toEndAbsDx) : 0;
-                                    if (ratio >= 0.8 && ratio <= 1.25) {
-                                        // 45-degree diagonal segment
-                                        segDirection = "diagonal";
-                                        var diagonalDist = originalDist / Math.sqrt(2); // Distance along each axis for 45-degree
-
-                                        // Extend in the same diagonal direction
-                                        if (toEndDx > 0 && toEndDy > 0) {
-                                            // Upper-right
-                                            newEndX = markerPt[0] + diagonalDist;
-                                            newEndY = markerPt[1] + diagonalDist;
-                                        } else if (toEndDx > 0 && toEndDy < 0) {
-                                            // Lower-right
-                                            newEndX = markerPt[0] + diagonalDist;
-                                            newEndY = markerPt[1] - diagonalDist;
-                                        } else if (toEndDx < 0 && toEndDy > 0) {
-                                            // Upper-left
-                                            newEndX = markerPt[0] - diagonalDist;
-                                            newEndY = markerPt[1] + diagonalDist;
-                                        } else {
-                                            // Lower-left
-                                            newEndX = markerPt[0] - diagonalDist;
-                                            newEndY = markerPt[1] - diagonalDist;
+                                    
+                                    var segDx = 0;
+                                    var segDy = 0;
+                                    var segLen = 0;
+                                    var segDirection = "prev-segment";
+                                    var prevIdx = markerIdx - 1;
+                                    
+                                    while (prevIdx >= 0) {
+                                        var prevPt = adjPts[prevIdx].anchor;
+                                        segDx = markerPt[0] - prevPt[0];
+                                        segDy = markerPt[1] - prevPt[1];
+                                        segLen = Math.sqrt((segDx * segDx) + (segDy * segDy));
+                                        if (segLen >= 0.001) {
+                                            segDirection = "prev-segment@" + prevIdx;
+                                            break;
                                         }
-                                    } else if (toEndAbsDx > toEndAbsDy) {
-                                        // Segment is HORIZONTAL - extend horizontally
-                                        segDirection = "horizontal";
-                                        newEndY = markerPt[1]; // Same Y as marker
-                                        // Determine direction: check which side current endpoint is on
-                                        if (endpointPt[0] > markerPt[0]) {
-                                            newEndX = markerPt[0] + originalDist; // Extend right
-                                        } else {
-                                            newEndX = markerPt[0] - originalDist; // Extend left
-                                        }
-                                    } else {
-                                        // Segment is VERTICAL - extend vertically
-                                        segDirection = "vertical";
-                                        newEndX = markerPt[0]; // Same X as marker
-                                        // Determine direction: check which side current endpoint is on
-                                        if (endpointPt[1] > markerPt[1]) {
-                                            newEndY = markerPt[1] + originalDist; // Extend up
-                                        } else {
-                                            newEndY = markerPt[1] - originalDist; // Extend down
-                                        }
+                                        prevIdx--;
                                     }
-
+                                    
+                                    if (segLen < 0.001) {
+                                        // Fallback: use current marker-to-end direction if segment is degenerate.
+                                        segDx = endpointPt[0] - markerPt[0];
+                                        segDy = endpointPt[1] - markerPt[1];
+                                        segLen = Math.sqrt((segDx * segDx) + (segDy * segDy));
+                                        segDirection = "fallback-marker";
+                                    }
+                                    
+                                    if (segLen < 0.001) continue;
+                                    
+                                    var dirX = segDx / segLen;
+                                    var dirY = segDy / segLen;
+                                    var newEndX = markerPt[0] + (dirX * originalDist);
+                                    var newEndY = markerPt[1] + (dirY * originalDist);
                                     // Set anchor position AND reset handles to prevent curves
                                     var endPt = adjPts[adjPts.length - 1];
                                     endPt.anchor = [newEndX, newEndY];
@@ -15548,67 +15556,42 @@ function setStaticTextColor(control, rgbArray) {
                                     addDebug("[POST-PYTHON-ORTHO] Adjusted endpoint from [" + endpointPt[0].toFixed(1) + "," + endpointPt[1].toFixed(1) + "] to [" + newEndX.toFixed(1) + "," + newEndY.toFixed(1) + "] (dist=" + actualDist.toFixed(2) + "pt, target=" + originalDist.toFixed(2) + "pt, direction=" + segDirection + ")");
                                 } else if (imAdj.endpoint === "start" && markerIdx > 0 && markerIdx < adjPts.length - 1) {
                                     // Ignore marker at markerIdx, endpoint at start
-                                    // After Python ortho, the segment FROM START TO MARKER should be horizontal or vertical
+                                    // After ortho, keep the marker-to-start segment collinear with the segment before it.
                                     var startPt = adjPts[0].anchor;
                                     var markerPt2 = adjPts[markerIdx].anchor;
-
-                                    // Determine if the segment FROM MARKER TO START is horizontal, vertical, or 45-degree
-                                    // (This is the segment we're adjusting, not the next segment!)
-                                    var toStartDx = startPt[0] - markerPt2[0];
-                                    var toStartDy = startPt[1] - markerPt2[1];
-                                    var toStartAbsDx = Math.abs(toStartDx);
-                                    var toStartAbsDy = Math.abs(toStartDy);
-
-                                    var newStartX, newStartY;
-                                    var segDirection = "";
-
-                                    // Check if 45-degree diagonal (dx ≈ dy)
-                                    var ratio = (toStartAbsDx > 0.001) ? (toStartAbsDy / toStartAbsDx) : 0;
-                                    if (ratio >= 0.8 && ratio <= 1.25) {
-                                        // 45-degree diagonal segment
-                                        segDirection = "diagonal";
-                                        var diagonalDist = originalDist / Math.sqrt(2); // Distance along each axis for 45-degree
-
-                                        // Extend in the same diagonal direction
-                                        if (toStartDx > 0 && toStartDy > 0) {
-                                            // Upper-right
-                                            newStartX = markerPt2[0] + diagonalDist;
-                                            newStartY = markerPt2[1] + diagonalDist;
-                                        } else if (toStartDx > 0 && toStartDy < 0) {
-                                            // Lower-right
-                                            newStartX = markerPt2[0] + diagonalDist;
-                                            newStartY = markerPt2[1] - diagonalDist;
-                                        } else if (toStartDx < 0 && toStartDy > 0) {
-                                            // Upper-left
-                                            newStartX = markerPt2[0] - diagonalDist;
-                                            newStartY = markerPt2[1] + diagonalDist;
-                                        } else {
-                                            // Lower-left
-                                            newStartX = markerPt2[0] - diagonalDist;
-                                            newStartY = markerPt2[1] - diagonalDist;
+                                    
+                                    var segDx = 0;
+                                    var segDy = 0;
+                                    var segLen = 0;
+                                    var segDirection = "next-segment";
+                                    var nextIdx = markerIdx + 1;
+                                    
+                                    while (nextIdx < adjPts.length) {
+                                        var nextPt = adjPts[nextIdx].anchor;
+                                        segDx = markerPt2[0] - nextPt[0];
+                                        segDy = markerPt2[1] - nextPt[1];
+                                        segLen = Math.sqrt((segDx * segDx) + (segDy * segDy));
+                                        if (segLen >= 0.001) {
+                                            segDirection = "next-segment@" + nextIdx;
+                                            break;
                                         }
-                                    } else if (toStartAbsDx > toStartAbsDy) {
-                                        // Segment is HORIZONTAL - extend horizontally
-                                        segDirection = "horizontal";
-                                        newStartY = markerPt2[1]; // Same Y as marker
-                                        // Determine direction: check which side current endpoint is on
-                                        if (startPt[0] > markerPt2[0]) {
-                                            newStartX = markerPt2[0] + originalDist; // Extend right
-                                        } else {
-                                            newStartX = markerPt2[0] - originalDist; // Extend left
-                                        }
-                                    } else {
-                                        // Segment is VERTICAL - extend vertically
-                                        segDirection = "vertical";
-                                        newStartX = markerPt2[0]; // Same X as marker
-                                        // Determine direction: check which side current endpoint is on
-                                        if (startPt[1] > markerPt2[1]) {
-                                            newStartY = markerPt2[1] + originalDist; // Extend up
-                                        } else {
-                                            newStartY = markerPt2[1] - originalDist; // Extend down
-                                        }
+                                        nextIdx++;
                                     }
-
+                                    
+                                    if (segLen < 0.001) {
+                                        // Fallback: use current marker-to-start direction if segment is degenerate.
+                                        segDx = startPt[0] - markerPt2[0];
+                                        segDy = startPt[1] - markerPt2[1];
+                                        segLen = Math.sqrt((segDx * segDx) + (segDy * segDy));
+                                        segDirection = "fallback-marker";
+                                    }
+                                    
+                                    if (segLen < 0.001) continue;
+                                    
+                                    var dirX = segDx / segLen;
+                                    var dirY = segDy / segLen;
+                                    var newStartX = markerPt2[0] + (dirX * originalDist);
+                                    var newStartY = markerPt2[1] + (dirY * originalDist);
                                     // Set anchor position AND reset handles to prevent curves
                                     var startPtObj = adjPts[0];
                                     startPtObj.anchor = [newStartX, newStartY];
@@ -15710,6 +15693,29 @@ function setStaticTextColor(control, rgbArray) {
                 }
             }
             addDebug("[POST-ORTHO-IGNORE] Collected " + endpointsToIgnore.length + " endpoint(s) to ignore (using POST-ortho coordinates)");
+        }
+
+        // *** POST-ORTHO: READ IGNORE MARKER COORDINATES (internal anchors near endpoints) ***
+        if (ORTHO_IGNORE_MARKER_PATHS.length > 0) {
+            addDebug("\n=== POST-ORTHO: READING IGNORE MARKER COORDINATES ===");
+            var markerAdded = 0;
+            for (var imReadIdx = 0; imReadIdx < ORTHO_IGNORE_MARKER_PATHS.length; imReadIdx++) {
+                var imRead = ORTHO_IGNORE_MARKER_PATHS[imReadIdx];
+                try {
+                    var imPath = imRead.path;
+                    var imPts = imPath.pathPoints;
+                    if (!imPts || imPts.length === 0) continue;
+                    if (imRead.ignoreMarkerIndex < 0 || imRead.ignoreMarkerIndex >= imPts.length) continue;
+
+                    var imCoord = [imPts[imRead.ignoreMarkerIndex].anchor[0], imPts[imRead.ignoreMarkerIndex].anchor[1]];
+                    endpointsToIgnore.push(imCoord);
+                    markerAdded++;
+                    addDebug("[POST-ORTHO-IGNORE] Read ignore marker: [" + imCoord[0].toFixed(1) + "," + imCoord[1].toFixed(1) + "]");
+                } catch (eReadMarker) {
+                    addDebug("[POST-ORTHO-IGNORE] ERROR reading ignore marker: " + eReadMarker);
+                }
+            }
+            addDebug("[POST-ORTHO-IGNORE] Added " + markerAdded + " ignore marker(s) to ignore list");
         }
 
         // *** POST-ORTHO: MOVE IGNORE MARKERS TO MAINTAIN RELATIVE POSITION ***
@@ -16127,11 +16133,11 @@ function setStaticTextColor(control, rgbArray) {
         doc.selection = null;
         var ignoredAnchors = getIgnoredAnchorPoints();
 
-        // Add endpoints that were identified during cleanup (internal anchors within 4pt of endpoints)
+        // Add ignore anchors identified during cleanup (endpoints + internal ignore markers)
         // IMPORTANT: Also create physical PathItems on Ignored layer so they persist for re-runs
         if (endpointsToIgnore && endpointsToIgnore.length > 0) {
-            addDebug("\n=== PERSISTING ENDPOINT IGNORE ANCHORS ===");
-            addDebug("[CLEANUP-PERSIST] Need to persist " + endpointsToIgnore.length + " endpoint(s) to Ignored layer");
+            addDebug("\n=== PERSISTING IGNORE ANCHORS ===");
+            addDebug("[CLEANUP-PERSIST] Need to persist " + endpointsToIgnore.length + " ignore anchor(s) to Ignored layer");
 
             // Get the Ignored layer and unlock it if needed
             var cleanupIgnLayer = null;
@@ -16198,13 +16204,13 @@ function setStaticTextColor(control, rgbArray) {
                         addDebug("[CLEANUP-PERSIST] ERROR creating anchor at [" + epPt[0].toFixed(1) + "," + epPt[1].toFixed(1) + "]: " + eAddAnchor);
                     }
                 }
-                addDebug("[CLEANUP-PERSIST] Persisted " + endpointsToIgnore.length + " endpoint(s) to Ignored layer");
+                addDebug("[CLEANUP-PERSIST] Persisted " + endpointsToIgnore.length + " ignore anchor(s) to Ignored layer");
             } else {
                 // Fallback: just add to in-memory array if we couldn't get the layer
                 for (var epIdx = 0; epIdx < endpointsToIgnore.length; epIdx++) {
                     ignoredAnchors.push(endpointsToIgnore[epIdx]);
                 }
-                addDebug("[CLEANUP] Added " + endpointsToIgnore.length + " endpoint(s) to ignored anchors (in-memory only - layer unavailable)");
+                addDebug("[CLEANUP] Added " + endpointsToIgnore.length + " ignore anchor(s) to ignored anchors (in-memory only - layer unavailable)");
             }
             addDebug("[CLEANUP-PERSIST] Total ignored anchors: " + ignoredAnchors.length);
         }
