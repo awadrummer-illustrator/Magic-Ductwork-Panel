@@ -42,6 +42,7 @@
     const exportDuctworkBtn = document.getElementById('export-ductwork-btn');
     const reexportFloorplanBtn = document.getElementById('reexport-floorplan-btn');
     const exportStatus = document.getElementById('export-status');
+    const mergePathsBtn = document.getElementById('merge-paths-btn');
 
     // Document Scale Controls (read-only anchor display)
     const docScaleInput = document.getElementById('doc-scale-input');
@@ -66,6 +67,13 @@
     // Collapsible Section Controls
     const docScaleToggle = document.getElementById('doc-scale-toggle');
     const docScaleSection = document.getElementById('doc-scale-section');
+
+    // Layer Protection Controls
+    const allowGapLayerEdit = document.getElementById('allow-gap-layer-edit');
+    const protectionStatus = document.getElementById('protection-status');
+
+    // Layer protection polling interval
+    let layerProtectionInterval = null;
 
     let scaleDebounce = null;
     let bridgeReloaded = false;
@@ -302,6 +310,9 @@
             revertBtn.disabled = false;
             return;
         }
+
+        // Wrap entire processing in try/finally to ensure buttons always get re-enabled
+        try {
         let rotationValue = null;
         const rotationText = rotationInput.value.trim();
         const autoValue = (rotationInput.dataset.autoValue || '').trim();
@@ -353,8 +364,6 @@
             setProcessStatus('Error: ' + result.value, true);
             debugStatus.textContent = 'Process failed: ' + result.value;
         }
-        processBtn.disabled = false;
-        revertBtn.disabled = false;
         scheduleSkipOrthoRefresh();
 
         // Auto-copy debug log to clipboard and write to file after processing
@@ -376,6 +385,16 @@
             }
         } catch (clipErr) {
             console.log('[PANEL] Failed to copy debug log to clipboard:', clipErr);
+        }
+
+        } catch (processingError) {
+            // Catch any unexpected errors during processing
+            console.error('[PANEL] Processing error:', processingError);
+            setProcessStatus('Unexpected error: ' + (processingError.message || processingError), true);
+        } finally {
+            // ALWAYS re-enable buttons, even if an error occurred
+            processBtn.disabled = false;
+            revertBtn.disabled = false;
         }
     }
 
@@ -1355,6 +1374,30 @@
             if (exportDuctworkBtn) exportDuctworkBtn.addEventListener('click', () => handleExport('ductwork'));
             if (reexportFloorplanBtn) reexportFloorplanBtn.addEventListener('click', () => handleExport('floorplan'));
 
+            // Merge Paths button handler
+            if (mergePathsBtn) {
+                mergePathsBtn.addEventListener('click', async () => {
+                    try {
+                        await ensureBridgeLoaded();
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Merging paths...';
+                            protectionStatus.style.color = '#f0f';
+                        }
+                        const result = await evalScript('MDUX_mergePathsAtEndpoints()');
+                        if (protectionStatus) {
+                            protectionStatus.textContent = result || 'Merge complete';
+                            protectionStatus.style.color = '#0f0';
+                            setTimeout(() => { if (protectionStatus) protectionStatus.textContent = ''; }, 3000);
+                        }
+                    } catch (err) {
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Error: ' + err;
+                            protectionStatus.style.color = '#f00';
+                        }
+                    }
+                });
+            }
+
             csInterface.evalScript('MDUX_debugLog("[INIT] Isolation listeners attached")', function() {});
 
             // Fix Selection Transform listeners
@@ -1455,6 +1498,26 @@
 
             csInterface.evalScript('MDUX_debugLog("[INIT] Debug buttons attached")', function() {});
 
+            // Layer protection toggle handler for Gap Definitions layer
+            if (allowGapLayerEdit) {
+                allowGapLayerEdit.addEventListener('change', function() {
+                    if (allowGapLayerEdit.checked) {
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Gap Definitions layer unlocked for editing';
+                            protectionStatus.style.color = '#f0f';
+                        }
+                    } else {
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Gap Definitions layer protection enabled';
+                            protectionStatus.style.color = '#0f0';
+                            setTimeout(function() {
+                                if (protectionStatus) protectionStatus.textContent = '';
+                            }, 2000);
+                        }
+                    }
+                });
+            }
+
             if (debugStatus) debugStatus.textContent = 'Remote debugging available at http://localhost:8088';
             if (skipOrthoOption) {
                 skipOrthoOption.indeterminate = false;
@@ -1547,6 +1610,75 @@
                 });
             }, 1000); // 1 second - fast updates, but only does expensive work if selection changed
 
+            // Track gap marker count for detecting deletions in gap edit mode
+            var lastGapMarkerCount = -1;
+
+            // Layer protection polling - only runs when gap edit mode needs management
+            layerProtectionInterval = setInterval(function() {
+                var allowGapEdit = allowGapLayerEdit && allowGapLayerEdit.checked;
+
+                // Build ExtendScript for Gap Definitions layer management
+                // When gap edit mode is ON: unlock layer, track marker count, detect deletions
+                // When gap edit mode is OFF: lock everything, skip tracking
+                var script = '(function(){' +
+                    'try{' +
+                    'var doc=app.activeDocument;if(!doc)return"nodoc";' +
+                    'var result={locked:[],markerCount:0};' +
+                    // Gap Definitions layer
+                    'try{var gapLayer=doc.layers.getByName("Gap Definitions");' +
+                    'if(gapLayer){' +
+                    'if(!' + allowGapEdit + '){' +
+                    // Lock mode - lock layer and all objects
+                    'if(!gapLayer.locked){gapLayer.locked=true;result.locked.push("gap-layer");}' +
+                    'for(var i=0;i<gapLayer.pathItems.length;i++){' +
+                    'if(!gapLayer.pathItems[i].locked){gapLayer.pathItems[i].locked=true;}}' +
+                    '}else{' +
+                    // Edit mode - unlock and count markers (paths with MDUX_GAP in note)
+                    'if(gapLayer.locked){gapLayer.locked=false;}' +
+                    'for(var j=0;j<gapLayer.pathItems.length;j++){' +
+                    'var p=gapLayer.pathItems[j];' +
+                    'if(p.locked){p.locked=false;}' +
+                    'try{if(p.note&&p.note.indexOf("MDUX_GAP:")===0){result.markerCount++;}}catch(e){}' +
+                    '}' +
+                    '}}}catch(e){}' +
+                    'return JSON.stringify(result);' +
+                    '}catch(e){return"error:"+e;}' +
+                    '})()';
+
+                csInterface.evalScript(script, function(resultStr) {
+                    if (!resultStr || resultStr === 'nodoc' || resultStr.indexOf('error') === 0) return;
+
+                    try {
+                        var result = JSON.parse(resultStr);
+
+                        // Show lock notifications
+                        if (result.locked && result.locked.length > 0 && protectionStatus) {
+                            protectionStatus.textContent = 'Auto-locked: ' + result.locked.join(', ');
+                            protectionStatus.style.color = '#f0f';
+                            setTimeout(function() {
+                                if (protectionStatus) protectionStatus.textContent = '';
+                            }, 2000);
+                        }
+
+                        // In gap edit mode, track marker count and detect deletions
+                        if (allowGapEdit && result.markerCount !== undefined) {
+                            if (lastGapMarkerCount >= 0 && result.markerCount < lastGapMarkerCount) {
+                                // Marker count decreased - user deleted a marker!
+                                var deleted = lastGapMarkerCount - result.markerCount;
+                                if (protectionStatus) {
+                                    protectionStatus.textContent = deleted + ' gap marker(s) deleted - will patch on Process';
+                                    protectionStatus.style.color = '#0ff';
+                                }
+                            }
+                            lastGapMarkerCount = result.markerCount;
+                        } else {
+                            // Reset count when not in edit mode
+                            lastGapMarkerCount = -1;
+                        }
+                    } catch (e) { }
+                });
+            }, 500); // Poll every 500ms - does less work when not in edit mode
+
             // Also refresh when panel gets focus (removed blocking debug log)
             window.addEventListener('focus', function() {
                 refreshSelectionTransformState().catch(function() {});
@@ -1566,6 +1698,10 @@
         csInterface.removeEventListener('afterSelectionChanged', scheduleSkipOrthoRefresh);
         csInterface.removeEventListener('documentAfterActivate', scheduleSkipOrthoRefresh);
         csInterface.removeEventListener('documentChanged', scheduleSkipOrthoRefresh);
+        if (layerProtectionInterval) {
+            clearInterval(layerProtectionInterval);
+            layerProtectionInterval = null;
+        }
         evalScript('MDUX_cleanupBridge()');
     });
 

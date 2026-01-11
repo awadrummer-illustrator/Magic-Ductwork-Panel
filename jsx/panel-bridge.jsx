@@ -201,16 +201,58 @@ function MDUX_removeTag(item, key) {
 
 // ========================================
 // GLOBAL DOCUMENT SCALE MANAGEMENT
+// Uses Document Tags for invisible, undeletable storage
+// No undo/redo pollution, completely hidden from UI
 // ========================================
 
+var MDUX_SCALE_TAG_NAME = "MDUX_ScaleFactor";
+
 /**
- * Gets the Scale Factor Box if it exists, returns null if not found.
- * Does NOT create the layer - use MDUX_getOrCreateScaleFactorBox for that.
+ * Gets the scale factor from document tags.
+ * Returns null if no tag exists yet.
+ */
+function MDUX_getScaleFactorTag(doc) {
+    try {
+        for (var i = 0; i < doc.tags.length; i++) {
+            if (doc.tags[i].name === MDUX_SCALE_TAG_NAME) {
+                return parseFloat(doc.tags[i].value) || 100;
+            }
+        }
+    } catch (e) { }
+    return null;
+}
+
+/**
+ * Sets the scale factor in document tags.
+ * Creates the tag if it doesn't exist.
+ * This is completely invisible and won't pollute undo/redo.
+ */
+function MDUX_setScaleFactorTag(doc, value) {
+    try {
+        // Look for existing tag
+        for (var i = 0; i < doc.tags.length; i++) {
+            if (doc.tags[i].name === MDUX_SCALE_TAG_NAME) {
+                doc.tags[i].value = String(value);
+                return true;
+            }
+        }
+        // Create new tag
+        var tag = doc.tags.add();
+        tag.name = MDUX_SCALE_TAG_NAME;
+        tag.value = String(value);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * LEGACY COMPATIBILITY: Gets the Scale Factor Box if it exists.
+ * Used for migrating old documents to tag-based storage.
  */
 function MDUX_getScaleFactorBox(doc) {
     var layerName = "Scale Factor Container Layer";
     var boxName = "ScaleFactorBox";
-
     try {
         var container = doc.layers.getByName(layerName);
         for (var i = 0; i < container.pathItems.length; i++) {
@@ -219,102 +261,55 @@ function MDUX_getScaleFactorBox(doc) {
                 return pi;
             }
         }
-    } catch (e) {
-        // Layer doesn't exist - that's fine, return null
-    }
+    } catch (e) { }
     return null;
 }
 
 /**
- * Gets or creates the Scale Factor Box used to store the document's scale factor.
- * Only call this when actually NEEDED (Process Ductwork, Create Layers button).
- * For reading scale, use MDUX_getDocumentScale() which won't create layers.
- */
-function MDUX_getOrCreateScaleFactorBox(doc) {
-    var layerName = "Scale Factor Container Layer";
-    var boxName = "ScaleFactorBox";
-    var container;
-
-    try {
-        container = doc.layers.getByName(layerName);
-    } catch (e) {
-        container = doc.layers.add();
-        container.name = layerName;
-        container.printable = false; // Usually don't want this to print
-    }
-
-    var box = null;
-    for (var i = 0; i < container.pathItems.length; i++) {
-        var pi = container.pathItems[i];
-        if (pi.name === boxName) {
-            box = pi;
-            break;
-        }
-    }
-
-    if (!box) {
-        // Create initial box
-        doc.rulerOrigin = [0, 0];
-        var ab = doc.artboards[doc.artboards.getActiveArtboardIndex()];
-        var left = ab.artboardRect[0];
-        var top = ab.artboardRect[1];
-        var w = 100, h = 100;
-
-        // Temporarily unlock container if needed
-        var wasLocked = container.locked;
-        container.locked = false;
-
-        box = container.pathItems.rectangle(top - h, left - 125, w, h);
-        box.position = [left - 125, top];
-        box.name = boxName;
-        box.filled = false;
-        box.stroked = true;
-        box.strokeWidth = 1;
-
-        var blue = new RGBColor();
-        blue.red = 0; blue.green = 0; blue.blue = 255;
-        box.strokeColor = blue;
-        box.note = "100"; // Default scale
-
-        container.locked = wasLocked;
-    }
-
-    return box;
-}
-
-/**
- * Gets the document scale WITHOUT creating the Scale Factor layer.
+ * Gets the document scale from tags (preferred) or legacy box (fallback).
  * Returns "100" if no scale has been set yet.
+ * Automatically migrates legacy box storage to tags.
  */
 function MDUX_getDocumentScale() {
     try {
         if (app.documents.length === 0) return "100";
-        var box = MDUX_getScaleFactorBox(app.activeDocument);
-        if (box) {
-            return box.note || "100";
+        var doc = app.activeDocument;
+
+        // First, check document tags (new method)
+        var tagValue = MDUX_getScaleFactorTag(doc);
+        if (tagValue !== null) {
+            return String(tagValue);
         }
-        return "100"; // Default if layer doesn't exist yet
+
+        // Fallback: check legacy box and migrate to tags
+        var box = MDUX_getScaleFactorBox(doc);
+        if (box && box.note) {
+            var legacyValue = parseFloat(box.note) || 100;
+            // Migrate to tags
+            MDUX_setScaleFactorTag(doc, legacyValue);
+            return String(legacyValue);
+        }
+
+        return "100"; // Default if nothing exists yet
     } catch (e) {
         return "100";
     }
 }
 
-// LEGACY: Document scale editing disabled in UI to prevent desync issues.
-// This function is kept for internal use only (called by MDUX_applyScaleToFullDocument).
+/**
+ * Sets the document scale using document tags.
+ * No visible objects, no undo pollution.
+ */
 function MDUX_setDocumentScale(percent) {
     try {
         if (app.documents.length === 0) return "ERROR:No document";
         var doc = app.activeDocument;
-        var box = MDUX_getOrCreateScaleFactorBox(doc);
 
-        var container = box.layer;
-        var wasLocked = container.locked;
-        container.locked = false;
-
-        box.note = String(percent);
-
-        container.locked = wasLocked;
-        return "OK";
+        if (MDUX_setScaleFactorTag(doc, percent)) {
+            return "OK";
+        } else {
+            return "ERROR:Failed to set scale tag";
+        }
     } catch (e) {
         return "ERROR:" + e;
     }
@@ -2568,7 +2563,10 @@ function MDUX_getDebugLog() {
 function MDUX_clearDebugLog() {
     try {
         $.global.MDUX_debugBuffer = [];
-        return "Debug buffer cleared";
+        // Also reset any stuck state flags that could block processing
+        $.global.MDUX_PROGRESS_CANCELLED = false;
+        $.global.MDUX_PROGRESS_WIN = null;
+        return "Debug buffer and state flags cleared";
     } catch (e) {
         return "ERROR clearing debug buffer: " + e;
     }
@@ -3035,6 +3033,265 @@ function MDUX_resetDuctworkPartsScale() {
         try {
             MDUX_debugLog("[RESET-PARTS-SCALE] FATAL ERROR: " + e + " (line: " + e.line + ")");
         } catch (logErr) {}
+        return "Error: " + e.message;
+    }
+}
+
+// ============================================================================
+// MERGE PATHS AT ENDPOINTS
+// Joins selected path(s) with adjacent paths that share endpoints
+// Works with single path selection - automatically finds neighbors on same layer
+// ============================================================================
+function MDUX_mergePathsAtEndpoints() {
+    try {
+        MDUX_debugLog("[MERGE-PATHS] ========== STARTING ==========");
+
+        var doc = app.activeDocument;
+        if (!doc) {
+            MDUX_debugLog("[MERGE-PATHS] No document open");
+            return "No document open";
+        }
+
+        var sel = doc.selection;
+        if (!sel || sel.length < 1) {
+            MDUX_debugLog("[MERGE-PATHS] No selection");
+            return "Select at least one path";
+        }
+
+        MDUX_debugLog("[MERGE-PATHS] Selection has " + sel.length + " items");
+
+        // Collect selected PathItems and their layers
+        var selectedPaths = [];
+        var layersToSearch = {};
+
+        for (var i = 0; i < sel.length; i++) {
+            var item = sel[i];
+            MDUX_debugLog("[MERGE-PATHS] Item " + i + ": " + item.typename);
+
+            if (item.typename === "PathItem") {
+                if (!item.closed && item.pathPoints && item.pathPoints.length >= 2) {
+                    selectedPaths.push(item);
+                    try {
+                        var layerName = item.layer.name;
+                        layersToSearch[layerName] = item.layer;
+                        MDUX_debugLog("[MERGE-PATHS] Added path from layer: " + layerName);
+                    } catch (e) { }
+                }
+            } else if (item.typename === "CompoundPathItem" && item.pathItems) {
+                MDUX_debugLog("[MERGE-PATHS] CompoundPathItem with " + item.pathItems.length + " children");
+                for (var j = 0; j < item.pathItems.length; j++) {
+                    var subPath = item.pathItems[j];
+                    if (!subPath.closed && subPath.pathPoints && subPath.pathPoints.length >= 2) {
+                        selectedPaths.push(subPath);
+                        try {
+                            var layerName2 = item.layer.name;
+                            layersToSearch[layerName2] = item.layer;
+                        } catch (e) { }
+                    }
+                }
+            }
+        }
+
+        MDUX_debugLog("[MERGE-PATHS] Found " + selectedPaths.length + " open path(s) in selection");
+
+        if (selectedPaths.length < 1) {
+            return "No open paths in selection";
+        }
+
+        // Collect all candidate paths - selected paths plus any on the same layer(s)
+        var allPaths = selectedPaths.slice();
+
+        MDUX_debugLog("[MERGE-PATHS] Searching for adjacent paths on same layer(s)...");
+
+        for (var layerName in layersToSearch) {
+            var layer = layersToSearch[layerName];
+            MDUX_debugLog("[MERGE-PATHS] Searching layer: " + layerName + " (" + layer.pathItems.length + " paths)");
+
+            for (var pi = 0; pi < layer.pathItems.length; pi++) {
+                var layerPath = layer.pathItems[pi];
+                if (!layerPath.closed && layerPath.pathPoints && layerPath.pathPoints.length >= 2) {
+                    var alreadyAdded = false;
+                    for (var ap = 0; ap < allPaths.length; ap++) {
+                        if (allPaths[ap] === layerPath) { alreadyAdded = true; break; }
+                    }
+                    if (!alreadyAdded) allPaths.push(layerPath);
+                }
+            }
+
+            // Also check compound paths on layer
+            for (var ci = 0; ci < layer.compoundPathItems.length; ci++) {
+                var compound = layer.compoundPathItems[ci];
+                for (var cpi = 0; cpi < compound.pathItems.length; cpi++) {
+                    var cPath = compound.pathItems[cpi];
+                    if (!cPath.closed && cPath.pathPoints && cPath.pathPoints.length >= 2) {
+                        var alreadyAdded2 = false;
+                        for (var ap2 = 0; ap2 < allPaths.length; ap2++) {
+                            if (allPaths[ap2] === cPath) { alreadyAdded2 = true; break; }
+                        }
+                        if (!alreadyAdded2) allPaths.push(cPath);
+                    }
+                }
+            }
+        }
+
+        MDUX_debugLog("[MERGE-PATHS] Total paths to check: " + allPaths.length);
+
+        if (allPaths.length < 2) {
+            return "Need at least 2 paths to merge";
+        }
+
+        var TOLERANCE = 5.0; // Generous tolerance for matching endpoints
+        var mergeCount = 0;
+        var removedPaths = [];
+
+        // Helper: Get endpoint coordinates
+        function getEndpoints(path) {
+            try {
+                var pts = path.pathPoints;
+                if (!pts || pts.length < 2) return null;
+                return {
+                    start: [pts[0].anchor[0], pts[0].anchor[1]],
+                    end: [pts[pts.length - 1].anchor[0], pts[pts.length - 1].anchor[1]]
+                };
+            } catch (e) { return null; }
+        }
+
+        // Helper: Distance between points
+        function pointDistance(p1, p2) {
+            var dx = p1[0] - p2[0];
+            var dy = p1[1] - p2[1];
+            return Math.sqrt(dx * dx + dy * dy);
+        }
+
+        // Helper: Check if path is still valid
+        function isPathValid(path) {
+            try { return path && path.pathPoints && path.pathPoints.length >= 2; }
+            catch (e) { return false; }
+        }
+
+        // Helper: Check if path was removed
+        function wasRemoved(path) {
+            for (var r = 0; r < removedPaths.length; r++) {
+                if (removedPaths[r] === path) return true;
+            }
+            return false;
+        }
+
+        // Helper: Merge path B into path A, removing BOTH junction anchors for a clean seamless join
+        function mergePaths(pathA, pathB, matchType) {
+            var ptsA = pathA.pathPoints;
+            var ptsB = pathB.pathPoints;
+
+            MDUX_debugLog("[MERGE-PATHS] Merging: " + matchType + " (A:" + ptsA.length + "pts, B:" + ptsB.length + "pts)");
+
+            var allPoints = [];
+
+            // Skip the junction anchors on BOTH paths to create a clean seamless join
+            if (matchType === "A_end_B_start") {
+                // A's end connects to B's start - skip A's last point AND B's first point
+                for (var i = 0; i < ptsA.length - 1; i++) allPoints.push([ptsA[i].anchor[0], ptsA[i].anchor[1]]);
+                for (var i = 1; i < ptsB.length; i++) allPoints.push([ptsB[i].anchor[0], ptsB[i].anchor[1]]);
+            } else if (matchType === "A_end_B_end") {
+                // A's end connects to B's end - skip A's last point AND B's last point
+                for (var i = 0; i < ptsA.length - 1; i++) allPoints.push([ptsA[i].anchor[0], ptsA[i].anchor[1]]);
+                for (var i = ptsB.length - 2; i >= 0; i--) allPoints.push([ptsB[i].anchor[0], ptsB[i].anchor[1]]);
+            } else if (matchType === "A_start_B_end") {
+                // A's start connects to B's end - skip B's last point AND A's first point
+                for (var i = 0; i < ptsB.length - 1; i++) allPoints.push([ptsB[i].anchor[0], ptsB[i].anchor[1]]);
+                for (var i = 1; i < ptsA.length; i++) allPoints.push([ptsA[i].anchor[0], ptsA[i].anchor[1]]);
+            } else if (matchType === "A_start_B_start") {
+                // A's start connects to B's start - skip B's first point AND A's first point
+                for (var i = ptsB.length - 1; i >= 1; i--) allPoints.push([ptsB[i].anchor[0], ptsB[i].anchor[1]]);
+                for (var i = 1; i < ptsA.length; i++) allPoints.push([ptsA[i].anchor[0], ptsA[i].anchor[1]]);
+            }
+
+            MDUX_debugLog("[MERGE-PATHS] Setting path with " + allPoints.length + " points (junction anchors removed)");
+            pathA.setEntirePath(allPoints);
+            return pathA;
+        }
+
+        // Merge loop - keep merging until no more matches
+        var keepMerging = true;
+        var iterations = 0;
+        var maxIterations = allPaths.length * 3;
+
+        while (keepMerging && iterations < maxIterations) {
+            keepMerging = false;
+            iterations++;
+
+            for (var i = 0; i < selectedPaths.length; i++) {
+                var pathA = selectedPaths[i];
+                if (!isPathValid(pathA) || wasRemoved(pathA)) continue;
+
+                var endpointsA = getEndpoints(pathA);
+                if (!endpointsA) continue;
+
+                for (var j = 0; j < allPaths.length; j++) {
+                    var pathB = allPaths[j];
+                    if (pathB === pathA || !isPathValid(pathB) || wasRemoved(pathB)) continue;
+
+                    var endpointsB = getEndpoints(pathB);
+                    if (!endpointsB) continue;
+
+                    // Find closest matching endpoints
+                    var matchType = null;
+                    var minDist = TOLERANCE;
+
+                    var d1 = pointDistance(endpointsA.end, endpointsB.start);
+                    var d2 = pointDistance(endpointsA.end, endpointsB.end);
+                    var d3 = pointDistance(endpointsA.start, endpointsB.end);
+                    var d4 = pointDistance(endpointsA.start, endpointsB.start);
+
+                    if (d1 < minDist) { matchType = "A_end_B_start"; minDist = d1; }
+                    if (d2 < minDist) { matchType = "A_end_B_end"; minDist = d2; }
+                    if (d3 < minDist) { matchType = "A_start_B_end"; minDist = d3; }
+                    if (d4 < minDist) { matchType = "A_start_B_start"; minDist = d4; }
+
+                    if (matchType) {
+                        MDUX_debugLog("[MERGE-PATHS] MATCH! dist=" + minDist.toFixed(2) + " type=" + matchType);
+                        try {
+                            mergePaths(pathA, pathB, matchType);
+                            pathB.remove();
+                            removedPaths.push(pathB);
+                            mergeCount++;
+                            keepMerging = true;
+                            MDUX_debugLog("[MERGE-PATHS] Merge successful!");
+                        } catch (mergeErr) {
+                            MDUX_debugLog("[MERGE-PATHS] Merge error: " + mergeErr);
+                        }
+                        break;
+                    }
+                }
+                if (keepMerging) break; // Restart outer loop
+            }
+        }
+
+        // Select the merged path(s) - wrap in try/catch since paths may be invalid
+        try {
+            doc.selection = null;
+            for (var i = 0; i < selectedPaths.length; i++) {
+                try {
+                    var p = selectedPaths[i];
+                    if (p && !wasRemoved(p)) {
+                        // Double-check validity before selecting
+                        var testPts = p.pathPoints;
+                        if (testPts && testPts.length >= 2) {
+                            p.selected = true;
+                        }
+                    }
+                } catch (selErr) { /* path no longer valid, skip */ }
+            }
+        } catch (e) { /* selection error, ignore */ }
+
+        MDUX_debugLog("[MERGE-PATHS] ========== COMPLETE: " + mergeCount + " merge(s) ==========");
+
+        if (mergeCount === 0) {
+            return "No adjacent endpoints found (within " + TOLERANCE + "pt)";
+        }
+        return "Merged " + mergeCount + " path(s)";
+
+    } catch (e) {
+        MDUX_debugLog("[MERGE-PATHS] FATAL ERROR: " + e + " (line: " + e.line + ")");
         return "Error: " + e.message;
     }
 }

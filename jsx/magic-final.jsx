@@ -1575,39 +1575,21 @@ function getPathsOnLayerSelected(layerName) {
                 }
             }
 
-            // Collect paths from CompoundPathItems
-            if (container.compoundPathItems) {
-                for (var c = 0; c < container.compoundPathItems.length; c++) {
-                    try {
-                        var compound = container.compoundPathItems[c];
-                        if (!compound) continue;
-                        // Check if compound itself is selected
-                        var compoundSelected = false;
-                        if (typeof isPathSelected !== 'undefined') {
-                            try { compoundSelected = compound.selected; } catch (e) { }
-                        }
-                        // Extract child paths from compound
-                        for (var cp = 0; cp < compound.pathItems.length; cp++) {
-                            var childPath = compound.pathItems[cp];
-                            if (!childPath) continue;
-                            if (compoundSelected) {
-                                results.push(childPath);
-                            } else if (typeof isPathSelected !== 'undefined' && isPathSelected(childPath)) {
-                                results.push(childPath);
-                            } else if (typeof shouldProcessPath !== 'undefined' && shouldProcessPath(childPath)) {
-                                results.push(childPath);
-                            }
-                        }
-                    } catch (e) { }
-                }
-            }
-
             // Recursively process groups
             if (container.groupItems) {
                 for (var g = 0; g < container.groupItems.length; g++) {
                     collectFromContainer(container.groupItems[g]);
                 }
             }
+
+            // Recursively process sub-layers
+            try {
+                if (container.layers && container.layers.length > 0) {
+                    for (var l = 0; l < container.layers.length; l++) {
+                        collectFromContainer(container.layers[l]);
+                    }
+                }
+            } catch (eLayers) { }
         } catch (e) { }
     }
 
@@ -1659,6 +1641,15 @@ function getPathsOnLayerAll(layerName) {
                     collectFromContainer(container.groupItems[g]);
                 }
             }
+
+            // Recursively process sub-layers
+            try {
+                if (container.layers && container.layers.length > 0) {
+                    for (var l = 0; l < container.layers.length; l++) {
+                        collectFromContainer(container.layers[l]);
+                    }
+                }
+            } catch (eLayers) { }
         } catch (e) { }
     }
 
@@ -8834,6 +8825,7 @@ function setStaticTextColor(control, rgbArray) {
         }
 
         function closestPointOnSegment(a, b, p) {
+            function dot(v1, v2) { return v1[0] * v2[0] + v1[1] * v2[1]; }
             var ab = [b[0] - a[0], b[1] - a[1]];
             var ap = [p[0] - a[0], p[1] - a[1]];
             var ab2 = dot(ab, ab);
@@ -9052,6 +9044,10 @@ function setStaticTextColor(control, rgbArray) {
         var currentStep = 0;
 
         function initProgress(pathCount) {
+            // ALWAYS reset cancelled flag at start of new processing run
+            // This fixes bug where cancelling a run would break subsequent runs
+            $.global.MDUX_PROGRESS_CANCELLED = false;
+
             // Only show progress for larger selections
             if (pathCount < 15) return;
             try {
@@ -9132,6 +9128,9 @@ function setStaticTextColor(control, rgbArray) {
         }
 
         // --- COLLECT PATHS ---
+        // Defensive reset of cancellation flag at start of main execution
+        $.global.MDUX_PROGRESS_CANCELLED = false;
+
         addDebug("=== MAGIC DUCTWORK STARTING ===");
         addDebug("Selection has " + sel.length + " items");
 
@@ -13342,6 +13341,49 @@ function setStaticTextColor(control, rgbArray) {
         // Pre-step: align thermostat endpoints to duct junctions before processing selection
         try { snapThermostatEndpointsToJunctions(); } catch (e) { }
 
+        // *** AGGRESSIVE DUPLICATE IGNORE ANCHOR CLEANUP ***
+        // Clean up duplicate single-point paths BEFORE collecting ignored anchors
+        try {
+            var preIgnoredLayer = null;
+            try { preIgnoredLayer = doc.layers.getByName("Ignored"); } catch (e) { }
+            if (!preIgnoredLayer) try { preIgnoredLayer = doc.layers.getByName("Ignore"); } catch (e) { }
+
+            if (preIgnoredLayer) {
+                if (preIgnoredLayer.locked) preIgnoredLayer.locked = false;
+
+                // Collect all single-point path positions and track duplicates
+                var preIgnorePositions = {};
+                var preDuplicatesToRemove = [];
+
+                for (var preIgIdx = preIgnoredLayer.pathItems.length - 1; preIgIdx >= 0; preIgIdx--) {
+                    try {
+                        var preIgPath = preIgnoredLayer.pathItems[preIgIdx];
+                        if (preIgPath.pathPoints && preIgPath.pathPoints.length === 1) {
+                            var preIgPt = preIgPath.pathPoints[0].anchor;
+                            // Use rounded key for position matching (within 1pt)
+                            var preIgKey = Math.round(preIgPt[0]) + "," + Math.round(preIgPt[1]);
+
+                            if (preIgnorePositions[preIgKey]) {
+                                // Duplicate found
+                                preDuplicatesToRemove.push(preIgPath);
+                            } else {
+                                preIgnorePositions[preIgKey] = preIgPath;
+                            }
+                        }
+                    } catch (e) { }
+                }
+
+                if (preDuplicatesToRemove.length > 0) {
+                    addDebug("[PRE-CLEANUP] Removing " + preDuplicatesToRemove.length + " duplicate ignore anchor(s)");
+                    for (var preRmIdx = 0; preRmIdx < preDuplicatesToRemove.length; preRmIdx++) {
+                        try { preDuplicatesToRemove[preRmIdx].remove(); } catch (e) { }
+                    }
+                }
+            }
+        } catch (ePreCleanup) {
+            addDebug("[PRE-CLEANUP] Error: " + ePreCleanup);
+        }
+
         // FR-002: Collect ignored anchors EARLY for ortho phase
         // This allows skip-final-ortho to respect ignore anchors at endpoints
         try {
@@ -13602,6 +13644,1101 @@ function setStaticTextColor(control, rgbArray) {
             }
         } catch (eFR003) {
             addDebug("[FR-003] Error in intersection snap: " + eFR003);
+        }
+
+        // *** EARLY GAP RESTORATION: MUST happen BEFORE orthogonalization ***
+        // When user deletes a gap marker, we restore the deleted segment EARLY
+        // so it gets orthogonalized with the other paths. This prevents endpoint mismatch.
+        // CRITICAL: Initialize RESTORED_GAP_POSITIONS early so it's available throughout processing
+        var RESTORED_GAP_POSITIONS = [];
+        addDebug("\n=== EARLY GAP RESTORATION (BEFORE ORTHO) ===");
+        try {
+            var earlyDeletedLayer = null;
+            try {
+                earlyDeletedLayer = doc.layers.getByName("Deleted Segments");
+            } catch (eNoDelLayer) {
+                addDebug("[EARLY-GAP-RESTORE] No Deleted Segments layer - nothing to restore");
+            }
+
+                if (earlyDeletedLayer) {
+                    if (earlyDeletedLayer.locked) earlyDeletedLayer.locked = false;
+                    if (!earlyDeletedLayer.visible) earlyDeletedLayer.visible = true;
+
+                    // Log how many deleted segments are available for restoration
+                    try {
+                        var existingDeletedCount = (earlyDeletedLayer.pathItems && earlyDeletedLayer.pathItems.length) ? earlyDeletedLayer.pathItems.length : 0;
+                        addDebug("[EARLY-GAP-RESTORE] Deleted Segments contains " + existingDeletedCount + " path(s)");
+                    } catch (eClrAll) {
+                        addDebug("[EARLY-GAP-RESTORE] Failed to read Deleted Segments count: " + eClrAll);
+                    }
+
+                    // Find the Gap Definitions layer to check for markers
+                    var earlyGapDefLayer = null;
+                    try { earlyGapDefLayer = doc.layers.getByName("Gap Definitions"); } catch (e) { }
+
+                    if (typeof PATCHED_GAP_POSITIONS === "undefined" || !PATCHED_GAP_POSITIONS) {
+                        PATCHED_GAP_POSITIONS = [];
+                    }
+
+        // Helper: create an invisible patch marker so future saves skip this gap position
+        function createPatchedGapMarker(pos) {
+            try {
+                var patchLayer = earlyGapDefLayer;
+                if (!patchLayer) {
+                                try { patchLayer = doc.layers.add(); patchLayer.name = "Gap Definitions"; } catch (eMake) { return; }
+                            }
+                            var prevLocked = patchLayer.locked;
+                            var prevVisible = patchLayer.visible;
+                            try { patchLayer.locked = false; patchLayer.visible = true; } catch (eState) { }
+                            var marker = patchLayer.pathItems.add();
+                            marker.setEntirePath([[pos[0], pos[1]]]);
+                            marker.stroked = false;
+                            marker.filled = false;
+                            marker.note = "MDUX_PATCH";
+                            // Track in memory immediately
+                            PATCHED_GAP_POSITIONS.push([pos[0], pos[1]]);
+                            try { patchLayer.locked = prevLocked; patchLayer.visible = prevVisible; } catch (eRestoreState) { }
+                            addDebug("[EARLY-GAP-RESTORE] Created patch marker at [" + pos[0].toFixed(1) + "," + pos[1].toFixed(1) + "]");
+                        } catch (ePatch) { addDebug("[EARLY-GAP-RESTORE] Patch marker error: " + ePatch); }
+                    }
+
+                    // Collect all gap memory marker positions for quick lookup
+                    var earlyMarkerPositions = [];
+                if (earlyGapDefLayer) {
+                    for (var emIdx = 0; emIdx < earlyGapDefLayer.pathItems.length; emIdx++) {
+                        try {
+                            var emPath = earlyGapDefLayer.pathItems[emIdx];
+                            if (emPath.note && emPath.note.indexOf("MDUX_GAP:") === 0) {
+                                // Parse the metadata to get position
+                                var emMeta = JSON.parse(emPath.note.substring(9));
+                                if (emMeta && typeof emMeta.x === "number" && typeof emMeta.y === "number") {
+                                    earlyMarkerPositions.push([emMeta.x, emMeta.y]);
+                                }
+                            }
+                        } catch (eEMPath) { }
+                    }
+                }
+                addDebug("[EARLY-GAP-RESTORE] Found " + earlyMarkerPositions.length + " existing gap marker(s)");
+
+                // Only restore segments that match endpoints in the current selection
+                var earlySelectedEndpoints = [];
+                function collectSelectedEndpoints(item) {
+                    if (!item) return;
+                    try {
+                        if (item.typename === "PathItem") {
+                            try {
+                                if (item.closed || !item.pathPoints || item.pathPoints.length < 2) return;
+                                earlySelectedEndpoints.push(item.pathPoints[0].anchor);
+                                earlySelectedEndpoints.push(item.pathPoints[item.pathPoints.length - 1].anchor);
+                            } catch (ePathSel) { }
+                            return;
+                        }
+                        if (item.compoundPathItems) {
+                            for (var cpi = 0; cpi < item.compoundPathItems.length; cpi++) {
+                                var cp = item.compoundPathItems[cpi];
+                                if (!cp || !cp.pathItems) continue;
+                                for (var cpi2 = 0; cpi2 < cp.pathItems.length; cpi2++) {
+                                    try {
+                                        var cpChild = cp.pathItems[cpi2];
+                                        if (!cpChild || cpChild.closed || !cpChild.pathPoints || cpChild.pathPoints.length < 2) continue;
+                                        earlySelectedEndpoints.push(cpChild.pathPoints[0].anchor);
+                                        earlySelectedEndpoints.push(cpChild.pathPoints[cpChild.pathPoints.length - 1].anchor);
+                                    } catch (eCpChild) { }
+                                }
+                            }
+                        }
+                        if (item.pathItems) {
+                            for (var piSel = 0; piSel < item.pathItems.length; piSel++) {
+                                try {
+                                    var selPath = item.pathItems[piSel];
+                                    if (!selPath || selPath.closed || !selPath.pathPoints || selPath.pathPoints.length < 2) continue;
+                                    earlySelectedEndpoints.push(selPath.pathPoints[0].anchor);
+                                    earlySelectedEndpoints.push(selPath.pathPoints[selPath.pathPoints.length - 1].anchor);
+                                } catch (eSelPath) { }
+                            }
+                        }
+                        if (item.groupItems) {
+                            for (var gi = 0; gi < item.groupItems.length; gi++) {
+                                collectSelectedEndpoints(item.groupItems[gi]);
+                            }
+                        }
+                    } catch (eSelCollect) { }
+                }
+
+                try {
+                    var selItems = doc.selection;
+                    if (selItems && selItems.length > 0) {
+                        for (var selIdx = 0; selIdx < selItems.length; selIdx++) {
+                            collectSelectedEndpoints(selItems[selIdx]);
+                        }
+                    }
+                } catch (eSelList) { }
+                addDebug("[EARLY-GAP-RESTORE] Selected endpoints: " + earlySelectedEndpoints.length);
+
+                // NOTE: If no markers exist but segments do, we RESTORE the segments (user deleted marker to patch gap)
+                // We do NOT clean up segments as orphans - that would prevent patching!
+
+                // Track which segments to restore (no matching marker = restore)
+                var earlySegmentsToRestore = [];
+                var earlySegmentCenters = []; // For deduplication
+
+                for (var edsIdx = earlyDeletedLayer.pathItems.length - 1; edsIdx >= 0; edsIdx--) {
+                    try {
+                        var earlyDelSeg = earlyDeletedLayer.pathItems[edsIdx];
+                        if (!earlyDelSeg || !earlyDelSeg.pathPoints || earlyDelSeg.pathPoints.length < 2) continue;
+
+                        // Get segment center
+                        var edsPt1 = earlyDelSeg.pathPoints[0].anchor;
+                        var edsPt2 = earlyDelSeg.pathPoints[earlyDelSeg.pathPoints.length - 1].anchor;
+                        var edsCenterX = (edsPt1[0] + edsPt2[0]) / 2;
+                        var edsCenterY = (edsPt1[1] + edsPt2[1]) / 2;
+
+                        // Check if there's a gap marker near this position
+                        var hasMarker = false;
+                        for (var empIdx = 0; empIdx < earlyMarkerPositions.length; empIdx++) {
+                            var emPos = earlyMarkerPositions[empIdx];
+                            var distToMarker = Math.sqrt(
+                                Math.pow(edsCenterX - emPos[0], 2) +
+                                Math.pow(edsCenterY - emPos[1], 2)
+                            );
+                            if (distToMarker < 15) { // 15pt tolerance
+                                hasMarker = true;
+                                break;
+                            }
+                        }
+
+                        if (!hasMarker) {
+                            var hasSelectionEndpoints = (earlySelectedEndpoints && earlySelectedEndpoints.length > 0);
+                            if (!hasSelectionEndpoints) {
+                                addDebug("[EARLY-GAP-RESTORE] Skipping segment at [" + edsCenterX.toFixed(1) + "," + edsCenterY.toFixed(1) + "] - no selection endpoints to match");
+                                continue;
+                            }
+                            var matchStart = false;
+                            var matchEnd = false;
+                            var SEL_MATCH_TOL = 60;
+                            for (var sepIdx = 0; sepIdx < earlySelectedEndpoints.length; sepIdx++) {
+                                var sep = earlySelectedEndpoints[sepIdx];
+                                var dSelStart = Math.sqrt(
+                                    Math.pow(edsPt1[0] - sep[0], 2) +
+                                    Math.pow(edsPt1[1] - sep[1], 2)
+                                );
+                                var dSelEnd = Math.sqrt(
+                                    Math.pow(edsPt2[0] - sep[0], 2) +
+                                    Math.pow(edsPt2[1] - sep[1], 2)
+                                );
+                                if (dSelStart < SEL_MATCH_TOL) matchStart = true;
+                                if (dSelEnd < SEL_MATCH_TOL) matchEnd = true;
+                                if (matchStart && matchEnd) break;
+                            }
+                            if (!matchStart || !matchEnd) {
+                                addDebug("[EARLY-GAP-RESTORE] Skipping segment at [" + edsCenterX.toFixed(1) + "," + edsCenterY.toFixed(1) + "] - selection endpoints not near both gap ends");
+                                continue;
+                            }
+
+                            // Check for duplicates
+                            var edsIsDuplicate = false;
+                            for (var edcIdx = 0; edcIdx < earlySegmentCenters.length; edcIdx++) {
+                                var existCenter = earlySegmentCenters[edcIdx];
+                                var distToExist = Math.sqrt(
+                                    Math.pow(edsCenterX - existCenter[0], 2) +
+                                    Math.pow(edsCenterY - existCenter[1], 2)
+                                );
+                                if (distToExist < 5) {
+                                    edsIsDuplicate = true;
+                                    addDebug("[EARLY-GAP-RESTORE] Removing duplicate segment at [" + edsCenterX.toFixed(1) + "," + edsCenterY.toFixed(1) + "]");
+                                    try { earlyDelSeg.remove(); } catch (e) { }
+                                    break;
+                                }
+                            }
+
+                            if (!edsIsDuplicate) {
+                                addDebug("[EARLY-GAP-RESTORE] Orphaned segment found at [" + edsCenterX.toFixed(1) + "," + edsCenterY.toFixed(1) + "] - will restore");
+                                earlySegmentsToRestore.push({
+                                    segment: earlyDelSeg,
+                                    center: [edsCenterX, edsCenterY],
+                                    strokeColor: earlyDelSeg.strokeColor
+                                });
+                                earlySegmentCenters.push([edsCenterX, edsCenterY]);
+                            }
+                        }
+                    } catch (eEDS) {
+                        addDebug("[EARLY-GAP-RESTORE] Error checking segment: " + eEDS);
+                    }
+                }
+
+                // Restore segments to their ductwork layers
+                var earlyRestoredCount = 0;
+                // Local list of ductwork layer names (ALL_DUCTWORK_SOURCES isn't defined yet at this point)
+                var earlyDuctworkLayers = ["Blue Ductwork", "Green Ductwork", "Light Green Ductwork", "Orange Ductwork", "Light Orange Ductwork"];
+
+                for (var ersIdx = 0; ersIdx < earlySegmentsToRestore.length; ersIdx++) {
+                    try {
+                        var ersInfo = earlySegmentsToRestore[ersIdx];
+                        var ersSeg = ersInfo.segment;
+
+                        // DOUBLE-CHECK: Ensure we haven't already restored a gap at this position
+                        // (Safe-guard against duplicate segments that slipped through the initial filter)
+                        var alreadyRestoredE = false;
+                        for (var rgpIdx = 0; rgpIdx < RESTORED_GAP_POSITIONS.length; rgpIdx++) {
+                            var rgp = RESTORED_GAP_POSITIONS[rgpIdx];
+                            var dRgp = Math.sqrt(Math.pow(ersInfo.center[0] - rgp[0], 2) + Math.pow(ersInfo.center[1] - rgp[1], 2));
+                            if (dRgp < 10) {
+                                alreadyRestoredE = true;
+                                break;
+                            }
+                        }
+                        if (alreadyRestoredE) {
+                            addDebug("[EARLY-GAP-RESTORE] Skipping duplicate segment at [" + ersInfo.center[0].toFixed(1) + "," + ersInfo.center[1].toFixed(1) + "] - already restored");
+                            try { ersSeg.remove(); } catch(e) {} // Clean up the duplicate
+                            continue;
+                        }
+
+                        // Determine target layer from stroke color
+                        var ersTargetLayer = "Blue Ductwork"; // Default
+                        if (ersInfo.strokeColor) {
+                            for (var ersDci = 0; ersDci < earlyDuctworkLayers.length; ersDci++) {
+                                var ersDcLayerName = earlyDuctworkLayers[ersDci];
+                                try {
+                                    var ersDcLayer = doc.layers.getByName(ersDcLayerName);
+                                    if (ersDcLayer && ersDcLayer.pathItems.length > 0) {
+                                        var ersRefColor = ersDcLayer.pathItems[0].strokeColor;
+                                        if (ersRefColor && ersInfo.strokeColor &&
+                                            ersRefColor.typename === "RGBColor" &&
+                                            ersInfo.strokeColor.typename === "RGBColor") {
+                                            var ersRDiff = Math.abs(ersRefColor.red - ersInfo.strokeColor.red);
+                                            var ersGDiff = Math.abs(ersRefColor.green - ersInfo.strokeColor.green);
+                                            var ersBDiff = Math.abs(ersRefColor.blue - ersInfo.strokeColor.blue);
+                                            if (ersRDiff < 10 && ersGDiff < 10 && ersBDiff < 10) {
+                                                ersTargetLayer = ersDcLayerName;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } catch (e) { }
+                            }
+                        }
+
+                        var ersTgtLayer = null;
+                        try { ersTgtLayer = doc.layers.getByName(ersTargetLayer); } catch (e) { }
+                        if (!ersTgtLayer) { ersSeg.remove(); continue; }
+                        if (ersTgtLayer.locked) ersTgtLayer.locked = false;
+
+                        // Get the deleted segment's endpoints
+                        var delSegPts = ersSeg.pathPoints;
+                        if (!delSegPts || delSegPts.length < 2) {
+                            ersSeg.remove();
+                            continue;
+                        }
+                        var delSegStart = [delSegPts[0].anchor[0], delSegPts[0].anchor[1]];
+                        var delSegEnd = [delSegPts[delSegPts.length - 1].anchor[0], delSegPts[delSegPts.length - 1].anchor[1]];
+
+                        // Find the two path halves with endpoints near the gap
+                        // These are the paths we need to connect
+                        var pathHalf1 = null, pathHalf2 = null;
+                        var p1EndIdx = -1, p2EndIdx = -1; // 0 = start, -1 = end of path
+                        var SNAP_TOL = 50; // Tolerance for finding path endpoints (increased from 25 to handle ortho movement)
+
+                        // Search all paths on layer using robust recursive collector (handles Groups)
+                        var allLayerPaths = getPathsOnLayerAll(ersTargetLayer);
+
+                        addDebug("[EARLY-GAP-RESTORE] Searching " + allLayerPaths.length + " paths for halves near gap [" + delSegStart[0].toFixed(1) + "," + delSegStart[1].toFixed(1) + "] to [" + delSegEnd[0].toFixed(1) + "," + delSegEnd[1].toFixed(1) + "]");
+
+                        // BETTER MATCHING: Collect all candidates and sort by distance
+                        var candidates = [];
+                        for (var alpFindIdx = 0; alpFindIdx < allLayerPaths.length; alpFindIdx++) {
+                            try {
+                                var alpPath = allLayerPaths[alpFindIdx];
+                                // Strict validity check
+                                if (!alpPath) continue;
+                                try { if (alpPath.isValid === false) continue; } catch(eValid) { continue; }
+                                
+                                if (!alpPath.pathPoints || alpPath.pathPoints.length < 2) continue;
+
+                                var alpStart = alpPath.pathPoints[0].anchor;
+                                var alpEnd = alpPath.pathPoints[alpPath.pathPoints.length - 1].anchor;
+
+                                // Skip degenerate paths where start == end (single point or zero-length)
+                                var degenerateDist = Math.sqrt(Math.pow(alpStart[0] - alpEnd[0], 2) + Math.pow(alpStart[1] - alpEnd[1], 2));
+                                if (degenerateDist < 1.0) {
+                                    addDebug("[EARLY-GAP-RESTORE] Skipping degenerate path at [" + alpStart[0].toFixed(1) + "," + alpStart[1].toFixed(1) + "] (start==end)");
+                                    continue;
+                                }
+
+                                // Check distances to deleted segment endpoints
+                                var dStartToDelStart = Math.sqrt(Math.pow(alpStart[0] - delSegStart[0], 2) + Math.pow(alpStart[1] - delSegStart[1], 2));
+                                var dStartToDelEnd = Math.sqrt(Math.pow(alpStart[0] - delSegEnd[0], 2) + Math.pow(alpStart[1] - delSegEnd[1], 2));
+                                var dEndToDelStart = Math.sqrt(Math.pow(alpEnd[0] - delSegStart[0], 2) + Math.pow(alpEnd[1] - delSegStart[1], 2));
+                                var dEndToDelEnd = Math.sqrt(Math.pow(alpEnd[0] - delSegEnd[0], 2) + Math.pow(alpEnd[1] - delSegEnd[1], 2));
+
+                                var minDist = Math.min(dStartToDelStart, dStartToDelEnd, dEndToDelStart, dEndToDelEnd);
+                                var startMinDist = Math.min(dStartToDelStart, dStartToDelEnd);
+                                var endMinDist = Math.min(dEndToDelStart, dEndToDelEnd);
+
+                                if (minDist < SNAP_TOL) {
+                                    addDebug("[EARLY-GAP-RESTORE] Match found: dist=" + minDist.toFixed(1) + " at [" + alpStart[0].toFixed(1) + "," + alpStart[1].toFixed(1) + "] or [" + alpEnd[0].toFixed(1) + "," + alpEnd[1].toFixed(1) + "]");
+                                    candidates.push({
+                                        path: alpPath,
+                                        dist: minDist,
+                                        pEndIdx: (startMinDist <= endMinDist) ? 0 : alpPath.pathPoints.length - 1
+                                    });
+                                } else {
+                                    // Periodic logging for non-matches to see what's being scanned
+                                    if (alpFindIdx % 20 === 0) {
+                                        addDebug("[EARLY-GAP-RESTORE] Far path: dist=" + minDist.toFixed(1) + " at [" + alpStart[0].toFixed(1) + "," + alpStart[1].toFixed(1) + "]");
+                                    }
+                                }
+                            } catch (e) { }
+                        }
+
+                        // If we still don't have two candidates, expand search using currently selected compound paths
+                        if (candidates.length < 2) {
+                            try {
+                                var selItems = doc.selection;
+                                if (selItems && selItems.length > 0) {
+                                    var SEL_TOL = 80; // allow more movement for compound children
+                                    for (var selIdx = 0; selIdx < selItems.length; selIdx++) {
+                                        var selItem = selItems[selIdx];
+                                        var selPaths = [];
+                                        try {
+                                            if (selItem.typename === "CompoundPathItem") {
+                                                for (var selChild = 0; selChild < selItem.pathItems.length; selChild++) {
+                                                    selPaths.push(selItem.pathItems[selChild]);
+                                                }
+                                            } else if (selItem.typename === "PathItem") {
+                                                selPaths.push(selItem);
+                                            }
+                                        } catch (eSelType) { }
+
+                                        for (var selPIdx = 0; selPIdx < selPaths.length; selPIdx++) {
+                                            try {
+                                                var selPath = selPaths[selPIdx];
+                                                if (!selPath) continue;
+                                                try { if (selPath.isValid === false) continue; } catch (eSelValid) { continue; }
+                                                try {
+                                                    if (ersTgtLayer && selPath.layer && selPath.layer !== ersTgtLayer) {
+                                                        continue; // Skip selections on other layers
+                                                    }
+                                                } catch (eSelLayer) { }
+                                                if (!selPath.pathPoints || selPath.pathPoints.length < 2) continue;
+
+                                                var spStart = selPath.pathPoints[0].anchor;
+                                                var spEnd = selPath.pathPoints[selPath.pathPoints.length - 1].anchor;
+
+                                                var sdStartToDelStart = Math.sqrt(Math.pow(spStart[0] - delSegStart[0], 2) + Math.pow(spStart[1] - delSegStart[1], 2));
+                                                var sdStartToDelEnd = Math.sqrt(Math.pow(spStart[0] - delSegEnd[0], 2) + Math.pow(spStart[1] - delSegEnd[1], 2));
+                                                var sdEndToDelStart = Math.sqrt(Math.pow(spEnd[0] - delSegStart[0], 2) + Math.pow(spEnd[1] - delSegStart[1], 2));
+                                                var sdEndToDelEnd = Math.sqrt(Math.pow(spEnd[0] - delSegEnd[0], 2) + Math.pow(spEnd[1] - delSegEnd[1], 2));
+                                                var selMinDist = Math.min(sdStartToDelStart, sdStartToDelEnd, sdEndToDelStart, sdEndToDelEnd);
+                                                var selStartMinDist = Math.min(sdStartToDelStart, sdStartToDelEnd);
+                                                var selEndMinDist = Math.min(sdEndToDelStart, sdEndToDelEnd);
+
+                                                if (selMinDist < SEL_TOL) {
+                                                    var alreadyCand = false;
+                                                    for (var cChk = 0; cChk < candidates.length; cChk++) {
+                                                        if (candidates[cChk].path === selPath) {
+                                                            alreadyCand = true;
+                                                            break;
+                                                        }
+                                                    }
+                                                    if (!alreadyCand) {
+                                                        candidates.push({
+                                                            path: selPath,
+                                                            dist: selMinDist,
+                                                            pEndIdx: (selStartMinDist <= selEndMinDist) ? 0 : selPath.pathPoints.length - 1
+                                                        });
+                                                        addDebug("[EARLY-GAP-RESTORE] Added selected path candidate (compound child) dist=" + selMinDist.toFixed(1));
+                                                    }
+                                                }
+                                            } catch (eSelPath) { }
+                                        }
+                                    }
+                                }
+                            } catch (eSelExpand) {
+                                addDebug("[EARLY-GAP-RESTORE] Selection expansion failed: " + eSelExpand);
+                            }
+                        }
+
+                        // Sort candidates by distance (closest first), then by path length (longer paths preferred as tiebreaker)
+                        candidates.sort(function(a, b) {
+                            var distDiff = a.dist - b.dist;
+                            if (Math.abs(distDiff) < 0.5) {
+                                // Distances are nearly equal - prefer longer paths (more points)
+                                var aLen = a.path.pathPoints ? a.path.pathPoints.length : 0;
+                                var bLen = b.path.pathPoints ? b.path.pathPoints.length : 0;
+                                return bLen - aLen; // Descending by length
+                            }
+                            return distDiff;
+                        });
+
+                        if (candidates.length > 0) {
+                            pathHalf1 = candidates[0].path;
+                            p1EndIdx = candidates[0].pEndIdx;
+                            addDebug("[EARLY-GAP-RESTORE] Found best match half1 dist=" + candidates[0].dist.toFixed(1));
+                        }
+                        if (candidates.length > 1) {
+                            // Ensure half2 is different from half1 (reference check)
+                            if (candidates[1].path !== pathHalf1) {
+                                pathHalf2 = candidates[1].path;
+                                p2EndIdx = candidates[1].pEndIdx;
+                                addDebug("[EARLY-GAP-RESTORE] Found best match half2 dist=" + candidates[1].dist.toFixed(1));
+                            } else if (candidates.length > 2) {
+                                pathHalf2 = candidates[2].path;
+                                p2EndIdx = candidates[2].pEndIdx;
+                                addDebug("[EARLY-GAP-RESTORE] Found best match half2 (3rd cand) dist=" + candidates[2].dist.toFixed(1));
+                            }
+                        }
+
+                        // If only one half was found, try grabbing the sibling from the same compound path
+                        if (pathHalf1 && !pathHalf2) {
+                            try {
+                                var siblingTol = 80;
+                                if (pathHalf1.parent && pathHalf1.parent.typename === "CompoundPathItem") {
+                                    var sibParent = pathHalf1.parent;
+                                    for (var sibIdx = 0; sibIdx < sibParent.pathItems.length; sibIdx++) {
+                                        var sibPath = sibParent.pathItems[sibIdx];
+                                        if (!sibPath || sibPath === pathHalf1) continue;
+                                        try { if (sibPath.isValid === false) continue; } catch (eSibValid) { continue; }
+                                        if (!sibPath.pathPoints || sibPath.pathPoints.length < 2) continue;
+                                        var sibStart = sibPath.pathPoints[0].anchor;
+                                        var sibEnd = sibPath.pathPoints[sibPath.pathPoints.length - 1].anchor;
+                                        var dSibStart = Math.min(
+                                            Math.sqrt(Math.pow(sibStart[0] - delSegStart[0], 2) + Math.pow(sibStart[1] - delSegStart[1], 2)),
+                                            Math.sqrt(Math.pow(sibStart[0] - delSegEnd[0], 2) + Math.pow(sibStart[1] - delSegEnd[1], 2))
+                                        );
+                                        var dSibEnd = Math.min(
+                                            Math.sqrt(Math.pow(sibEnd[0] - delSegStart[0], 2) + Math.pow(sibEnd[1] - delSegStart[1], 2)),
+                                            Math.sqrt(Math.pow(sibEnd[0] - delSegEnd[0], 2) + Math.pow(sibEnd[1] - delSegEnd[1], 2))
+                                        );
+                                        var sibMin = Math.min(dSibStart, dSibEnd);
+                                        if (sibMin < siblingTol) {
+                                            pathHalf2 = sibPath;
+                                            p2EndIdx = (dSibStart <= dSibEnd) ? 0 : sibPath.pathPoints.length - 1;
+                                            addDebug("[EARLY-GAP-RESTORE] Found sibling pathHalf2 via compound parent (dist=" + sibMin.toFixed(1) + ")");
+                                            break;
+                                        }
+                                    }
+                                }
+                            } catch (eSibSearch) {
+                                addDebug("[EARLY-GAP-RESTORE] Sibling search failed: " + eSibSearch);
+                            }
+                        } else if (pathHalf2 && !pathHalf1) {
+                            try {
+                                var siblingTol2 = 80;
+                                if (pathHalf2.parent && pathHalf2.parent.typename === "CompoundPathItem") {
+                                    var sibParent2 = pathHalf2.parent;
+                                    for (var sibIdx2 = 0; sibIdx2 < sibParent2.pathItems.length; sibIdx2++) {
+                                        var sibPath2 = sibParent2.pathItems[sibIdx2];
+                                        if (!sibPath2 || sibPath2 === pathHalf2) continue;
+                                        try { if (sibPath2.isValid === false) continue; } catch (eSibValid2) { continue; }
+                                        if (!sibPath2.pathPoints || sibPath2.pathPoints.length < 2) continue;
+                                        var sibStart2 = sibPath2.pathPoints[0].anchor;
+                                        var sibEnd2 = sibPath2.pathPoints[sibPath2.pathPoints.length - 1].anchor;
+                                        var dSibStart2 = Math.min(
+                                            Math.sqrt(Math.pow(sibStart2[0] - delSegStart[0], 2) + Math.pow(sibStart2[1] - delSegStart[1], 2)),
+                                            Math.sqrt(Math.pow(sibStart2[0] - delSegEnd[0], 2) + Math.pow(sibStart2[1] - delSegEnd[1], 2))
+                                        );
+                                        var dSibEnd2 = Math.min(
+                                            Math.sqrt(Math.pow(sibEnd2[0] - delSegStart[0], 2) + Math.pow(sibEnd2[1] - delSegStart[1], 2)),
+                                            Math.sqrt(Math.pow(sibEnd2[0] - delSegEnd[0], 2) + Math.pow(sibEnd2[1] - delSegEnd[1], 2))
+                                        );
+                                        var sibMin2 = Math.min(dSibStart2, dSibEnd2);
+                                        if (sibMin2 < siblingTol2) {
+                                            pathHalf1 = sibPath2;
+                                            p1EndIdx = (dSibStart2 <= dSibEnd2) ? 0 : sibPath2.pathPoints.length - 1;
+                                            addDebug("[EARLY-GAP-RESTORE] Found sibling pathHalf1 via compound parent (dist=" + sibMin2.toFixed(1) + ")");
+                                            break;
+                                        }
+                                    }
+                                }
+                            } catch (eSibSearch2) {
+                                addDebug("[EARLY-GAP-RESTORE] Sibling search (half1) failed: " + eSibSearch2);
+                            }
+                        }
+
+                        if (!pathHalf1 || !pathHalf2) {
+                            // Try endpoint-based matching against the two gap endpoints directly
+                            try {
+                                var SNAP_TOL2 = 80;
+                                var bestStart = null, bestEnd = null;
+                                for (var epIdx = 0; epIdx < allLayerPaths.length; epIdx++) {
+                                    var epPath = allLayerPaths[epIdx];
+                                    try {
+                                        if (!epPath || !epPath.pathPoints || epPath.pathPoints.length < 2) continue;
+                                        var epStart = epPath.pathPoints[0].anchor;
+                                        var epEnd = epPath.pathPoints[epPath.pathPoints.length - 1].anchor;
+
+                                        var dStartA = Math.sqrt(Math.pow(epStart[0] - delSegStart[0], 2) + Math.pow(epStart[1] - delSegStart[1], 2));
+                                        var dEndA = Math.sqrt(Math.pow(epEnd[0] - delSegStart[0], 2) + Math.pow(epEnd[1] - delSegStart[1], 2));
+                                        var dStartB = Math.sqrt(Math.pow(epStart[0] - delSegEnd[0], 2) + Math.pow(epStart[1] - delSegEnd[1], 2));
+                                        var dEndB = Math.sqrt(Math.pow(epEnd[0] - delSegEnd[0], 2) + Math.pow(epEnd[1] - delSegEnd[1], 2));
+
+                                        var bestToStart = Math.min(dStartA, dEndA);
+                                        var bestToEnd = Math.min(dStartB, dEndB);
+
+                                        if (bestToStart < SNAP_TOL2) {
+                                            if (!bestStart || bestToStart < bestStart.dist) {
+                                                bestStart = {
+                                                    path: epPath,
+                                                    dist: bestToStart,
+                                                    endIdx: (dStartA < dEndA) ? 0 : epPath.pathPoints.length - 1
+                                                };
+                                            }
+                                        }
+                                        if (bestToEnd < SNAP_TOL2) {
+                                            if (!bestEnd || bestToEnd < bestEnd.dist) {
+                                                bestEnd = {
+                                                    path: epPath,
+                                                    dist: bestToEnd,
+                                                    endIdx: (dStartB < dEndB) ? 0 : epPath.pathPoints.length - 1
+                                                };
+                                            }
+                                        }
+                                    } catch (eEp) { }
+                                }
+                                // Ensure different paths; if same, try second-best for end
+                                if (bestStart && bestEnd && bestStart.path === bestEnd.path) {
+                                    var altBestEnd = null;
+                                    for (var epIdx2 = 0; epIdx2 < allLayerPaths.length; epIdx2++) {
+                                        var epPath2 = allLayerPaths[epIdx2];
+                                        try {
+                                            if (!epPath2 || epPath2 === bestStart.path || !epPath2.pathPoints || epPath2.pathPoints.length < 2) continue;
+                                            var ep2Start = epPath2.pathPoints[0].anchor;
+                                            var ep2End = epPath2.pathPoints[epPath2.pathPoints.length - 1].anchor;
+                                            var d2StartB = Math.sqrt(Math.pow(ep2Start[0] - delSegEnd[0], 2) + Math.pow(ep2Start[1] - delSegEnd[1], 2));
+                                            var d2EndB = Math.sqrt(Math.pow(ep2End[0] - delSegEnd[0], 2) + Math.pow(ep2End[1] - delSegEnd[1], 2));
+                                            var best2End = Math.min(d2StartB, d2EndB);
+                                            if (best2End < SNAP_TOL2 && (!altBestEnd || best2End < altBestEnd.dist)) {
+                                                altBestEnd = {
+                                                    path: epPath2,
+                                                    dist: best2End,
+                                                    endIdx: (d2StartB < d2EndB) ? 0 : epPath2.pathPoints.length - 1
+                                                };
+                                            }
+                                        } catch (eEp2) { }
+                                    }
+                                    if (altBestEnd) bestEnd = altBestEnd;
+                                }
+                                if (bestStart && bestEnd && bestStart.path !== bestEnd.path) {
+                                    pathHalf1 = bestStart.path;
+                                    p1EndIdx = bestStart.endIdx;
+                                    pathHalf2 = bestEnd.path;
+                                    p2EndIdx = bestEnd.endIdx;
+                                    addDebug("[EARLY-GAP-RESTORE] Endpoint match resolved halves: distStart=" + bestStart.dist.toFixed(1) + ", distEnd=" + bestEnd.dist.toFixed(1));
+                                }
+                            } catch (eEndpointResolve) {
+                                addDebug("[EARLY-GAP-RESTORE] Endpoint resolve failed: " + eEndpointResolve);
+                            }
+                        }
+
+                        if (!pathHalf1 || !pathHalf2) {
+                            // FINAL FALLBACK: pick two distinct nearest endpoints to the gap endpoints (broader tolerance)
+                            try {
+                                var MAX_DIST = 120;
+                                var nearestStart = null, nearestEnd = null;
+                                for (var npIdx = 0; npIdx < allLayerPaths.length; npIdx++) {
+                                    var np = allLayerPaths[npIdx];
+                                    try {
+                                        if (!np || !np.pathPoints || np.pathPoints.length < 2) continue;
+                                        var npStart = np.pathPoints[0].anchor;
+                                        var npEnd = np.pathPoints[np.pathPoints.length - 1].anchor;
+                                        var dS_start = Math.sqrt(Math.pow(npStart[0] - delSegStart[0], 2) + Math.pow(npStart[1] - delSegStart[1], 2));
+                                        var dE_start = Math.sqrt(Math.pow(npEnd[0] - delSegStart[0], 2) + Math.pow(npEnd[1] - delSegStart[1], 2));
+                                        var dS_end = Math.sqrt(Math.pow(npStart[0] - delSegEnd[0], 2) + Math.pow(npStart[1] - delSegEnd[1], 2));
+                                        var dE_end = Math.sqrt(Math.pow(npEnd[0] - delSegEnd[0], 2) + Math.pow(npEnd[1] - delSegEnd[1], 2));
+
+                                        var minToStart = Math.min(dS_start, dE_start);
+                                        var minToEnd = Math.min(dS_end, dE_end);
+
+                                        if (minToStart < MAX_DIST) {
+                                            if (!nearestStart || minToStart < nearestStart.dist) {
+                                                nearestStart = {
+                                                    path: np,
+                                                    dist: minToStart,
+                                                    endIdx: (dS_start < dE_start) ? 0 : np.pathPoints.length - 1
+                                                };
+                                            }
+                                        }
+                                        if (minToEnd < MAX_DIST) {
+                                            if (!nearestEnd || minToEnd < nearestEnd.dist) {
+                                                nearestEnd = {
+                                                    path: np,
+                                                    dist: minToEnd,
+                                                    endIdx: (dS_end < dE_end) ? 0 : np.pathPoints.length - 1
+                                                };
+                                            }
+                                        }
+                                    } catch (eNp) { }
+                                }
+
+                                // Ensure distinct paths
+                                if (nearestStart && nearestEnd && nearestStart.path === nearestEnd.path) {
+                                    var altEnd = null;
+                                    for (var np2Idx = 0; np2Idx < allLayerPaths.length; np2Idx++) {
+                                        var np2 = allLayerPaths[np2Idx];
+                                        try {
+                                            if (!np2 || np2 === nearestStart.path || !np2.pathPoints || np2.pathPoints.length < 2) continue;
+                                            var np2Start = np2.pathPoints[0].anchor;
+                                            var np2End = np2.pathPoints[np2.pathPoints.length - 1].anchor;
+                                            var d2S_end = Math.sqrt(Math.pow(np2Start[0] - delSegEnd[0], 2) + Math.pow(np2Start[1] - delSegEnd[1], 2));
+                                            var d2E_end = Math.sqrt(Math.pow(np2End[0] - delSegEnd[0], 2) + Math.pow(np2End[1] - delSegEnd[1], 2));
+                                            var min2End = Math.min(d2S_end, d2E_end);
+                                            if (min2End < MAX_DIST && (!altEnd || min2End < altEnd.dist)) {
+                                                altEnd = {
+                                                    path: np2,
+                                                    dist: min2End,
+                                                    endIdx: (d2S_end < d2E_end) ? 0 : np2.pathPoints.length - 1
+                                                };
+                                            }
+                                        } catch (eNp2) { }
+                                    }
+                                    if (altEnd) nearestEnd = altEnd;
+                                }
+
+                                if (!pathHalf1 && nearestStart) {
+                                    pathHalf1 = nearestStart.path;
+                                    p1EndIdx = nearestStart.endIdx;
+                                }
+                                if (!pathHalf2 && nearestEnd) {
+                                    pathHalf2 = nearestEnd.path;
+                                    p2EndIdx = nearestEnd.endIdx;
+                                }
+                                if (pathHalf1 && pathHalf2 && pathHalf1 !== pathHalf2) {
+                                    addDebug("[EARLY-GAP-RESTORE] Final fallback matched halves: dStart=" +
+                                        (nearestStart ? nearestStart.dist.toFixed(1) : "n/a") +
+                                        ", dEnd=" + (nearestEnd ? nearestEnd.dist.toFixed(1) : "n/a"));
+                                }
+                            } catch (eFinalResolve) {
+                                addDebug("[EARLY-GAP-RESTORE] Final fallback resolve failed: " + eFinalResolve);
+                            }
+                        }
+
+                        if (!pathHalf1 || !pathHalf2) {
+                            addDebug("[EARLY-GAP-RESTORE] Path search failed. Found half1=" + (pathHalf1 ? "yes" : "no") + ", half2=" + (pathHalf2 ? "yes" : "no") + ". Candidates found: " + candidates.length);
+                        }
+
+                        // LAST RESORT: use the stored gap segment itself as the missing half so we can still merge
+                        if ((pathHalf1 && !pathHalf2) || (pathHalf2 && !pathHalf1)) {
+                            try {
+                                var ersDup = ersSeg.duplicate(ersTgtLayer, ElementPlacement.PLACEATEND);
+                                ersDup.locked = false;
+                                var ersPts = ersDup.pathPoints;
+                                var ersStart = ersPts[0].anchor;
+                                var ersEnd = ersPts[ersPts.length - 1].anchor;
+                                if (pathHalf1 && !pathHalf2) {
+                                    var g1 = pathHalf1.pathPoints[p1EndIdx].anchor;
+                                    var dS = Math.sqrt(Math.pow(g1[0] - ersStart[0], 2) + Math.pow(g1[1] - ersStart[1], 2));
+                                    var dE = Math.sqrt(Math.pow(g1[0] - ersEnd[0], 2) + Math.pow(g1[1] - ersEnd[1], 2));
+                                    pathHalf2 = ersDup;
+                                    p2EndIdx = (dS < dE) ? 0 : ersPts.length - 1;
+                                } else if (pathHalf2 && !pathHalf1) {
+                                    var g2 = pathHalf2.pathPoints[p2EndIdx].anchor;
+                                    var dS2 = Math.sqrt(Math.pow(g2[0] - ersStart[0], 2) + Math.pow(g2[1] - ersStart[1], 2));
+                                    var dE2 = Math.sqrt(Math.pow(g2[0] - ersEnd[0], 2) + Math.pow(g2[1] - ersEnd[1], 2));
+                                    pathHalf1 = ersDup;
+                                    p1EndIdx = (dS2 < dE2) ? 0 : ersPts.length - 1;
+                                }
+                                addDebug("[EARLY-GAP-RESTORE] Using stored gap segment as missing half for merge");
+                            } catch (eUseSeg) {
+                                addDebug("[EARLY-GAP-RESTORE] Failed to use stored segment as half: " + eUseSeg);
+                            }
+                        }
+
+                        
+                        // Merge helper: collapse two halves into a clean 2-point line
+                        function mergeHalvesTwoPoint(pathA, endIdxA, pathB, endIdxB, label) {
+                            label = label || "merge";
+                            try {
+                                var ptsA = pathA.pathPoints;
+                                var ptsB = pathB.pathPoints;
+                                if (pathA === pathB) return false;
+                                if (!ptsA || ptsA.length < 2 || !ptsB || ptsB.length < 2) return false;
+                                var aGapIdx = (endIdxA === 0) ? 0 : ptsA.length - 1;
+                                var bGapIdx = (endIdxB === 0) ? 0 : ptsB.length - 1;
+                                var farA = (aGapIdx === 0) ? ptsA[ptsA.length - 1].anchor : ptsA[0].anchor;
+                                var farB = (bGapIdx === 0) ? ptsB[ptsB.length - 1].anchor : ptsB[0].anchor;
+                                var farDist = Math.sqrt(Math.pow(farA[0] - farB[0], 2) + Math.pow(farA[1] - farB[1], 2));
+                                if (farDist < 1) {
+                                    addDebug("[EARLY-GAP-RESTORE] " + label + " aborted - far endpoints coincide");
+                                    return false;
+                                }
+                                var midX = (delSegStart[0] + delSegEnd[0]) / 2;
+                                var midY = (delSegStart[1] + delSegEnd[1]) / 2;
+                                try {
+                                    ptsA[aGapIdx].anchor = [midX, midY];
+                                    ptsA[aGapIdx].leftDirection = [midX, midY];
+                                    ptsA[aGapIdx].rightDirection = [midX, midY];
+                                } catch (eAAlign) { }
+                                try {
+                                    ptsB[bGapIdx].anchor = [midX, midY];
+                                    ptsB[bGapIdx].leftDirection = [midX, midY];
+                                    ptsB[bGapIdx].rightDirection = [midX, midY];
+                                } catch (eBAlign) { }
+                                pathA.setEntirePath([[farA[0], farA[1]], [farB[0], farB[1]]]);
+                                for (var phIdx = 0; phIdx < pathA.pathPoints.length; phIdx++) {
+                                    try {
+                                        var phPt = pathA.pathPoints[phIdx];
+                                        phPt.leftDirection = [phPt.anchor[0], phPt.anchor[1]];
+                                        phPt.rightDirection = [phPt.anchor[0], phPt.anchor[1]];
+                                        phPt.pointType = PointType.CORNER;
+                                    } catch (ePtDir2) { }
+                                }
+                                try { pathB.locked = false; } catch (eLockB) { }
+                                try { pathB.remove(); } catch (eRemB) { addDebug("[EARLY-GAP-RESTORE] " + label + " could not remove secondary path: " + eRemB); }
+                                addDebug("[EARLY-GAP-RESTORE] " + label + " -> 2-point line [" + farA[0].toFixed(1) + "," + farA[1].toFixed(1) + "] -> [" + farB[0].toFixed(1) + "," + farB[1].toFixed(1) + "]");
+                                return true;
+                            } catch (eMergeHelper) {
+                                addDebug("[EARLY-GAP-RESTORE] " + label + " failed: " + eMergeHelper);
+                                return false;
+                            }
+                        }
+
+                        var mergedSuccess = false;
+
+                        if (pathHalf1 && pathHalf2) {
+                            mergedSuccess = mergeHalvesTwoPoint(pathHalf1, p1EndIdx, pathHalf2, p2EndIdx, "Direct merge");
+                        }
+
+                        if (!mergedSuccess) {
+                            addDebug("[EARLY-GAP-RESTORE] Could not resolve both halves directly - trying closest endpoints");
+                            var bestStartEP = null, bestEndEP = null;
+                            var bestStartDistEP = 9999, bestEndDistEP = 9999;
+                            for (var fbIdx = 0; fbIdx < allLayerPaths.length; fbIdx++) {
+                                try {
+                                    var fbPath = allLayerPaths[fbIdx];
+                                    if (!fbPath || !fbPath.pathPoints || fbPath.pathPoints.length < 2) continue;
+                                    var fbStart = fbPath.pathPoints[0].anchor;
+                                    var fbEnd = fbPath.pathPoints[fbPath.pathPoints.length - 1].anchor;
+                                    var dSS = Math.sqrt(Math.pow(fbStart[0] - delSegStart[0], 2) + Math.pow(fbStart[1] - delSegStart[1], 2));
+                                    var dSE = Math.sqrt(Math.pow(fbEnd[0] - delSegStart[0], 2) + Math.pow(fbEnd[1] - delSegStart[1], 2));
+                                    var dES = Math.sqrt(Math.pow(fbStart[0] - delSegEnd[0], 2) + Math.pow(fbStart[1] - delSegEnd[1], 2));
+                                    var dEE = Math.sqrt(Math.pow(fbEnd[0] - delSegEnd[0], 2) + Math.pow(fbEnd[1] - delSegEnd[1], 2));
+                                    var minToStartGap = Math.min(dSS, dSE);
+                                    var minToEndGap = Math.min(dES, dEE);
+                                    if (minToStartGap < bestStartDistEP) {
+                                        bestStartDistEP = minToStartGap;
+                                        bestStartEP = { path: fbPath, endIdx: (dSS < dSE) ? 0 : fbPath.pathPoints.length - 1 };
+                                    }
+                                    if (minToEndGap < bestEndDistEP && fbPath !== (bestStartEP ? bestStartEP.path : null)) {
+                                        bestEndDistEP = minToEndGap;
+                                        bestEndEP = { path: fbPath, endIdx: (dES < dEE) ? 0 : fbPath.pathPoints.length - 1 };
+                                    }
+                                } catch (eFb) { }
+                            }
+                            if (bestStartEP && bestEndEP && bestStartDistEP < 80 && bestEndDistEP < 80) {
+                                addDebug("[EARLY-GAP-RESTORE] Fallback endpoints found: startDist=" + bestStartDistEP.toFixed(1) + ", endDist=" + bestEndDistEP.toFixed(1));
+                                mergedSuccess = mergeHalvesTwoPoint(bestStartEP.path, bestStartEP.endIdx, bestEndEP.path, bestEndEP.endIdx, "Fallback merge");
+                            }
+                        }
+
+                        if (mergedSuccess) {
+                            try {
+                                ersSeg.remove();
+                                addDebug("[EARLY-GAP-RESTORE] Removed gap segment marker");
+                            } catch (eRemSeg) {
+                                addDebug("[EARLY-GAP-RESTORE] Failed to remove gap segment: " + eRemSeg);
+                            }
+                            try {
+                                if (earlyDeletedLayer && earlyDeletedLayer.pathItems) {
+                                    var purgeTol = 30;
+                                    var purged = 0;
+                                    for (var pIdx = earlyDeletedLayer.pathItems.length - 1; pIdx >= 0; pIdx--) {
+                                        var pItem = earlyDeletedLayer.pathItems[pIdx];
+                                        try {
+                                            if (!pItem.pathPoints || pItem.pathPoints.length < 2) continue;
+                                            var pA = pItem.pathPoints[0].anchor;
+                                            var pB = pItem.pathPoints[pItem.pathPoints.length - 1].anchor;
+                                            var pCx = (pA[0] + pB[0]) / 2;
+                                            var pCy = (pA[1] + pB[1]) / 2;
+                                            var pDist = Math.sqrt(Math.pow(pCx - ersInfo.center[0], 2) + Math.pow(pCy - ersInfo.center[1], 2));
+                                            if (pDist < purgeTol) {
+                                                pItem.remove();
+                                                purged++;
+                                            }
+                                        } catch (ePurge) { }
+                                    }
+                                    if (purged > 0) addDebug("[EARLY-GAP-RESTORE] Purged " + purged + " leftover deleted segment(s) near gap");
+                                }
+                            } catch (ePurgeAll) {
+                                addDebug("[EARLY-GAP-RESTORE] Purge near gap failed: " + ePurgeAll);
+                            }
+                            earlyRestoredCount++;
+                            RESTORED_GAP_POSITIONS.push(ersInfo.center);
+                            createPatchedGapMarker(ersInfo.center);
+                            addDebug("[EARLY-GAP-RESTORE] Restored gap at [" + ersInfo.center[0].toFixed(1) + "," + ersInfo.center[1].toFixed(1) + "] - added to RESTORED_GAP_POSITIONS");
+                        } else {
+                            addDebug("[EARLY-GAP-RESTORE] Could not find both connecting paths - restoring segment only");
+                            var ersRestoredSeg = ersSeg.duplicate(ersTgtLayer, ElementPlacement.PLACEATEND);
+                            ersRestoredSeg.locked = false;
+                            SELECTED_PATHS.push(ersRestoredSeg);
+                            ersRestoredSeg.selected = true;
+                            ersSeg.remove();
+                            try {
+                                if (earlyDeletedLayer && earlyDeletedLayer.pathItems) {
+                                    var purgeTol3 = 30;
+                                    var purged3 = 0;
+                                    for (var pIdx3 = earlyDeletedLayer.pathItems.length - 1; pIdx3 >= 0; pIdx3--) {
+                                        var pItem3 = earlyDeletedLayer.pathItems[pIdx3];
+                                        try {
+                                            if (!pItem3.pathPoints || pItem3.pathPoints.length < 2) continue;
+                                            var pA3 = pItem3.pathPoints[0].anchor;
+                                            var pB3 = pItem3.pathPoints[pItem3.pathPoints.length - 1].anchor;
+                                            var pCx3 = (pA3[0] + pB3[0]) / 2;
+                                            var pCy3 = (pA3[1] + pB3[1]) / 2;
+                                            var pDist3 = Math.sqrt(Math.pow(pCx3 - ersInfo.center[0], 2) + Math.pow(pCy3 - ersInfo.center[1], 2));
+                                            if (pDist3 < purgeTol3) {
+                                                pItem3.remove();
+                                                purged3++;
+                                            }
+                                        } catch (ePurge3) { }
+                                    }
+                                    if (purged3 > 0) addDebug("[EARLY-GAP-RESTORE] Purged " + purged3 + " leftover deleted segment(s) near gap");
+                                }
+                            } catch (ePurgeAll3) {
+                                addDebug("[EARLY-GAP-RESTORE] Purge near gap failed: " + ePurgeAll3);
+                            }
+                            earlyRestoredCount++;
+                            addDebug("[EARLY-GAP-RESTORE] Fallback restore - NOT adding to RESTORED_GAP_POSITIONS (allowing re-carve..)");
+                        }
+
+// Clean up orphan ignore anchors near this restored gap
+                        try {
+                            var ersIgnoredLayer = null;
+                            var ersIgnoredLayerNames = ["Ignored", "Ignore"];
+                            for (var ersIgnIdx = 0; ersIgnIdx < ersIgnoredLayerNames.length; ersIgnIdx++) {
+                                try {
+                                    ersIgnoredLayer = doc.layers.getByName(ersIgnoredLayerNames[ersIgnIdx]);
+                                    if (ersIgnoredLayer) break;
+                                } catch (e) { }
+                            }
+                            if (ersIgnoredLayer) {
+                                if (ersIgnoredLayer.locked) ersIgnoredLayer.locked = false;
+                                var ersIgnoresToRemove = [];
+                                for (var ersIgIdx = ersIgnoredLayer.pathItems.length - 1; ersIgIdx >= 0; ersIgIdx--) {
+                                    try {
+                                        var ersIgPath = ersIgnoredLayer.pathItems[ersIgIdx];
+                                        if (ersIgPath.pathPoints && ersIgPath.pathPoints.length === 1) {
+                                            var ersIgPt = ersIgPath.pathPoints[0].anchor;
+                                            var ersDistToRestore = Math.sqrt(
+                                                Math.pow(ersIgPt[0] - ersInfo.center[0], 2) +
+                                                Math.pow(ersIgPt[1] - ersInfo.center[1], 2)
+                                            );
+                                            if (ersDistToRestore < 35) { // Increased tolerance to catch all related ignore anchors
+                                                ersIgnoresToRemove.push(ersIgPath);
+                                            }
+                                        }
+                                    } catch (e) { }
+                                }
+                                for (var ersRmIdx = 0; ersRmIdx < ersIgnoresToRemove.length; ersRmIdx++) {
+                                    try {
+                                        addDebug("[EARLY-GAP-RESTORE] Removing orphan ignore anchor");
+                                        ersIgnoresToRemove[ersRmIdx].remove();
+                                    } catch (e) { }
+                                }
+                            }
+                        } catch (e) { }
+
+                        // Also clean up gap definition anchors
+                        if (earlyGapDefLayer) {
+                            try {
+                                var ersGapAnchorsToRemove = [];
+                                for (var ersGdIdx = earlyGapDefLayer.pathItems.length - 1; ersGdIdx >= 0; ersGdIdx--) {
+                                    try {
+                                        var ersGdPath = earlyGapDefLayer.pathItems[ersGdIdx];
+                                        if (ersGdPath.note && ersGdPath.note.indexOf("MDUX_GAP:") === 0) continue;
+                                        for (var ersGdPtIdx = 0; ersGdPtIdx < ersGdPath.pathPoints.length; ersGdPtIdx++) {
+                                            var ersGdPt = ersGdPath.pathPoints[ersGdPtIdx].anchor;
+                                            var ersDistToGd = Math.sqrt(
+                                                Math.pow(ersGdPt[0] - ersInfo.center[0], 2) +
+                                                Math.pow(ersGdPt[1] - ersInfo.center[1], 2)
+                                            );
+                                            if (ersDistToGd < 20) {
+                                                ersGapAnchorsToRemove.push(ersGdPath);
+                                                break;
+                                            }
+                                        }
+                                    } catch (e) { }
+                                }
+                                for (var ersRmGdIdx = 0; ersRmGdIdx < ersGapAnchorsToRemove.length; ersRmGdIdx++) {
+                                    try {
+                                        addDebug("[EARLY-GAP-RESTORE] Removing gap definition anchor");
+                                        ersGapAnchorsToRemove[ersRmGdIdx].remove();
+                                    } catch (e) { }
+                                }
+                            } catch (e) { }
+                        }
+
+                    } catch (eERS) {
+                        addDebug("[EARLY-GAP-RESTORE] Error restoring segment: " + eERS);
+                    }
+                }
+
+                if (earlyRestoredCount > 0) {
+                    addDebug("[EARLY-GAP-RESTORE] Restored " + earlyRestoredCount + " segment(s) - will be orthogonalized");
+                    // After successful restoration, clear the Deleted Segments layer so the same segment
+                    // cannot be restored again on later runs
+                    try {
+                        if (earlyDeletedLayer && earlyDeletedLayer.pathItems) {
+                            var cleared = earlyDeletedLayer.pathItems.length;
+                            for (var clrIdx = earlyDeletedLayer.pathItems.length - 1; clrIdx >= 0; clrIdx--) {
+                                try { earlyDeletedLayer.pathItems[clrIdx].remove(); } catch (eClr) { }
+                            }
+                            if (cleared > 0) addDebug("[EARLY-GAP-RESTORE] Cleared " + cleared + " item(s) from Deleted Segments after restoration");
+                        }
+                    } catch (eClearLayer) {
+                        addDebug("[EARLY-GAP-RESTORE] Failed to clear Deleted Segments: " + eClearLayer);
+                    }
+                } else {
+                    addDebug("[EARLY-GAP-RESTORE] No segments to restore");
+                }
+
+                // Re-hide the deleted segments layer
+                earlyDeletedLayer.visible = false;
+                earlyDeletedLayer.locked = true;
+            }
+        } catch (eEarlyGapRestore) {
+            addDebug("[EARLY-GAP-RESTORE] Error: " + eEarlyGapRestore);
+        }
+
+        // AGGRESSIVE DUPLICATE REMOVAL: Scan the target layer for any overlapping/duplicate paths
+        // This handles cases where restoration might have left a ghost path or duplicate geometry
+        try {
+            if (typeof ersTargetLayer === 'string') {
+                addDebug("[DUPLICATE-CLEANUP] Scanning " + ersTargetLayer + " for duplicates...");
+                var allLayerPathsDup = getPathsOnLayerAll(ersTargetLayer); // Recursive search
+                var dupsToRemove = [];
+                
+                for (var d1 = 0; d1 < allLayerPathsDup.length; d1++) {
+                    var p1 = allLayerPathsDup[d1];
+                    if (!p1 || !p1.parent) continue; // Skip invalid or removed
+                    
+                    // Skip if already marked
+                    var p1Marked = false;
+                    for (var m=0; m<dupsToRemove.length; m++) if (dupsToRemove[m] === p1) p1Marked = true;
+                    if (p1Marked) continue;
+
+                    var p1Pts = p1.pathPoints;
+                    if (!p1Pts || p1Pts.length < 2) continue;
+                    var p1Start = p1Pts[0].anchor;
+                    var p1End = p1Pts[p1Pts.length-1].anchor;
+
+                    for (var d2 = d1 + 1; d2 < allLayerPathsDup.length; d2++) {
+                        var p2 = allLayerPathsDup[d2];
+                        if (!p2 || !p2.parent) continue;
+
+                        var p2Marked = false;
+                        for (var m2=0; m2<dupsToRemove.length; m2++) if (dupsToRemove[m2] === p2) p2Marked = true;
+                        if (p2Marked) continue;
+
+                        var p2Pts = p2.pathPoints;
+                        if (!p2Pts || p2Pts.length < 2) continue;
+                        var p2Start = p2Pts[0].anchor;
+                        var p2End = p2Pts[p2Pts.length-1].anchor;
+
+                        // Check coincidence (Start=Start AND End=End) OR (Start=End AND End=Start)
+                        var tol = 1.0;
+                        var exactMatch = (Math.abs(p1Start[0]-p2Start[0])<tol && Math.abs(p1Start[1]-p2Start[1])<tol && 
+                                          Math.abs(p1End[0]-p2End[0])<tol && Math.abs(p1End[1]-p2End[1])<tol) ||
+                                         (Math.abs(p1Start[0]-p2End[0])<tol && Math.abs(p1Start[1]-p2End[1])<tol && 
+                                          Math.abs(p1End[0]-p2Start[0])<tol && Math.abs(p1End[1]-p2Start[1])<tol);
+                        
+                        var contained = false;
+                        if (!exactMatch) {
+                            // Check if p2 is contained within p1 (collinear overlap)
+                            // Only for straight lines (2 points)
+                            if (p1Pts.length === 2 && p2Pts.length === 2) {
+                                // Check if p2Start and p2End lie on p1 segment
+                                function isPointOnLine(pt, start, end, t) {
+                                    var dx = end[0] - start[0];
+                                    var dy = end[1] - start[1];
+                                    var len2 = dx*dx + dy*dy;
+                                    if (len2 === 0) return false;
+                                    var cross = Math.abs((pt[1]-start[1])*dx - (pt[0]-start[0])*dy);
+                                    if (cross > t) return false; // Not collinear
+                                    var dot = (pt[0]-start[0])*dx + (pt[1]-start[1])*dy;
+                                    return dot >= -t && dot <= len2 + t;
+                                }
+                                if (isPointOnLine(p2Start, p1Start, p1End, 1.0) && isPointOnLine(p2End, p1Start, p1End, 1.0)) {
+                                    contained = true;
+                                }
+                            }
+                        }
+
+                        if (exactMatch || contained) {
+                            // Found duplicate/contained path! Remove p2 (the one we are checking in inner loop)
+                            // If exact match, we remove p2. If contained, p2 is inside p1, so remove p2.
+                            // BUT if p1 is inside p2?
+                            if (contained) {
+                                // Verify p1 is NOT inside p2 (unless exact match, handled above)
+                                // We assume outer loop p1 is the "main" one we are keeping, unless p2 is strictly larger?
+                                // Actually, if p2 is contained in p1, remove p2.
+                                dupsToRemove.push(p2);
+                                addDebug("[DUPLICATE-CLEANUP] Found contained path, marking for removal");
+                            } else {
+                                // Exact match
+                                dupsToRemove.push(p2);
+                                addDebug("[DUPLICATE-CLEANUP] Found duplicate path, marking for removal");
+                            }
+                        }
+                    }
+                }
+
+                for (var rD = 0; rD < dupsToRemove.length; rD++) {
+                    try { dupsToRemove[rD].locked = false; dupsToRemove[rD].remove(); } catch(e){}
+                }
+                if (dupsToRemove.length > 0) addDebug("[DUPLICATE-CLEANUP] Removed " + dupsToRemove.length + " duplicates");
+            }
+        } catch (eDupClean) {
+            addDebug("[DUPLICATE-CLEANUP] Error: " + eDupClean);
+        }
+
+        // CRITICAL: After gap merging, rebuild allPaths to remove invalid references
+        // Merged paths get removed but their references stay in allPaths array
+        // This causes "Object is invalid" errors in later processing
+        try {
+            // Helper to validate path object
+            var isPathValid = function(p) {
+                try {
+                    if (!p) return false;
+                    // Check standard isValid property if available
+                    if (p.isValid === false) return false;
+                    // Check typename access (throws if invalid)
+                    if (!p.typename) return false;
+                    // Check pathPoints access
+                    var pts = p.pathPoints;
+                    return pts && pts.length >= 2;
+                } catch(e) { return false; }
+            };
+
+            var validAllPaths = [];
+            var invalidCount = 0;
+            for (var vapIdx = 0; vapIdx < allPaths.length; vapIdx++) {
+                if (isPathValid(allPaths[vapIdx])) {
+                    validAllPaths.push(allPaths[vapIdx]);
+                } else {
+                    invalidCount++;
+                }
+            }
+            if (invalidCount > 0) {
+                addDebug("[PATH-CLEANUP] Removed " + invalidCount + " invalid path reference(s) from allPaths after gap restoration");
+                allPaths = validAllPaths;
+            }
+
+            // Also clean up SELECTED_PATHS array
+            var validSelectedPaths = [];
+            var invalidSelectedCount = 0;
+            for (var vspIdx = 0; vspIdx < SELECTED_PATHS.length; vspIdx++) {
+                if (isPathValid(SELECTED_PATHS[vspIdx])) {
+                    validSelectedPaths.push(SELECTED_PATHS[vspIdx]);
+                } else {
+                    invalidSelectedCount++;
+                }
+            }
+            if (invalidSelectedCount > 0) {
+                addDebug("[PATH-CLEANUP] Removed " + invalidSelectedCount + " invalid reference(s) from SELECTED_PATHS");
+                SELECTED_PATHS = validSelectedPaths;
+            }
+        } catch (ePathCleanup) {
+            addDebug("[PATH-CLEANUP] Error: " + ePathCleanup);
         }
 
         // PRE-STEP: Release any existing compound paths in ductwork layers
@@ -14107,7 +15244,13 @@ function setStaticTextColor(control, rgbArray) {
 
         for (var tjPathAIdx = 0; tjPathAIdx < geometryPaths.length; tjPathAIdx++) {
             var tjPathA = geometryPaths[tjPathAIdx];
-            if (!tjPathA || !tjPathA.pathPoints || tjPathA.pathPoints.length < 2) continue;
+            // Validity check - path may have been removed by gap restoration
+            try {
+                var tjPathAValid = tjPathA.pathPoints;
+                if (!tjPathAValid || tjPathAValid.length < 2) continue;
+            } catch (eTjValidA) {
+                continue; // Path is invalid (was removed)
+            }
 
             var tjPtsA = tjPathA.pathPoints;
 
@@ -14121,7 +15264,13 @@ function setStaticTextColor(control, rgbArray) {
                     if (tjPathBIdx === tjPathAIdx) continue; // Skip same path
 
                     var tjPathB = geometryPaths[tjPathBIdx];
-                    if (!tjPathB || !tjPathB.pathPoints || tjPathB.pathPoints.length < 2) continue;
+                    // Validity check - path may have been removed by gap restoration
+                    try {
+                        var tjPathBValid = tjPathB.pathPoints;
+                        if (!tjPathBValid || tjPathBValid.length < 2) continue;
+                    } catch (eTjValid) {
+                        continue; // Path is invalid (was removed)
+                    }
 
                     var tjPtsB = tjPathB.pathPoints;
 
@@ -14236,7 +15385,13 @@ function setStaticTextColor(control, rgbArray) {
                         var pyPath = pyOrthoResult.paths[pyIdx];
                         var targetPath = pathsForPython[pyPath.id];
 
-                        if (!targetPath || !targetPath.pathPoints) continue;
+                        // Validity check - path may have been removed by gap restoration
+                        try {
+                            var testValid = targetPath.pathPoints;
+                            if (!testValid) continue;
+                        } catch (eValidCheck) {
+                            continue; // Path was removed
+                        }
 
                         try {
                             var pts = targetPath.pathPoints;
@@ -14278,7 +15433,14 @@ function setStaticTextColor(control, rgbArray) {
                         addDebug("[EXTENDSCRIPT-ORTHO] Orthogonalizing " + excludedPaths.length + " excluded path(s) using ExtendScript");
                         var excludedPathItems = [];
                         for (var exIdx = 0; exIdx < excludedPaths.length; exIdx++) {
-                            excludedPathItems.push(geometryPaths[excludedPaths[exIdx]]);
+                            var exPath = geometryPaths[excludedPaths[exIdx]];
+                            // Validity check - path may have been removed by gap restoration
+                            try {
+                                var exValid = exPath.pathPoints;
+                                if (exValid) excludedPathItems.push(exPath);
+                            } catch (eExValid) {
+                                // Path was removed, skip it
+                            }
                         }
 
                         // Run ExtendScript orthogonalization
@@ -14554,6 +15716,19 @@ function setStaticTextColor(control, rgbArray) {
         // Now that paths are orthogonalized, update ignorePart marker positions to maintain distance from endpoints
         if (ignoreMarkerAssociations.length > 0) {
             addDebug("\n=== POST-ORTHO: UPDATING IGNORE MARKER POSITIONS ===");
+
+            // Find and unlock the Ignored layer to allow marker modifications
+            var ignoreLayerForMove = findLayerByNameDeep("Ignored");
+            if (!ignoreLayerForMove) ignoreLayerForMove = findLayerByNameDeep("Ignore");
+            var wasLocked = false;
+            if (ignoreLayerForMove) {
+                wasLocked = ignoreLayerForMove.locked;
+                if (wasLocked) {
+                    ignoreLayerForMove.locked = false;
+                    addDebug("[IGNORE-MARKER-MOVE] Unlocked Ignored layer for marker movement");
+                }
+            }
+
             var movedCount = 0;
             for (var imaIdx = 0; imaIdx < ignoreMarkerAssociations.length; imaIdx++) {
                 var assoc = ignoreMarkerAssociations[imaIdx];
@@ -14585,6 +15760,13 @@ function setStaticTextColor(control, rgbArray) {
                     addDebug("[IGNORE-MARKER-MOVE] Error moving marker: " + eMoveMarker);
                 }
             }
+
+            // Restore layer lock state
+            if (ignoreLayerForMove && wasLocked) {
+                ignoreLayerForMove.locked = true;
+                addDebug("[IGNORE-MARKER-MOVE] Re-locked Ignored layer");
+            }
+
             addDebug("[IGNORE-MARKER-MOVE] Moved " + movedCount + " ignore markers to maintain relative position");
         }
 
@@ -15398,10 +16580,12 @@ function setStaticTextColor(control, rgbArray) {
         }
 
 
-        // *** CARVE OUT DUCTWORK LINES THAT PASS THROUGH REGISTERS ***
-        // After placing registers, check if OTHER ductwork lines pass through register areas
-        // and carve out those segments to prevent overlap (each color processes its own register type)
-        addDebug("\n=== REGISTER CARVE-OUT (ALL COLORS) ===");
+        // ============================================================================
+        // GAP MEMORY & GAP DEFINITIONS SYSTEM
+        // Provides user control over gap creation with persistent memory markers
+        // ============================================================================
+        addDebug("\n=== GAP MEMORY & DEFINITIONS SYSTEM ===");
+        updateProgress("Processing gap definitions...");
 
         // Helper function: Filter SELECTED_PATHS by layer name
         function getSelectedPathsOnLayer(layerName) {
@@ -15416,6 +16600,798 @@ function setStaticTextColor(control, rgbArray) {
             }
             return filtered;
         }
+
+        // Document tag constant for scale factor storage
+        var MDUX_SCALE_TAG_NAME = "MDUX_ScaleFactor";
+
+        // Gap system constants
+        // Single layer for both gap definitions (user-drawn anchors) and gap memory markers
+        var GAP_LAYER_NAME = "Gap Definitions";
+        var GAP_MAGENTA_COLOR = new RGBColor();
+        GAP_MAGENTA_COLOR.red = 255;
+        GAP_MAGENTA_COLOR.green = 0;
+        GAP_MAGENTA_COLOR.blue = 255;
+        var GAP_DEFAULT_HALF_WIDTH = 4.25; // Default half-gap size (8.5pt total)
+        var GAP_STROKE_MULTIPLIER = 0.6; // Gap size = strokeWidth * multiplier (for auto-sizing)
+        var GAP_MIN_SIZE = 4; // Minimum half-gap size
+        var GAP_SEARCH_RADIUS = 50; // How far to search for nearby segments from a gap definition anchor
+
+        // Track patched/restored gaps across runs (backed by markers on Gap Definitions)
+        if (typeof PATCHED_GAP_POSITIONS === "undefined" || !PATCHED_GAP_POSITIONS) {
+            PATCHED_GAP_POSITIONS = [];
+        }
+
+        function ensurePatchedGapPositionsLoaded() {
+            if (PATCHED_GAP_POSITIONS && PATCHED_GAP_POSITIONS.length > 0) return;
+            try {
+                var gdLayer = null;
+                try { gdLayer = doc.layers.getByName(GAP_LAYER_NAME); } catch (e) { gdLayer = null; }
+                if (!gdLayer) return;
+                var prevLocked = gdLayer.locked;
+                var prevVisible = gdLayer.visible;
+                try { gdLayer.locked = false; gdLayer.visible = true; } catch (eState) { }
+                for (var pmIdx = 0; pmIdx < gdLayer.pathItems.length; pmIdx++) {
+                    try {
+                        var pm = gdLayer.pathItems[pmIdx];
+                        if (!pm.note || pm.note.indexOf("MDUX_PATCH") !== 0) continue;
+                        if (!pm.pathPoints || pm.pathPoints.length < 1) continue;
+                        var pmPt = pm.pathPoints[0].anchor;
+                        PATCHED_GAP_POSITIONS.push([pmPt[0], pmPt[1]]);
+                    } catch (ePm) { }
+                }
+                try { gdLayer.locked = prevLocked; gdLayer.visible = prevVisible; } catch (eRestore) { }
+            } catch (eLoadPatch) { addDebug("[GAP-DEFS] Failed to load patch markers: " + eLoadPatch); }
+        }
+
+        // RESTORED_GAP_POSITIONS is initialized early (before orthogonalization)
+        // to track positions where gaps were restored - do NOT reinitialize here
+
+        // Helper function for ES3-compatible date formatting (toISOString doesn't exist)
+        function formatDateISO(d) {
+            function pad(n) { return n < 10 ? '0' + n : String(n); }
+            return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) +
+                   'T' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+        }
+
+        // Helper function to check if an ignore anchor already exists at a position
+        function ignoreAnchorExistsAt(position, tolerance) {
+            tolerance = tolerance || 3;
+            try {
+                var ignoredLayer = null;
+                var ignoredLayerNames = ["Ignored", "Ignore", "ignored", "ignore"];
+                for (var ignIdx = 0; ignIdx < ignoredLayerNames.length; ignIdx++) {
+                    try {
+                        ignoredLayer = doc.layers.getByName(ignoredLayerNames[ignIdx]);
+                        if (ignoredLayer) break;
+                    } catch (e) { }
+                }
+                if (!ignoredLayer) return false;
+                for (var i = 0; i < ignoredLayer.pathItems.length; i++) {
+                    var path = ignoredLayer.pathItems[i];
+                    if (path.pathPoints && path.pathPoints.length === 1) {
+                        var pt = path.pathPoints[0].anchor;
+                        var dist = Math.sqrt(
+                            Math.pow(pt[0] - position[0], 2) +
+                            Math.pow(pt[1] - position[1], 2)
+                        );
+                        if (dist < tolerance) return true;
+                    }
+                }
+            } catch (e) { }
+            return false;
+        }
+
+        // Get or create the Gap Definitions layer (stores both user anchors and gap memory markers)
+        function getOrCreateGapLayer() {
+            var layer = null;
+            try {
+                layer = doc.layers.getByName(GAP_LAYER_NAME);
+            } catch (e) {
+                layer = doc.layers.add();
+                layer.name = GAP_LAYER_NAME;
+                addDebug("[GAP-SYSTEM] Created '" + GAP_LAYER_NAME + "' layer");
+            }
+            return layer;
+        }
+
+        // Parse gap metadata from a gap memory marker's note
+        function parseGapMetadata(marker) {
+            try {
+                if (!marker || !marker.note) return null;
+                var note = marker.note;
+                if (note.indexOf("MDUX_GAP:") !== 0) return null;
+                var jsonStr = note.substring(9);
+                return JSON.parse(jsonStr);
+            } catch (e) {
+                return null;
+            }
+        }
+
+        // Create gap metadata string to store in marker's note
+        function createGapMetadataString(data) {
+            return "MDUX_GAP:" + JSON.stringify(data);
+        }
+
+        // Create a gap memory marker at a given intersection point
+        function createGapMemoryMarker(position, gapSize, sourceLayer, isAutoSized, carveDirection) {
+            try {
+                ensurePatchedGapPositionsLoaded();
+                // If this position is already patched/restored, skip creating a gap marker
+                for (var pgChk = 0; pgChk < PATCHED_GAP_POSITIONS.length; pgChk++) {
+                    var pgPos = PATCHED_GAP_POSITIONS[pgChk];
+                    var pgDist = Math.sqrt(
+                        Math.pow(position[0] - pgPos[0], 2) +
+                        Math.pow(position[1] - pgPos[1], 2)
+                    );
+                    if (pgDist < 35) {
+                        addDebug("[GAP-DEFS] Skipping marker at patched gap [" + position[0].toFixed(1) + "," + position[1].toFixed(1) + "]");
+                        return null;
+                    }
+                }
+
+                var gapLayer = getOrCreateGapLayer();
+
+                // Check for existing marker at this position to prevent duplicates
+                for (var chkIdx = 0; chkIdx < gapLayer.pathItems.length; chkIdx++) {
+                    try {
+                        var chkItem = gapLayer.pathItems[chkIdx];
+                        if (chkItem.note && chkItem.note.indexOf("MDUX_GAP:") === 0) {
+                            var chkMeta = JSON.parse(chkItem.note.substring(9));
+                            if (chkMeta && typeof chkMeta.x === "number" && typeof chkMeta.y === "number") {
+                                var chkDist = Math.sqrt(
+                                    Math.pow(position[0] - chkMeta.x, 2) +
+                                    Math.pow(position[1] - chkMeta.y, 2)
+                                );
+                                if (chkDist < 10) {
+                                    addDebug("[GAP-DEFS] Marker already exists at [" + position[0].toFixed(1) + "," + position[1].toFixed(1) + "], skipping duplicate");
+                                    return chkItem; // Return existing marker
+                                }
+                            }
+                        }
+                    } catch (eChk) { }
+                }
+
+                // Unlock layer temporarily
+                var wasLocked = gapLayer.locked;
+                if (wasLocked) gapLayer.locked = false;
+                var wasHidden = !gapLayer.visible;
+                if (wasHidden) gapLayer.visible = true;
+
+                // Create a thick magenta line segment at the gap location
+                // The line direction matches the carve direction (perpendicular to crossing path)
+                var halfLen = gapSize;
+                var dx = carveDirection ? carveDirection[0] : 1;
+                var dy = carveDirection ? carveDirection[1] : 0;
+
+                var startPt = [position[0] - halfLen * dx, position[1] - halfLen * dy];
+                var endPt = [position[0] + halfLen * dx, position[1] + halfLen * dy];
+
+                var marker = gapLayer.pathItems.add();
+                marker.setEntirePath([startPt, endPt]);
+                marker.filled = false;
+                marker.stroked = true;
+                marker.strokeWidth = 3;
+                marker.strokeColor = GAP_MAGENTA_COLOR;
+
+                // Store metadata in the note property
+                var metadata = {
+                    x: position[0],
+                    y: position[1],
+                    gapSize: gapSize,
+                    sourceLayer: sourceLayer,
+                    isAutoSized: isAutoSized,
+                    dirX: dx,
+                    dirY: dy,
+                    createdAt: formatDateISO(new Date())
+                };
+                marker.note = createGapMetadataString(metadata);
+
+                // Lock the marker itself
+                marker.locked = true;
+
+                // Restore layer state
+                if (wasLocked) gapLayer.locked = true;
+                if (wasHidden) gapLayer.visible = false;
+
+                addDebug("[GAP-DEFS] Created marker at [" + position[0].toFixed(1) + "," + position[1].toFixed(1) + "], size=" + gapSize.toFixed(1) + ", auto=" + isAutoSized);
+                return marker;
+            } catch (e) {
+                addDebug("[GAP-DEFS] ERROR creating marker: " + e);
+                return null;
+            }
+        }
+
+        // Read all existing gap memory markers and their metadata from the Gap Definitions layer
+        function readAllGapMemoryMarkers() {
+            var markers = [];
+            try {
+                var gapLayer = null;
+                try {
+                    gapLayer = doc.layers.getByName(GAP_LAYER_NAME);
+                } catch (e) {
+                    addDebug("[GAP-DEFS] No Gap Definitions layer found");
+                    return markers;
+                }
+
+                for (var i = 0; i < gapLayer.pathItems.length; i++) {
+                    var item = gapLayer.pathItems[i];
+                    var metadata = parseGapMetadata(item);
+                    if (metadata) {
+                        // Also read current marker length in case user manually resized it
+                        var pts = item.pathPoints;
+                        if (pts.length >= 2) {
+                            var actualLength = Math.sqrt(
+                                Math.pow(pts[1].anchor[0] - pts[0].anchor[0], 2) +
+                                Math.pow(pts[1].anchor[1] - pts[0].anchor[1], 2)
+                            );
+                            // If user manually resized, the marker is no longer auto-sized
+                            if (Math.abs(actualLength - metadata.gapSize * 2) > 0.5) {
+                                metadata.gapSize = actualLength / 2;
+                                metadata.isAutoSized = false;
+                                addDebug("[GAP-MEMORY] Marker at [" + metadata.x.toFixed(1) + "," + metadata.y.toFixed(1) + "] was manually resized to " + metadata.gapSize.toFixed(1));
+                            }
+                        }
+                        markers.push({
+                            marker: item,
+                            metadata: metadata
+                        });
+                    }
+                }
+                addDebug("[GAP-DEFS] Found " + markers.length + " existing gap marker(s)");
+            } catch (e) {
+                addDebug("[GAP-DEFS] ERROR reading markers: " + e);
+            }
+            return markers;
+        }
+
+        // Check if a gap memory marker exists near a given position
+        function findGapMemoryMarkerNear(position, tolerance) {
+            var markers = readAllGapMemoryMarkers();
+            for (var i = 0; i < markers.length; i++) {
+                var m = markers[i].metadata;
+                var dist = Math.sqrt(Math.pow(m.x - position[0], 2) + Math.pow(m.y - position[1], 2));
+                if (dist < tolerance) {
+                    return markers[i];
+                }
+            }
+            return null;
+        }
+
+        // Read gap definition anchors from the Gap Definitions layer
+        // Note: This reads ALL anchors, then filters out gap memory markers by checking for metadata
+        function readGapDefinitionAnchors() {
+            var anchors = [];
+            try {
+                var gapDefLayer = null;
+                try {
+                    gapDefLayer = doc.layers.getByName(GAP_LAYER_NAME);
+                } catch (e) {
+                    addDebug("[GAP-DEFS] No Gap Definitions layer found");
+                    return anchors;
+                }
+
+                // Collect all anchor points from paths on this layer
+                // Skip paths that are gap memory markers (have MDUX_GAP metadata)
+                for (var i = 0; i < gapDefLayer.pathItems.length; i++) {
+                    var path = gapDefLayer.pathItems[i];
+                    if (!path.pathPoints) continue;
+
+                    // Skip if this is a gap memory marker (has MDUX_GAP: in note)
+                    try {
+                        if (path.note && path.note.indexOf("MDUX_GAP:") === 0) {
+                            continue; // This is a gap memory marker, not a user anchor
+                        }
+                    } catch (e) { }
+
+                    // For each path, use ALL anchors so users can place single points
+                    for (var j = 0; j < path.pathPoints.length; j++) {
+                        var pt = path.pathPoints[j];
+                        anchors.push({
+                            x: pt.anchor[0],
+                            y: pt.anchor[1],
+                            sourcePath: path
+                        });
+                    }
+                }
+                addDebug("[GAP-DEFS] Found " + anchors.length + " gap definition anchor(s) (excluding markers)");
+            } catch (e) {
+                addDebug("[GAP-DEFS] ERROR reading anchors: " + e);
+            }
+            return anchors;
+        }
+
+        // Find the closest ductwork segment to a given point
+        function findClosestSegmentToPoint(point, searchRadius) {
+            var closest = null;
+            var closestDist = searchRadius;
+
+            // Search across all ductwork layers
+            for (var dcIdx = 0; dcIdx < ALL_DUCTWORK_SOURCES.length; dcIdx++) {
+                var dcSrc = ALL_DUCTWORK_SOURCES[dcIdx];
+                var dcLayer = null;
+                try {
+                    dcLayer = doc.layers.getByName(dcSrc.layer);
+                } catch (e) {
+                    continue;
+                }
+
+                // Check all paths on this layer
+                for (var pi = 0; pi < dcLayer.pathItems.length; pi++) {
+                    var path = dcLayer.pathItems[pi];
+                    if (!path.pathPoints || path.pathPoints.length < 2) continue;
+
+                    // Check each segment of the path
+                    for (var si = 0; si < path.pathPoints.length - 1; si++) {
+                        var segStart = [path.pathPoints[si].anchor[0], path.pathPoints[si].anchor[1]];
+                        var segEnd = [path.pathPoints[si + 1].anchor[0], path.pathPoints[si + 1].anchor[1]];
+
+                        // Calculate distance from point to this segment
+                        var dist = distancePointToSegment(point, segStart, segEnd);
+
+                        if (dist < closestDist) {
+                            closestDist = dist;
+                            closest = {
+                                path: path,
+                                segmentIndex: si,
+                                segStart: segStart,
+                                segEnd: segEnd,
+                                layer: dcSrc.layer,
+                                layerName: dcSrc.name,
+                                distance: dist
+                            };
+                        }
+                    }
+                }
+
+                // Also check compound paths
+                for (var ci = 0; ci < dcLayer.compoundPathItems.length; ci++) {
+                    var compound = dcLayer.compoundPathItems[ci];
+                    for (var cpi = 0; cpi < compound.pathItems.length; cpi++) {
+                        var cPath = compound.pathItems[cpi];
+                        if (!cPath.pathPoints || cPath.pathPoints.length < 2) continue;
+
+                        for (var csi = 0; csi < cPath.pathPoints.length - 1; csi++) {
+                            var cSegStart = [cPath.pathPoints[csi].anchor[0], cPath.pathPoints[csi].anchor[1]];
+                            var cSegEnd = [cPath.pathPoints[csi + 1].anchor[0], cPath.pathPoints[csi + 1].anchor[1]];
+
+                            var cDist = distancePointToSegment([point.x || point[0], point.y || point[1]], cSegStart, cSegEnd);
+
+                            if (cDist < closestDist) {
+                                closestDist = cDist;
+                                closest = {
+                                    path: cPath,
+                                    segmentIndex: csi,
+                                    segStart: cSegStart,
+                                    segEnd: cSegEnd,
+                                    layer: dcSrc.layer,
+                                    layerName: dcSrc.name,
+                                    distance: cDist,
+                                    parentCompound: compound
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+
+            return closest;
+        }
+
+        // Distance from point to line segment
+        function distancePointToSegment(pt, segStart, segEnd) {
+            var px = (pt.x !== undefined) ? pt.x : pt[0];
+            var py = (pt.y !== undefined) ? pt.y : pt[1];
+            var x1 = segStart[0], y1 = segStart[1];
+            var x2 = segEnd[0], y2 = segEnd[1];
+
+            var dx = x2 - x1;
+            var dy = y2 - y1;
+            var segLenSq = dx * dx + dy * dy;
+
+            if (segLenSq < 0.0001) {
+                return Math.sqrt(Math.pow(px - x1, 2) + Math.pow(py - y1, 2));
+            }
+
+            var t = ((px - x1) * dx + (py - y1) * dy) / segLenSq;
+            t = Math.max(0, Math.min(1, t));
+
+            var projX = x1 + t * dx;
+            var projY = y1 + t * dy;
+
+            return Math.sqrt(Math.pow(px - projX, 2) + Math.pow(py - projY, 2));
+        }
+
+        // Find intersection point between two line segments (returns null if no intersection)
+        function findSegmentIntersection(seg1Start, seg1End, seg2Start, seg2End) {
+            var x1 = seg1Start[0], y1 = seg1Start[1];
+            var x2 = seg1End[0], y2 = seg1End[1];
+            var x3 = seg2Start[0], y3 = seg2Start[1];
+            var x4 = seg2End[0], y4 = seg2End[1];
+
+            var denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+            if (Math.abs(denom) < 0.0001) return null; // Parallel or coincident
+
+            var t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
+            var u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / denom;
+
+            if (t >= 0 && t <= 1 && u >= 0 && u <= 1) {
+                return [x1 + t * (x2 - x1), y1 + t * (y2 - y1)];
+            }
+            return null;
+        }
+
+        // Calculate gap size based on stroke width (auto-sizing)
+        function calculateAutoGapSize(strokeWidth) {
+            var size = Math.max(strokeWidth * GAP_STROKE_MULTIPLIER, GAP_MIN_SIZE);
+            return size;
+        }
+
+        // Track gaps that should be created from user-defined anchors
+        var USER_DEFINED_GAPS = [];
+
+        // Process gap definition anchors
+        var gapDefAnchors = readGapDefinitionAnchors();
+        if (gapDefAnchors.length > 0) {
+            addDebug("[GAP-DEFS] Processing " + gapDefAnchors.length + " gap definition anchor(s)");
+
+            for (var gdaIdx = 0; gdaIdx < gapDefAnchors.length; gdaIdx++) {
+                var anchor = gapDefAnchors[gdaIdx];
+                var anchorPt = [anchor.x, anchor.y];
+
+                // Find the closest ductwork segment to this anchor
+                var closestSeg = findClosestSegmentToPoint(anchorPt, GAP_SEARCH_RADIUS);
+
+                if (!closestSeg) {
+                    addDebug("[GAP-DEFS] Anchor " + gdaIdx + " at [" + anchor.x.toFixed(1) + "," + anchor.y.toFixed(1) + "]: No nearby segment found");
+                    continue;
+                }
+
+                addDebug("[GAP-DEFS] Anchor " + gdaIdx + " at [" + anchor.x.toFixed(1) + "," + anchor.y.toFixed(1) + "]: Closest segment on " + closestSeg.layerName + " (dist=" + closestSeg.distance.toFixed(1) + ")");
+
+                // Find the projection point on the closest segment (where the gap will be centered)
+                var dx = closestSeg.segEnd[0] - closestSeg.segStart[0];
+                var dy = closestSeg.segEnd[1] - closestSeg.segStart[1];
+                var segLen = Math.sqrt(dx * dx + dy * dy);
+                if (segLen < 0.1) continue;
+
+                var t = ((anchor.x - closestSeg.segStart[0]) * dx + (anchor.y - closestSeg.segStart[1]) * dy) / (segLen * segLen);
+                t = Math.max(0, Math.min(1, t));
+
+                var gapCenter = [
+                    closestSeg.segStart[0] + t * dx,
+                    closestSeg.segStart[1] + t * dy
+                ];
+
+                // Determine gap size (check if there's an existing marker with custom size)
+                var existingMarker = findGapMemoryMarkerNear(gapCenter, 5);
+                var gapSize = GAP_DEFAULT_HALF_WIDTH;
+                var isAutoSized = true;
+
+                if (existingMarker && !existingMarker.metadata.isAutoSized) {
+                    // Use the custom size from the existing marker
+                    gapSize = existingMarker.metadata.gapSize;
+                    isAutoSized = false;
+                    addDebug("[GAP-DEFS] Using custom gap size " + gapSize.toFixed(1) + " from existing marker");
+                } else {
+                    // Auto-size based on stroke width
+                    var strokeWidth = closestSeg.path.strokeWidth || 1;
+                    gapSize = calculateAutoGapSize(strokeWidth);
+                    addDebug("[GAP-DEFS] Auto-sized gap to " + gapSize.toFixed(1) + " based on stroke width " + strokeWidth.toFixed(1));
+                }
+
+                // Calculate carve direction (along the segment)
+                var carveDir = [dx / segLen, dy / segLen];
+
+                // Store this gap for creation during the carve phase
+                USER_DEFINED_GAPS.push({
+                    center: gapCenter,
+                    size: gapSize,
+                    isAutoSized: isAutoSized,
+                    path: closestSeg.path,
+                    layer: closestSeg.layer,
+                    layerName: closestSeg.layerName,
+                    carveDir: carveDir,
+                    segmentIndex: closestSeg.segmentIndex,
+                    parentCompound: closestSeg.parentCompound
+                });
+            }
+            addDebug("[GAP-DEFS] Queued " + USER_DEFINED_GAPS.length + " gap(s) for creation");
+        } else {
+            addDebug("[GAP-DEFS] No gap definition anchors found");
+        }
+
+        // Read existing gap memory markers to check for user-removed gaps
+        var existingGapMarkers = readAllGapMemoryMarkers();
+        var existingGapPositions = {};
+        for (var egmIdx = 0; egmIdx < existingGapMarkers.length; egmIdx++) {
+            var egm = existingGapMarkers[egmIdx];
+            var key = Math.round(egm.metadata.x) + "," + Math.round(egm.metadata.y);
+            existingGapPositions[key] = egm;
+        }
+        addDebug("[GAP-DEFS] Tracking " + existingGapMarkers.length + " existing gap marker(s)");
+
+        // *** CLEANUP DUPLICATE IGNORE ANCHORS ***
+        // Remove duplicate single-point paths on the Ignored layer
+        try {
+            var ignoredLayerCleanup = null;
+            var ignoredLayerNames = ["Ignored", "Ignore", "ignored", "ignore"];
+            for (var ignClIdx = 0; ignClIdx < ignoredLayerNames.length; ignClIdx++) {
+                try {
+                    ignoredLayerCleanup = doc.layers.getByName(ignoredLayerNames[ignClIdx]);
+                    if (ignoredLayerCleanup) break;
+                } catch (e) { }
+            }
+            if (ignoredLayerCleanup) {
+                if (ignoredLayerCleanup.locked) ignoredLayerCleanup.locked = false;
+                var seenPositions = {};
+                var duplicatesToRemove = [];
+                for (var clIdx = 0; clIdx < ignoredLayerCleanup.pathItems.length; clIdx++) {
+                    var clPath = ignoredLayerCleanup.pathItems[clIdx];
+                    if (clPath.pathPoints && clPath.pathPoints.length === 1) {
+                        var pt = clPath.pathPoints[0].anchor;
+                        var key = Math.round(pt[0]) + "," + Math.round(pt[1]);
+                        if (seenPositions[key]) {
+                            duplicatesToRemove.push(clPath);
+                        } else {
+                            seenPositions[key] = true;
+                        }
+                    }
+                }
+                if (duplicatesToRemove.length > 0) {
+                    addDebug("[CLEANUP] Removing " + duplicatesToRemove.length + " duplicate ignore anchor(s)");
+                    for (var rmDupIdx = 0; rmDupIdx < duplicatesToRemove.length; rmDupIdx++) {
+                        try { duplicatesToRemove[rmDupIdx].remove(); } catch (e) { }
+                    }
+                }
+            }
+        } catch (e) {
+            addDebug("[CLEANUP] Error cleaning ignore anchors: " + e);
+        }
+
+        // *** GAP RESTORATION (LATE): Skip if early restoration already handled ***
+        // This is now just a fallback - early restoration (before ortho) handles most cases
+        addDebug("\n=== GAP RESTORATION (LATE CHECK) ===");
+
+        // Skip if early restoration already handled gaps
+        if (RESTORED_GAP_POSITIONS.length > 0) {
+            addDebug("[GAP-RESTORE] Skipping late restoration - already restored " + RESTORED_GAP_POSITIONS.length + " gap(s) in early phase");
+        }
+        updateProgress("Checking for gaps to restore...");
+
+        function restoreDeletedGaps() {
+            // Skip if early restoration already ran
+            if (RESTORED_GAP_POSITIONS.length > 0) {
+                return 0;
+            }
+            var restoredCount = 0;
+            try {
+                var deletedLayer = null;
+                try {
+                    deletedLayer = doc.layers.getByName("Deleted Segments");
+                } catch (e) {
+                    addDebug("[GAP-RESTORE] No Deleted Segments layer found - nothing to restore");
+                    return 0;
+                }
+
+                if (!deletedLayer.visible) deletedLayer.visible = true;
+                if (deletedLayer.locked) deletedLayer.locked = false;
+
+                // Collect segments to restore (work backwards to safely remove)
+                var segmentsToRestore = [];
+                for (var dsi = deletedLayer.pathItems.length - 1; dsi >= 0; dsi--) {
+                    try {
+                        var delSeg = deletedLayer.pathItems[dsi];
+                        if (!delSeg || !delSeg.pathPoints || delSeg.pathPoints.length < 2) continue;
+
+                        // Get segment center position
+                        var pt1 = delSeg.pathPoints[0].anchor;
+                        var pt2 = delSeg.pathPoints[delSeg.pathPoints.length - 1].anchor;
+                        var centerX = (pt1[0] + pt2[0]) / 2;
+                        var centerY = (pt1[1] + pt2[1]) / 2;
+
+                        // Check if there's still a gap marker near this position
+                        var nearbyMarker = findGapMemoryMarkerNear([centerX, centerY], 10);
+
+                        if (!nearbyMarker) {
+                            // Check for duplicates - only restore ONE segment per position
+                            var isDuplicate = false;
+                            for (var dupIdx = 0; dupIdx < segmentsToRestore.length; dupIdx++) {
+                                var existingCenter = segmentsToRestore[dupIdx].center;
+                                var distToExisting = Math.sqrt(
+                                    Math.pow(centerX - existingCenter[0], 2) +
+                                    Math.pow(centerY - existingCenter[1], 2)
+                                );
+                                if (distToExisting < 5) {
+                                    isDuplicate = true;
+                                    // Remove duplicate from Deleted Segments layer
+                                    addDebug("[GAP-RESTORE] Removing duplicate deleted segment at [" + centerX.toFixed(1) + "," + centerY.toFixed(1) + "]");
+                                    try { delSeg.remove(); } catch (e) { }
+                                    break;
+                                }
+                            }
+                            if (!isDuplicate) {
+                                // No marker found - user deleted it, so we should restore this gap
+                                addDebug("[GAP-RESTORE] Found orphaned deleted segment at [" + centerX.toFixed(1) + "," + centerY.toFixed(1) + "] - will restore");
+                                segmentsToRestore.push({
+                                    segment: delSeg,
+                                    center: [centerX, centerY],
+                                    strokeColor: delSeg.strokeColor
+                                });
+                            }
+                        }
+                    } catch (e) {
+                        addDebug("[GAP-RESTORE] Error checking segment " + dsi + ": " + e);
+                    }
+                }
+
+                // Restore segments by moving them back to appropriate ductwork layer
+                for (var rsi = 0; rsi < segmentsToRestore.length; rsi++) {
+                    try {
+                        var restoreInfo = segmentsToRestore[rsi];
+                        var seg = restoreInfo.segment;
+
+                        // Determine which ductwork layer this segment belongs to based on stroke color
+                        var targetLayerName = null;
+                        if (restoreInfo.strokeColor) {
+                            // Try to match stroke color to ductwork layer
+                            for (var dci = 0; dci < ALL_DUCTWORK_SOURCES.length; dci++) {
+                                var dcSrc = ALL_DUCTWORK_SOURCES[dci];
+                                try {
+                                    var dcLayer = doc.layers.getByName(dcSrc.layer);
+                                    if (dcLayer && dcLayer.pathItems.length > 0) {
+                                        var refColor = dcLayer.pathItems[0].strokeColor;
+                                        if (refColor && restoreInfo.strokeColor) {
+                                            // Compare RGB values
+                                            var rDiff = Math.abs((refColor.red || 0) - (restoreInfo.strokeColor.red || 0));
+                                            var gDiff = Math.abs((refColor.green || 0) - (restoreInfo.strokeColor.green || 0));
+                                            var bDiff = Math.abs((refColor.blue || 0) - (restoreInfo.strokeColor.blue || 0));
+                                            if (rDiff < 10 && gDiff < 10 && bDiff < 10) {
+                                                targetLayerName = dcSrc.layer;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                } catch (e) { }
+                            }
+                        }
+
+                        if (!targetLayerName) {
+                            // Default to Blue Ductwork if can't determine
+                            targetLayerName = "Blue Ductwork";
+                        }
+
+                        // Move segment to target layer
+                        var targetLayer = null;
+                        try {
+                            targetLayer = doc.layers.getByName(targetLayerName);
+                        } catch (e) {
+                            addDebug("[GAP-RESTORE] Could not find target layer " + targetLayerName);
+                            continue;
+                        }
+
+                        if (targetLayer.locked) targetLayer.locked = false;
+
+                        // Duplicate to target layer then remove original
+                        var restoredSeg = seg.duplicate(targetLayer, ElementPlacement.PLACEATEND);
+                        restoredSeg.locked = false;
+                        seg.remove();
+
+                        // CRITICAL: Add restored segment to SELECTED_PATHS so it's included in compounding
+                        // Without this, the segment won't be merged with adjacent paths
+                        SELECTED_PATHS.push(restoredSeg);
+                        restoredSeg.selected = true; // Also select it visually
+
+                        // Track this restored position so we don't recreate the gap from gap definition anchors
+                        RESTORED_GAP_POSITIONS.push(restoreInfo.center);
+
+                        // Clean up orphan "ignore anchors" near this restored position
+                        // These are single-point paths on the Ignored layer created during auto-carve
+                        try {
+                            var ignoredLayer = null;
+                            var ignoredLayerNames = ["Ignored", "Ignore", "ignored", "ignore"];
+                            for (var ignIdx = 0; ignIdx < ignoredLayerNames.length; ignIdx++) {
+                                try {
+                                    ignoredLayer = doc.layers.getByName(ignoredLayerNames[ignIdx]);
+                                    if (ignoredLayer) break;
+                                } catch (e) { }
+                            }
+                            if (ignoredLayer) {
+                                if (ignoredLayer.locked) ignoredLayer.locked = false;
+                                // Check for single-point paths near the restored position
+                                var ignoresToRemove = [];
+                                for (var igIdx = ignoredLayer.pathItems.length - 1; igIdx >= 0; igIdx--) {
+                                    try {
+                                        var igPath = ignoredLayer.pathItems[igIdx];
+                                        if (igPath.pathPoints && igPath.pathPoints.length === 1) {
+                                            var igPt = igPath.pathPoints[0].anchor;
+                                            var distToRestore = Math.sqrt(
+                                                Math.pow(igPt[0] - restoreInfo.center[0], 2) +
+                                                Math.pow(igPt[1] - restoreInfo.center[1], 2)
+                                            );
+                                            if (distToRestore < 20) { // 20pt tolerance for cleanup
+                                                ignoresToRemove.push(igPath);
+                                            }
+                                        }
+                                    } catch (e) { }
+                                }
+                                for (var rmIdx = 0; rmIdx < ignoresToRemove.length; rmIdx++) {
+                                    try {
+                                        addDebug("[GAP-RESTORE] Removing orphan ignore anchor near restored gap");
+                                        ignoresToRemove[rmIdx].remove();
+                                    } catch (e) { }
+                                }
+                            }
+                        } catch (e) {
+                            addDebug("[GAP-RESTORE] Error cleaning ignore anchors: " + e);
+                        }
+
+                        // Also remove gap definition anchor that was used to create this gap
+                        // (prevents the gap from being recreated on next run)
+                        try {
+                            var gapDefLayer = null;
+                            try { gapDefLayer = doc.layers.getByName(GAP_LAYER_NAME); } catch (e) { }
+                            if (gapDefLayer) {
+                                if (gapDefLayer.locked) gapDefLayer.locked = false;
+                                var gapAnchorsToRemove = [];
+                                for (var gdIdx = gapDefLayer.pathItems.length - 1; gdIdx >= 0; gdIdx--) {
+                                    try {
+                                        var gdPath = gapDefLayer.pathItems[gdIdx];
+                                        // Skip gap memory markers (have MDUX_GAP: in note)
+                                        if (gdPath.note && gdPath.note.indexOf("MDUX_GAP:") === 0) continue;
+                                        // Check all anchors on this path
+                                        for (var gdPtIdx = 0; gdPtIdx < gdPath.pathPoints.length; gdPtIdx++) {
+                                            var gdPt = gdPath.pathPoints[gdPtIdx].anchor;
+                                            var distToGd = Math.sqrt(
+                                                Math.pow(gdPt[0] - restoreInfo.center[0], 2) +
+                                                Math.pow(gdPt[1] - restoreInfo.center[1], 2)
+                                            );
+                                            if (distToGd < 20) {
+                                                gapAnchorsToRemove.push(gdPath);
+                                                break;
+                                            }
+                                        }
+                                    } catch (e) { }
+                                }
+                                for (var rmGdIdx = 0; rmGdIdx < gapAnchorsToRemove.length; rmGdIdx++) {
+                                    try {
+                                        addDebug("[GAP-RESTORE] Removing gap definition anchor near restored gap");
+                                        gapAnchorsToRemove[rmGdIdx].remove();
+                                    } catch (e) { }
+                                }
+                            }
+                        } catch (e) {
+                            addDebug("[GAP-RESTORE] Error cleaning gap definition anchors: " + e);
+                        }
+
+                        addDebug("[GAP-RESTORE] Restored segment to " + targetLayerName + " at [" + restoreInfo.center[0].toFixed(1) + "," + restoreInfo.center[1].toFixed(1) + "] (added to SELECTED_PATHS)");
+                        restoredCount++;
+                    } catch (e) {
+                        addDebug("[GAP-RESTORE] Error restoring segment: " + e);
+                    }
+                }
+
+                // Re-hide and lock Deleted Segments layer
+                deletedLayer.visible = false;
+                deletedLayer.locked = true;
+
+            } catch (e) {
+                addDebug("[GAP-RESTORE] ERROR: " + e);
+            }
+            return restoredCount;
+        }
+
+        var restoredGapCount = restoreDeletedGaps();
+        if (restoredGapCount > 0) {
+            addDebug("[GAP-RESTORE] Restored " + restoredGapCount + " gap segment(s) - gaps will be patched");
+        } else {
+            addDebug("[GAP-RESTORE] No gaps to restore");
+        }
+
+
+        // *** CARVE OUT DUCTWORK LINES THAT PASS THROUGH REGISTERS ***
+        // After placing registers, check if OTHER ductwork lines pass through register areas
+        // and carve out those segments to prevent overlap (each color processes its own register type)
+        addDebug("\n=== REGISTER CARVE-OUT (ALL COLORS) ===");
 
         if (!ENABLE_REGISTER_CARVE) {
             addDebug("[REGISTER-CARVE] SKIPPED - checkbox not enabled");
@@ -15600,6 +17576,24 @@ function setStaticTextColor(control, rgbArray) {
 
                         if (distToSeg > REGISTER_DETECTION_THRESHOLD) continue;
 
+                        // Skip if this position had a gap restored (user deleted marker to patch)
+                        var skipForRestored = false;
+                        for (var rgiIdx = 0; rgiIdx < RESTORED_GAP_POSITIONS.length; rgiIdx++) {
+                            var rgRestored = RESTORED_GAP_POSITIONS[rgiIdx];
+                            var distToRg = Math.sqrt(
+                                Math.pow(closestX - rgRestored[0], 2) +
+                                Math.pow(closestY - rgRestored[1], 2)
+                            );
+                            if (distToRg < 20) {
+                                skipForRestored = true;
+                                break;
+                            }
+                        }
+                        if (skipForRestored) {
+                            addDebug("[REGISTER-CARVE] Skipping carve at restored gap position");
+                            continue;
+                        }
+
                         addDebug("[REGISTER-CARVE] " + rcColorSrc.name + ": Path segment passes through register at [" + regCenter[0].toFixed(1) + "," + regCenter[1].toFixed(1) + "]");
 
                         // Calculate cut points along the LINE (not from register center)
@@ -15684,21 +17678,29 @@ function setStaticTextColor(control, rgbArray) {
                                 }
                                 if (ignoredLayer) {
                                     addDebug("[CARVE-OUT] Layer state before add: locked=" + ignoredLayer.locked + ", visible=" + ignoredLayer.visible + ", parent=" + (ignoredLayer.parent ? ignoredLayer.parent.typename : "none"));
-                                    // Create ignore anchor at cutBefore
-                                    var ignoreAnchor1 = ignoredLayer.pathItems.add();
-                                    ignoreAnchor1.setEntirePath([[cutBefore[0], cutBefore[1]]]);
-                                    ignoreAnchor1.filled = false;
-                                    ignoreAnchor1.stroked = false;
-                                    addDebug("[CARVE-OUT] Placed ignore anchor at [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "]");
+                                    // Create ignore anchor at cutBefore (only if doesn't already exist)
+                                    if (!ignoreAnchorExistsAt([cutBefore[0], cutBefore[1]], 3)) {
+                                        var ignoreAnchor1 = ignoredLayer.pathItems.add();
+                                        ignoreAnchor1.setEntirePath([[cutBefore[0], cutBefore[1]]]);
+                                        ignoreAnchor1.filled = false;
+                                        ignoreAnchor1.stroked = false;
+                                        addDebug("[CARVE-OUT] Placed ignore anchor at [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "]");
+                                    } else {
+                                        addDebug("[CARVE-OUT] Ignore anchor already exists at [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "], skipping");
+                                    }
                                     // Add to ignoredAnchors array so component placement skips this position
                                     ignoredAnchors.push([cutBefore[0], cutBefore[1]]);
 
-                                    // Create ignore anchor at cutAfter
-                                    var ignoreAnchor2 = ignoredLayer.pathItems.add();
-                                    ignoreAnchor2.setEntirePath([[cutAfter[0], cutAfter[1]]]);
-                                    ignoreAnchor2.filled = false;
-                                    ignoreAnchor2.stroked = false;
-                                    addDebug("[CARVE-OUT] Placed ignore anchor at [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
+                                    // Create ignore anchor at cutAfter (only if doesn't already exist)
+                                    if (!ignoreAnchorExistsAt([cutAfter[0], cutAfter[1]], 3)) {
+                                        var ignoreAnchor2 = ignoredLayer.pathItems.add();
+                                        ignoreAnchor2.setEntirePath([[cutAfter[0], cutAfter[1]]]);
+                                        ignoreAnchor2.filled = false;
+                                        ignoreAnchor2.stroked = false;
+                                        addDebug("[CARVE-OUT] Placed ignore anchor at [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
+                                    } else {
+                                        addDebug("[CARVE-OUT] Ignore anchor already exists at [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "], skipping");
+                                    }
                                     // Add to ignoredAnchors array so component placement skips this position
                                     ignoredAnchors.push([cutAfter[0], cutAfter[1]]);
 
@@ -15842,6 +17844,88 @@ function setStaticTextColor(control, rgbArray) {
                 // Unlock and show layer temporarily to add the path
                 if (deletedLayer.locked) deletedLayer.locked = false;
                 if (!deletedLayer.visible) deletedLayer.visible = true;
+
+                // Calculate center of new segment
+                var newCenterX = (startPt[0] + endPt[0]) / 2;
+                var newCenterY = (startPt[1] + endPt[1]) / 2;
+
+                // If this position was already restored (current run or persisted patch marker), skip saving
+                try {
+                    var skipSave = false;
+                    // Check current run restored positions
+                    if (typeof RESTORED_GAP_POSITIONS !== "undefined" && RESTORED_GAP_POSITIONS && RESTORED_GAP_POSITIONS.length > 0) {
+                        for (var rgpSaveIdx = 0; rgpSaveIdx < RESTORED_GAP_POSITIONS.length; rgpSaveIdx++) {
+                            var rgpSave = RESTORED_GAP_POSITIONS[rgpSaveIdx];
+                            var distRgpSave = Math.sqrt(
+                                Math.pow(newCenterX - rgpSave[0], 2) +
+                                Math.pow(newCenterY - rgpSave[1], 2)
+                            );
+                            if (distRgpSave < 100) { // broaden tolerance to avoid re-saving near restored gaps
+                                skipSave = true;
+                                break;
+                            }
+                        }
+                    }
+                    // If we cannot determine restoration state, err on skipping saves altogether after the first restore
+                    // Check persistent patch markers from prior runs
+                    if (!skipSave) {
+                        try {
+                            var gdLayer = doc.layers.getByName("Gap Definitions");
+                            if (gdLayer && gdLayer.pathItems) {
+                                for (var pmIdx = 0; pmIdx < gdLayer.pathItems.length; pmIdx++) {
+                                    try {
+                                        var pm = gdLayer.pathItems[pmIdx];
+                                        if (!pm.note || pm.note.indexOf("MDUX_PATCH") !== 0) continue;
+                                        if (!pm.pathPoints || pm.pathPoints.length < 1) continue;
+                                        var pmPt = pm.pathPoints[0].anchor;
+                                        var distPm = Math.sqrt(
+                                            Math.pow(newCenterX - pmPt[0], 2) +
+                                            Math.pow(newCenterY - pmPt[1], 2)
+                                        );
+                                        if (distPm < 100) {
+                                            skipSave = true;
+                                            break;
+                                        }
+                                    } catch (ePm) { }
+                                }
+                            }
+                        } catch (ePatchCheck) { }
+                    }
+                    if (skipSave) {
+                        addDebug("[DELETED-SEG] Skipping save at patched/restored gap [" + newCenterX.toFixed(1) + "," + newCenterY.toFixed(1) + "]");
+                        return null;
+                    }
+                } catch (eSkipSave) { }
+
+                // DUPLICATE PREVENTION: Remove any existing segments at this position
+                var existingToRemove = [];
+                for (var dsExIdx = deletedLayer.pathItems.length - 1; dsExIdx >= 0; dsExIdx--) {
+                    try {
+                        var dsExPath = deletedLayer.pathItems[dsExIdx];
+                        if (dsExPath.pathPoints && dsExPath.pathPoints.length >= 2) {
+                            var dsExPt1 = dsExPath.pathPoints[0].anchor;
+                            var dsExPt2 = dsExPath.pathPoints[dsExPath.pathPoints.length - 1].anchor;
+                            var dsExCenterX = (dsExPt1[0] + dsExPt2[0]) / 2;
+                            var dsExCenterY = (dsExPt1[1] + dsExPt2[1]) / 2;
+
+                            var distToExisting = Math.sqrt(
+                                Math.pow(newCenterX - dsExCenterX, 2) +
+                                Math.pow(newCenterY - dsExCenterY, 2)
+                            );
+
+                            if (distToExisting < 20) { // Within 20pt = same gap position
+                                existingToRemove.push(dsExPath);
+                            }
+                        }
+                    } catch (e) { }
+                }
+
+                if (existingToRemove.length > 0) {
+                    addDebug("[DELETED-SEG] Removing " + existingToRemove.length + " existing segment(s) at this position");
+                    for (var dsRmIdx = 0; dsRmIdx < existingToRemove.length; dsRmIdx++) {
+                        try { existingToRemove[dsRmIdx].remove(); } catch (e) { }
+                    }
+                }
 
                 // Create a path for the deleted segment
                 var segPath = deletedLayer.pathItems.add();
@@ -16153,6 +18237,36 @@ function setStaticTextColor(control, rgbArray) {
                         continue;
                     }
 
+                    // GAP MEMORY INTEGRATION: Check if user has removed the gap memory marker
+                    // If they had a marker here before and deleted it, they don't want this gap
+                    var posKey = Math.round(intPt[0]) + "," + Math.round(intPt[1]);
+                    var existingGapMarker = existingGapPositions[posKey] || findGapMemoryMarkerNear(intPt, 5);
+
+                    // Check if gap memory marker was deleted by user (we had one before, but now it's gone)
+                    // This happens when user fills a gap and removes the marker to prevent recreation
+                    // Note: We skip this check on first run (when there are no existing markers)
+
+                    // Get gap size from existing marker or calculate from stroke width
+                    var autoGapHalfWidth = AUTO_CARVE_HALF_WIDTH;
+                    var isAutoSizedGap = true;
+                    if (existingGapMarker && existingGapMarker.metadata) {
+                        if (!existingGapMarker.metadata.isAutoSized) {
+                            // User has a custom gap size - use it
+                            autoGapHalfWidth = existingGapMarker.metadata.gapSize;
+                            isAutoSizedGap = false;
+                            addDebug("[AUTO-CARVE] Using custom gap size " + autoGapHalfWidth.toFixed(1) + " from existing marker");
+                        } else {
+                            // Auto-sized - recalculate based on current stroke width
+                            var carveStrokeWidth = carvePath.strokeWidth || 1;
+                            autoGapHalfWidth = calculateAutoGapSize(carveStrokeWidth);
+                            addDebug("[AUTO-CARVE] Auto-sized gap to " + autoGapHalfWidth.toFixed(1) + " based on stroke width " + carveStrokeWidth.toFixed(1));
+                        }
+                    } else {
+                        // No existing marker - calculate auto size
+                        var carveStrokeWidth2 = carvePath.strokeWidth || 1;
+                        autoGapHalfWidth = calculateAutoGapSize(carveStrokeWidth2);
+                    }
+
                     // Check if this path was already carved (for self-intersections with multiple crossings)
                     var alreadyCarved = false;
                     for (var acCheckIdx = 0; acCheckIdx < autoPathsToRemove.length; acCheckIdx++) {
@@ -16179,16 +18293,38 @@ function setStaticTextColor(control, rgbArray) {
                     var cLen = Math.sqrt(cDx * cDx + cDy * cDy);
                     if (cLen < 0.01) continue;
 
-                    // Calculate cut points centered on intersection
+                    // Skip if this position was just restored (user patched the gap)
+                    // Use 35pt tolerance to account for movement during orthogonalization
+                    var skipAutoCarve = false;
+                    for (var acRestIdx = 0; acRestIdx < RESTORED_GAP_POSITIONS.length; acRestIdx++) {
+                        var acRestPos = RESTORED_GAP_POSITIONS[acRestIdx];
+                        var distToAcRest = Math.sqrt(
+                            Math.pow(intPt[0] - acRestPos[0], 2) +
+                            Math.pow(intPt[1] - acRestPos[1], 2)
+                        );
+                        if (distToAcRest < 35) { // Increased from 20 to account for ortho movement
+                            skipAutoCarve = true;
+                            break;
+                        }
+                    }
+                    if (skipAutoCarve) {
+                        addDebug("[AUTO-CARVE] Skipping - position was just restored (gap patched) at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "]");
+                        continue;
+                    }
+
+                    // Calculate cut points centered on intersection (using dynamic gap size)
                     var cDirX = cDx / cLen;
                     var cDirY = cDy / cLen;
-                    var cutBefore = [intPt[0] - AUTO_CARVE_HALF_WIDTH * cDirX, intPt[1] - AUTO_CARVE_HALF_WIDTH * cDirY];
-                    var cutAfter = [intPt[0] + AUTO_CARVE_HALF_WIDTH * cDirX, intPt[1] + AUTO_CARVE_HALF_WIDTH * cDirY];
+                    var cutBefore = [intPt[0] - autoGapHalfWidth * cDirX, intPt[1] - autoGapHalfWidth * cDirY];
+                    var cutAfter = [intPt[0] + autoGapHalfWidth * cDirX, intPt[1] + autoGapHalfWidth * cDirY];
 
-                    addDebug("[AUTO-CARVE] Creating carve-out at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - gap from [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "] to [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "] (" + (autoInt.isSelfIntersection ? "SELF-INTERSECTION" : "CROSS-PATH") + ")");
+                    addDebug("[AUTO-CARVE] Creating carve-out at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - gap size=" + autoGapHalfWidth.toFixed(1) + " (" + (autoInt.isSelfIntersection ? "SELF-INTERSECTION" : "CROSS-PATH") + ", auto=" + isAutoSizedGap + ")");
 
                     // Save the deleted segment for recovery/audit purposes
                     saveDeletedSegment(cutBefore, cutAfter, acColorSrc.layer);
+
+                    // Create gap memory marker (for persistence and user editing)
+                    createGapMemoryMarker(intPt, autoGapHalfWidth, acColorSrc.layer, isAutoSizedGap, [cDirX, cDirY]);
 
                     // Store original parent for later use (compounding requires same parent)
                     var carveParent = null;
@@ -16392,19 +18528,29 @@ function setStaticTextColor(control, rgbArray) {
                         }
                         if (autoIgnLayer) {
                             addDebug("[AUTO-CARVE] Layer state before add: locked=" + autoIgnLayer.locked + ", visible=" + autoIgnLayer.visible + ", parent=" + (autoIgnLayer.parent ? autoIgnLayer.parent.typename : "none"));
-                            var autoIgn1 = autoIgnLayer.pathItems.add();
-                            autoIgn1.setEntirePath([[cutBefore[0], cutBefore[1]]]);
-                            autoIgn1.filled = false;
-                            autoIgn1.stroked = false;
-                            addDebug("[AUTO-CARVE] Placed ignore anchor at [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "]");
+                            // Create ignore anchor at cutBefore (only if doesn't already exist)
+                            if (!ignoreAnchorExistsAt([cutBefore[0], cutBefore[1]], 3)) {
+                                var autoIgn1 = autoIgnLayer.pathItems.add();
+                                autoIgn1.setEntirePath([[cutBefore[0], cutBefore[1]]]);
+                                autoIgn1.filled = false;
+                                autoIgn1.stroked = false;
+                                addDebug("[AUTO-CARVE] Placed ignore anchor at [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "]");
+                            } else {
+                                addDebug("[AUTO-CARVE] Ignore anchor already exists at [" + cutBefore[0].toFixed(1) + "," + cutBefore[1].toFixed(1) + "], skipping");
+                            }
                             // Add to ignoredAnchors array so component placement skips this position
                             ignoredAnchors.push([cutBefore[0], cutBefore[1]]);
 
-                            var autoIgn2 = autoIgnLayer.pathItems.add();
-                            autoIgn2.setEntirePath([[cutAfter[0], cutAfter[1]]]);
-                            autoIgn2.filled = false;
-                            autoIgn2.stroked = false;
-                            addDebug("[AUTO-CARVE] Placed ignore anchor at [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
+                            // Create ignore anchor at cutAfter (only if doesn't already exist)
+                            if (!ignoreAnchorExistsAt([cutAfter[0], cutAfter[1]], 3)) {
+                                var autoIgn2 = autoIgnLayer.pathItems.add();
+                                autoIgn2.setEntirePath([[cutAfter[0], cutAfter[1]]]);
+                                autoIgn2.filled = false;
+                                autoIgn2.stroked = false;
+                                addDebug("[AUTO-CARVE] Placed ignore anchor at [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "]");
+                            } else {
+                                addDebug("[AUTO-CARVE] Ignore anchor already exists at [" + cutAfter[0].toFixed(1) + "," + cutAfter[1].toFixed(1) + "], skipping");
+                            }
                             // Add to ignoredAnchors array so component placement skips this position
                             ignoredAnchors.push([cutAfter[0], cutAfter[1]]);
 
@@ -16546,12 +18692,188 @@ function setStaticTextColor(control, rgbArray) {
             }
 
             if (autoIntersections.length > 0) {
-                addDebug("[AUTO-CARVE] " + acColorSrc.name + ": Performed " + autoIntersections.length + " automatic carve-out(s), created " + autoNewCompoundPaths.length + " compound path(s)");
+                var actualCarveCount = autoPathsToRemove.length;
+                var skippedCount = autoIntersections.length - actualCarveCount;
+                addDebug("[AUTO-CARVE] " + acColorSrc.name + ": Found " + autoIntersections.length + " intersection(s), carved " + actualCarveCount + ", skipped " + skippedCount + " (restored gaps), created " + autoNewCompoundPaths.length + " compound path(s)");
             } else {
                 addDebug("[AUTO-CARVE] " + acColorSrc.name + ": No new intersections found");
             }
             } // End for loop over ductwork colors (acColorIdx)
         } // End of ENABLE_OVERLAP_CARVE else block
+
+        // *** PROCESS USER-DEFINED GAP ANCHORS ***
+        // Create gaps at positions where user drew anchors on the Gap Definitions layer
+        if (USER_DEFINED_GAPS.length > 0) {
+            updateProgress("Processing user-defined gaps...");
+            addDebug("\n=== USER-DEFINED GAP PROCESSING ===");
+            addDebug("[USER-GAPS] Processing " + USER_DEFINED_GAPS.length + " user-defined gap(s)");
+
+            for (var udgIdx = 0; udgIdx < USER_DEFINED_GAPS.length; udgIdx++) {
+                var udGap = USER_DEFINED_GAPS[udgIdx];
+                try {
+                    var udgPath = udGap.path;
+                    var udgCenter = udGap.center;
+                    var udgSize = udGap.size;
+                    var udgDir = udGap.carveDir;
+                    var udgLayer = udGap.layer;
+                    var udgSegIdx = udGap.segmentIndex;
+
+                    // Validate path is still valid
+                    if (!udgPath || !udgPath.pathPoints || udgPath.pathPoints.length < 2) {
+                        addDebug("[USER-GAPS] Gap " + udgIdx + ": Path no longer valid, skipping");
+                        continue;
+                    }
+
+                    // Check if a gap already exists at this location (from auto-carve)
+                    var existingMarkerAtPos = findGapMemoryMarkerNear(udgCenter, 5);
+                    if (existingMarkerAtPos) {
+                        addDebug("[USER-GAPS] Gap " + udgIdx + ": Gap marker already exists at this location, skipping");
+                        continue;
+                    }
+
+                    // Check if this position had a gap restored (user deleted the marker to patch it)
+                    // Skip recreating gaps at restored positions
+                    var isRestoredPosition = false;
+                    for (var rpi = 0; rpi < RESTORED_GAP_POSITIONS.length; rpi++) {
+                        var restoredPos = RESTORED_GAP_POSITIONS[rpi];
+                        var distToRestored = Math.sqrt(
+                            Math.pow(udgCenter[0] - restoredPos[0], 2) +
+                            Math.pow(udgCenter[1] - restoredPos[1], 2)
+                        );
+                        if (distToRestored < 20) { // 20pt tolerance
+                            isRestoredPosition = true;
+                            break;
+                        }
+                    }
+                    if (isRestoredPosition) {
+                        addDebug("[USER-GAPS] Gap " + udgIdx + ": Position was just restored (gap patched), skipping");
+                        continue;
+                    }
+
+                    addDebug("[USER-GAPS] Gap " + udgIdx + ": Creating gap at [" + udgCenter[0].toFixed(1) + "," + udgCenter[1].toFixed(1) + "] size=" + udgSize.toFixed(1) + " on " + udGap.layerName);
+
+                    // Calculate cut points
+                    var udgCutBefore = [udgCenter[0] - udgSize * udgDir[0], udgCenter[1] - udgSize * udgDir[1]];
+                    var udgCutAfter = [udgCenter[0] + udgSize * udgDir[0], udgCenter[1] + udgSize * udgDir[1]];
+
+                    // Save deleted segment
+                    saveDeletedSegment(udgCutBefore, udgCutAfter, udgLayer);
+
+                    // Create gap memory marker
+                    createGapMemoryMarker(udgCenter, udgSize, udgLayer, udGap.isAutoSized, udgDir);
+
+                    // Perform the carve (split the path at the gap location)
+                    var udgPts = udgPath.pathPoints;
+                    if (udgSegIdx >= udgPts.length - 1) {
+                        addDebug("[USER-GAPS] Gap " + udgIdx + ": Segment index out of range, skipping carve");
+                        continue;
+                    }
+
+                    // Create first half (start to cut point)
+                    var udgFirstHalf = null;
+                    try {
+                        udgFirstHalf = udgPath.duplicate();
+                        var udgFirstPts = udgFirstHalf.pathPoints;
+                        // Remove points after cut segment
+                        for (var rmIdx = udgFirstPts.length - 1; rmIdx > udgSegIdx + 1; rmIdx--) {
+                            try { udgFirstPts[rmIdx].remove(); } catch (eRm) { }
+                        }
+                        // Set last point to cut position
+                        try { udgFirstPts[udgSegIdx + 1].anchor = udgCutBefore; } catch (eSet) { }
+                    } catch (eDup1) {
+                        addDebug("[USER-GAPS] Gap " + udgIdx + ": Failed to create first half: " + eDup1);
+                        continue;
+                    }
+
+                    // Create second half (cut point to end)
+                    var udgSecondHalf = null;
+                    try {
+                        udgSecondHalf = udgPath.duplicate();
+                        var udgSecondPts = udgSecondHalf.pathPoints;
+                        // Remove points before cut segment
+                        for (var rmIdx2 = udgSegIdx; rmIdx2 >= 0; rmIdx2--) {
+                            try { udgSecondPts[rmIdx2].remove(); } catch (eRm2) { }
+                        }
+                        // Set first point to cut position
+                        try { udgSecondPts[0].anchor = udgCutAfter; } catch (eSet2) { }
+                    } catch (eDup2) {
+                        addDebug("[USER-GAPS] Gap " + udgIdx + ": Failed to create second half: " + eDup2);
+                        if (udgFirstHalf) try { udgFirstHalf.remove(); } catch (eClean) { }
+                        continue;
+                    }
+
+                    // Remove original path
+                    try { udgPath.remove(); } catch (eRemOrig) { }
+
+                    // Add split halves to SELECTED_PATHS for compounding
+                    if (udgFirstHalf && udgFirstHalf.pathPoints && udgFirstHalf.pathPoints.length >= 2) {
+                        SELECTED_PATHS.push(udgFirstHalf);
+                        udgFirstHalf.selected = true;
+                    }
+                    if (udgSecondHalf && udgSecondHalf.pathPoints && udgSecondHalf.pathPoints.length >= 2) {
+                        SELECTED_PATHS.push(udgSecondHalf);
+                        udgSecondHalf.selected = true;
+                    }
+
+                    // Track split pair for forced connection during compounding
+                    if (udgFirstHalf && udgSecondHalf) {
+                        AUTO_CARVE_SPLIT_PAIRS.push({ pathA: udgFirstHalf, pathB: udgSecondHalf });
+                    }
+
+                    addDebug("[USER-GAPS] Gap " + udgIdx + ": Successfully carved gap");
+                } catch (eUdg) {
+                    addDebug("[USER-GAPS] Gap " + udgIdx + ": Error: " + eUdg);
+                }
+            }
+            addDebug("[USER-GAPS] Completed processing " + USER_DEFINED_GAPS.length + " user-defined gap(s)");
+        }
+
+        // CRITICAL: Re-run path cleanup after AUTO-CARVE and USER-GAPS
+        // These operations remove paths and create new ones, leaving stale references
+        try {
+            addDebug("\n=== POST-CARVE CLEANUP RUNNING ===");
+            var isPathValidPostCarve = function(p) {
+                try {
+                    if (!p) return false;
+                    if (p.isValid === false) return false;
+                    if (!p.typename) return false;
+                    var pts = p.pathPoints;
+                    return pts && pts.length >= 2;
+                } catch(e) { return false; }
+            };
+
+            // Cleanup allPaths
+            var validAllPathsPC = [];
+            var invalidCountPC = 0;
+            for (var vapIdx = 0; vapIdx < allPaths.length; vapIdx++) {
+                if (isPathValidPostCarve(allPaths[vapIdx])) {
+                    validAllPathsPC.push(allPaths[vapIdx]);
+                } else {
+                    invalidCountPC++;
+                }
+            }
+            if (invalidCountPC > 0) {
+                addDebug("[POST-CARVE-CLEANUP] Removed " + invalidCountPC + " invalid path reference(s) from allPaths");
+                allPaths = validAllPathsPC;
+            }
+
+            // Cleanup SELECTED_PATHS
+            var validSelectedPathsPC = [];
+            var invalidSelectedCountPC = 0;
+            for (var vspIdx = 0; vspIdx < SELECTED_PATHS.length; vspIdx++) {
+                if (isPathValidPostCarve(SELECTED_PATHS[vspIdx])) {
+                    validSelectedPathsPC.push(SELECTED_PATHS[vspIdx]);
+                } else {
+                    invalidSelectedCountPC++;
+                }
+            }
+            if (invalidSelectedCountPC > 0) {
+                addDebug("[POST-CARVE-CLEANUP] Removed " + invalidSelectedCountPC + " invalid reference(s) from SELECTED_PATHS");
+                SELECTED_PATHS = validSelectedPathsPC;
+            }
+        } catch (eCleanupPC) {
+            addDebug("[POST-CARVE-CLEANUP] Error: " + eCleanupPC);
+        }
 
         // *** PLACE SQUARE REGISTERS AT INTERNAL ANCHORS WITH NO DIRECTION CHANGE ***
         // For internal anchors on blue paths that are NOT crossovers and have no direction change
@@ -18029,21 +20351,29 @@ function setStaticTextColor(control, rgbArray) {
 
                 // Place ignore anchors at both endpoints of the crossover segment
                 try {
-                    // Create single-point path at segStart as ignore anchor
-                    var ignoreAnchor1 = ignoredLayer.pathItems.add();
-                    ignoreAnchor1.setEntirePath([[xoSeg.segStart[0], xoSeg.segStart[1]]]);
-                    ignoreAnchor1.filled = false;
-                    ignoreAnchor1.stroked = false;
-                    addDebug("[XOVER-POST] Placed ignore anchor at [" + xoSeg.segStart[0].toFixed(1) + "," + xoSeg.segStart[1].toFixed(1) + "]");
+                    // Create single-point path at segStart as ignore anchor (only if doesn't exist)
+                    if (!ignoreAnchorExistsAt([xoSeg.segStart[0], xoSeg.segStart[1]], 3)) {
+                        var ignoreAnchor1 = ignoredLayer.pathItems.add();
+                        ignoreAnchor1.setEntirePath([[xoSeg.segStart[0], xoSeg.segStart[1]]]);
+                        ignoreAnchor1.filled = false;
+                        ignoreAnchor1.stroked = false;
+                        addDebug("[XOVER-POST] Placed ignore anchor at [" + xoSeg.segStart[0].toFixed(1) + "," + xoSeg.segStart[1].toFixed(1) + "]");
+                    } else {
+                        addDebug("[XOVER-POST] Ignore anchor already exists at [" + xoSeg.segStart[0].toFixed(1) + "," + xoSeg.segStart[1].toFixed(1) + "], skipping");
+                    }
                     // Add to ignoredAnchors array so component placement skips this position
                     ignoredAnchors.push([xoSeg.segStart[0], xoSeg.segStart[1]]);
 
-                    // Create single-point path at segEnd as ignore anchor
-                    var ignoreAnchor2 = ignoredLayer.pathItems.add();
-                    ignoreAnchor2.setEntirePath([[xoSeg.segEnd[0], xoSeg.segEnd[1]]]);
-                    ignoreAnchor2.filled = false;
-                    ignoreAnchor2.stroked = false;
-                    addDebug("[XOVER-POST] Placed ignore anchor at [" + xoSeg.segEnd[0].toFixed(1) + "," + xoSeg.segEnd[1].toFixed(1) + "]");
+                    // Create single-point path at segEnd as ignore anchor (only if doesn't exist)
+                    if (!ignoreAnchorExistsAt([xoSeg.segEnd[0], xoSeg.segEnd[1]], 3)) {
+                        var ignoreAnchor2 = ignoredLayer.pathItems.add();
+                        ignoreAnchor2.setEntirePath([[xoSeg.segEnd[0], xoSeg.segEnd[1]]]);
+                        ignoreAnchor2.filled = false;
+                        ignoreAnchor2.stroked = false;
+                        addDebug("[XOVER-POST] Placed ignore anchor at [" + xoSeg.segEnd[0].toFixed(1) + "," + xoSeg.segEnd[1].toFixed(1) + "]");
+                    } else {
+                        addDebug("[XOVER-POST] Ignore anchor already exists at [" + xoSeg.segEnd[0].toFixed(1) + "," + xoSeg.segEnd[1].toFixed(1) + "], skipping");
+                    }
                     // Add to ignoredAnchors array so component placement skips this position
                     ignoredAnchors.push([xoSeg.segEnd[0], xoSeg.segEnd[1]]);
 
@@ -18080,8 +20410,22 @@ function setStaticTextColor(control, rgbArray) {
             (function placeDuctworkAtPoints_embedded(doc) {
                 // --- BEGIN embedded 03 - Place Ductwork at Points.jsx ---
 
-                // Helper: read current global scale % from Change Scale script
+                // Helper: read current global scale % from document tags (invisible storage)
+                // Falls back to legacy box-based storage for migration
                 function getCurrentScaleFactor_local(docParam) {
+                    // First, check document tags (new invisible storage)
+                    try {
+                        for (var i = 0; i < docParam.tags.length; i++) {
+                            if (docParam.tags[i].name === MDUX_SCALE_TAG_NAME) {
+                                var tagVal = parseFloat(docParam.tags[i].value);
+                                if (!isNaN(tagVal) && tagVal > 0) {
+                                    return tagVal;
+                                }
+                            }
+                        }
+                    } catch (e) { }
+
+                    // Fallback to legacy box-based storage (for migration)
                     var layerName = "Scale Factor Container Layer",
                         boxName = "ScaleFactorBox";
                     try {
@@ -19509,7 +21853,7 @@ function setStaticTextColor(control, rgbArray) {
         function ensureFinalLayerBlockOrder() {
             var desired = [
                 "OVERLAP_DETECTION",
-                "Scale Factor Container Layer",
+                "Gap Definitions",
                 "Frame",
                 "Ignored",
                 "Thermostats",
@@ -20040,6 +22384,60 @@ function setStaticTextColor(control, rgbArray) {
         }
         // ============================================================================
 
+        // *** FINAL CLEANUP: Remove any orphan ignore anchors near restored gaps ***
+        // This catches any ignore anchors that may have been created during processing
+        if (RESTORED_GAP_POSITIONS.length > 0) {
+            addDebug("\n=== FINAL IGNORE ANCHOR CLEANUP ===");
+            try {
+                var finalIgnoredLayer = null;
+                var finalIgnLayerNames = ["Ignored", "Ignore"];
+                for (var finIgnIdx = 0; finIgnIdx < finalIgnLayerNames.length; finIgnIdx++) {
+                    try {
+                        finalIgnoredLayer = doc.layers.getByName(finalIgnLayerNames[finIgnIdx]);
+                        if (finalIgnoredLayer) break;
+                    } catch (e) { }
+                }
+
+                if (finalIgnoredLayer) {
+                    if (finalIgnoredLayer.locked) finalIgnoredLayer.locked = false;
+                    var finalIgnoresToRemove = [];
+
+                    for (var finIgIdx = finalIgnoredLayer.pathItems.length - 1; finIgIdx >= 0; finIgIdx--) {
+                        try {
+                            var finIgPath = finalIgnoredLayer.pathItems[finIgIdx];
+                            if (finIgPath.pathPoints && finIgPath.pathPoints.length === 1) {
+                                var finIgPt = finIgPath.pathPoints[0].anchor;
+
+                                // Check if this ignore anchor is near any restored gap position
+                                for (var finRestIdx = 0; finRestIdx < RESTORED_GAP_POSITIONS.length; finRestIdx++) {
+                                    var finRestPos = RESTORED_GAP_POSITIONS[finRestIdx];
+                                    var finDistToRestore = Math.sqrt(
+                                        Math.pow(finIgPt[0] - finRestPos[0], 2) +
+                                        Math.pow(finIgPt[1] - finRestPos[1], 2)
+                                    );
+                                    if (finDistToRestore < 40) { // 40pt tolerance for final cleanup
+                                        finalIgnoresToRemove.push(finIgPath);
+                                        break;
+                                    }
+                                }
+                            }
+                        } catch (e) { }
+                    }
+
+                    if (finalIgnoresToRemove.length > 0) {
+                        addDebug("[FINAL-CLEANUP] Removing " + finalIgnoresToRemove.length + " orphan ignore anchor(s) near restored gaps");
+                        for (var finRmIdx = 0; finRmIdx < finalIgnoresToRemove.length; finRmIdx++) {
+                            try { finalIgnoresToRemove[finRmIdx].remove(); } catch (e) { }
+                        }
+                    } else {
+                        addDebug("[FINAL-CLEANUP] No orphan ignore anchors to remove");
+                    }
+                }
+            } catch (e) {
+                addDebug("[FINAL-CLEANUP] Error: " + e);
+            }
+        }
+
         addDebug("=== MAGIC DUCTWORK COMPLETE ===");
 
     } catch (scriptError) {
@@ -20063,3 +22461,4 @@ function setStaticTextColor(control, rgbArray) {
         // try { showDebugDialog(); } catch (e) {}
     }
 })();
+
