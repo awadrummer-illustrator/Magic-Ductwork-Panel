@@ -1801,19 +1801,15 @@ function MDUX_moveToLayerBridge(optionsJSON) {
             var item = selection[i];
             $.writeln("[MOVE] Item " + i + " typename: " + item.typename);
 
-            // Check if item is on a valid source layer (ductwork parts or Ignore only - NOT ductwork lines)
+            // Check if item is on a valid source layer
             var itemLayerName = item.layer ? item.layer.name : null;
             $.writeln("[MOVE]   Item layer: " + itemLayerName);
 
             var isOnDuctworkParts = isValidDuctworkLayer(itemLayerName);
             var isOnIgnoreLayer = (itemLayerName === 'Ignore' || itemLayerName === 'Ignored');
-            var isOnValidSourceLayer = isOnDuctworkParts || isOnIgnoreLayer;
 
-            if (!isOnValidSourceLayer) {
-                $.writeln("[MOVE]   SKIPPED - not on a ductwork parts or Ignore layer (ductwork lines excluded)");
-                itemsSkipped++;
-                continue;
-            }
+            // Accept items from ANY layer per user request
+            $.writeln("[MOVE]   Item accepted from layer: " + itemLayerName);
 
             try {
                 // Move PlacedItems and replace with fresh file centered on anchor
@@ -2088,20 +2084,41 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                     var numPoints = item.pathPoints.length;
                     $.writeln("[MOVE]   Processing PathItem with " + numPoints + " points...");
 
-                    // Handle paths with art placement (not Ignore layer, and we have a file)
-                    if (filePath && !isIgnoreLayer) {
-
-                        // Collect all anchor positions from the path
-                        var anchorPositions = [];
-                        for (var pi = 0; pi < numPoints; pi++) {
-                            var pos = item.pathPoints[pi].anchor;
+                    // Collect ONLY selected anchor positions from the path
+                    var anchorPositions = [];
+                    var hasSelectedPoints = false;
+                    for (var pi = 0; pi < numPoints; pi++) {
+                        var pt = item.pathPoints[pi];
+                        if (pt.selected == PathPointSelection.ANCHORPOINT) {
+                            var pos = pt.anchor;
                             anchorPositions.push({ x: pos[0], y: pos[1] });
+                            hasSelectedPoints = true;
+                            $.writeln("[MOVE]   Found selected anchor at [" + pos[0].toFixed(2) + ", " + pos[1].toFixed(2) + "]");
                         }
-                        $.writeln("[MOVE]   Extracted " + anchorPositions.length + " anchor positions");
+                    }
+                    $.writeln("[MOVE]   Extracted " + anchorPositions.length + " selected anchor positions");
 
-                        // Delete the original path (we'll create individual anchors)
-                        item.remove();
-                        $.writeln("[MOVE]   Original path removed");
+                    // If no specific points selected, treat as whole-item selection
+                    if (!hasSelectedPoints) {
+                        // For single-point paths, use that point
+                        if (numPoints === 1) {
+                            var pos = item.pathPoints[0].anchor;
+                            anchorPositions.push({ x: pos[0], y: pos[1] });
+                            $.writeln("[MOVE]   Single-point path, using that anchor");
+                        } else {
+                            // Multi-point path with no selected points - skip or handle differently
+                            $.writeln("[MOVE]   Multi-point path with no selected anchors - moving entire path");
+                            item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
+                            itemsMoved++;
+                            continue;
+                        }
+                    }
+
+                    // Handle paths with art placement (not Ignore layer, and we have a file)
+                    if (filePath && !isIgnoreLayer && anchorPositions.length > 0) {
+
+                        // Keep the original path - just extract selected anchor positions
+                        $.writeln("[MOVE]   Keeping original path intact");
 
                         // For each anchor position, create an anchor point and place art (if not already placed)
                         for (var ai = 0; ai < anchorPositions.length; ai++) {
@@ -2164,16 +2181,29 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             $.writeln("[MOVE]   Art placed at anchor " + (ai + 1));
                         }
 
-                    } else {
-                        // Just move the path item (no art placement - Ignore layer or no file)
-                        item.move(targetLayer, ElementPlacement.PLACEATBEGINNING);
-                        if (numPoints === 1) {
+                    } else if (anchorPositions.length > 0) {
+                        // Create anchors without art (Ignore layer or no file)
+                        $.writeln("[MOVE]   Creating " + anchorPositions.length + " anchors without art");
+
+                        // Keep the original path - just extract selected anchor positions
+                        $.writeln("[MOVE]   Keeping original path intact");
+
+                        // Create individual anchors
+                        for (var ai = 0; ai < anchorPositions.length; ai++) {
+                            var anchorX = anchorPositions[ai].x;
+                            var anchorY = anchorPositions[ai].y;
+
+                            var newAnchor = targetLayer.pathItems.add();
+                            newAnchor.setEntirePath([[anchorX, anchorY]]);
+                            newAnchor.filled = false;
+                            newAnchor.stroked = false;
                             anchorsMoved++;
-                            $.writeln("[MOVE]   Anchor moved (no art - Ignore layer or no file)");
-                        } else {
-                            itemsMoved++;
-                            $.writeln("[MOVE]   Path moved (no art - Ignore layer or no file)");
+                            $.writeln("[MOVE]   Created anchor " + (ai + 1) + " at [" + anchorX.toFixed(2) + ", " + anchorY.toFixed(2) + "]");
                         }
+                    } else {
+                        // No selected points and no anchors extracted - shouldn't happen but handle it
+                        $.writeln("[MOVE]   No anchors to extract - skipping");
+                        itemsSkipped++;
                     }
                 }
                 // Move GroupItems

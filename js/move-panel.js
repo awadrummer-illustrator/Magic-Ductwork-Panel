@@ -96,7 +96,7 @@
                 if (stats.reason === 'no-selection') {
                     setMoveStatus('No items selected.', true);
                 } else if (stats.itemsSkipped > 0) {
-                    setMoveStatus('Skipped ' + stats.itemsSkipped + ' item(s) - only ductwork parts layers can be moved.', true);
+                    setMoveStatus('Skipped ' + stats.itemsSkipped + ' item(s).', true);
                 } else {
                     setMoveStatus('No eligible items found in selection.', true);
                 }
@@ -106,7 +106,7 @@
                 if (stats.anchorsMoved > 0) parts.push(stats.anchorsMoved + ' anchor(s)');
                 let message = 'Moved ' + parts.join(', ') + ' to ' + layerName + '.';
                 if (stats.itemsSkipped > 0) {
-                    message += ' Skipped ' + stats.itemsSkipped + ' item(s) not on ductwork parts layers.';
+                    message += ' Skipped ' + stats.itemsSkipped + ' item(s).';
                 }
                 setMoveStatus(message);
                 debugStatus.textContent = 'Moved ' + stats.itemsMoved + ' items, ' + stats.anchorsMoved + ' anchors, skipped ' + stats.itemsSkipped;
