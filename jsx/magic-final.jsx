@@ -3356,18 +3356,18 @@ function setStaticTextColor(control, rgbArray) {
             return null;
         }
 
-        function isDuctworkLineLayer(name) {
-            if (!name) return false;
-            if (isEmoryLineLayer(name)) return true;
-            var lower = ("" + name).toLowerCase();
-            for (var i = 0; i < DUCTWORK_LINES.length; i++) {
-                var entry = DUCTWORK_LINES[i];
-                if (typeof entry === "string" && lower === entry.toLowerCase()) {
-                    return true;
-                }
-            }
-            return false;
+function isDuctworkLineLayer(name) {
+    if (!name) return false;
+    if (isEmoryLineLayer(name)) return true;
+    var lower = ("" + name).toLowerCase();
+    for (var i = 0; i < DUCTWORK_LINES.length; i++) {
+        var entry = DUCTWORK_LINES[i];
+        if (typeof entry === "string" && lower === entry.toLowerCase()) {
+            return true;
         }
+    }
+    return false;
+}
 
         function isEmoryLineLayer(name) {
             if (!name) return false;
@@ -9849,6 +9849,20 @@ function setStaticTextColor(control, rgbArray) {
             return changedAny;
         }
 
+        function getDuctRoleForPath(pathItem) {
+            if (!pathItem) return null;
+            try {
+                if (pathItem.__ductRole) return pathItem.__ductRole;
+            } catch (e) { }
+            try {
+                var meta = MDUX_getMetadata(pathItem);
+                if (meta && (meta.ductRole === "trunk" || meta.ductRole === "branch")) {
+                    return meta.ductRole;
+                }
+            } catch (eMetaRole) { }
+            return null;
+        }
+
         // --- ORTHOGONALIZE ---
         function orthogonalizePath(pathItem, connectionPairs) {
             // Validate pathItem exists and is accessible
@@ -10082,17 +10096,31 @@ function setStaticTextColor(control, rgbArray) {
             // vs "trunk" (has at least one endpoint-to-endpoint connection)
             var pathIsBranch = false;
             var registerEndIsFirst = false; // true if index 0 is register end, false if last index is register end
+            var roleFromMetadata = false;
 
             if ((skipAllBranchOrtho || skipFinalBranchOrtho) && !pathItem.closed && pts.length >= 2) {
-                var firstEndpointConnected = endpointHasDuctworkConnection(pathItem, 0);
-                var lastEndpointConnected = endpointHasDuctworkConnection(pathItem, pts.length - 1);
-
-                // If NEITHER endpoint has an endpoint-to-endpoint connection, it's a branch
-                // (it T-junctions onto trunk or goes to registers at both ends)
-                if (!firstEndpointConnected && !lastEndpointConnected) {
+                var ductRole = getDuctRoleForPath(pathItem);
+                if (ductRole === "branch") {
                     pathIsBranch = true;
-                    addDebug("[BRANCH-DETECT] Path classified as BRANCH (neither endpoint connected). firstConnected=" + firstEndpointConnected + ", lastConnected=" + lastEndpointConnected);
+                    roleFromMetadata = true;
+                    addDebug("[BRANCH-DETECT] Path classified as BRANCH via ductRole metadata");
+                } else if (ductRole === "trunk") {
+                    pathIsBranch = false;
+                    roleFromMetadata = true;
+                    addDebug("[BRANCH-DETECT] Path classified as TRUNK via ductRole metadata");
+                } else {
+                    var firstEndpointConnected = endpointHasDuctworkConnection(pathItem, 0);
+                    var lastEndpointConnected = endpointHasDuctworkConnection(pathItem, pts.length - 1);
 
+                    // If NEITHER endpoint has an endpoint-to-endpoint connection, it's a branch
+                    // (it T-junctions onto trunk or goes to registers at both ends)
+                    if (!firstEndpointConnected && !lastEndpointConnected) {
+                        pathIsBranch = true;
+                        addDebug("[BRANCH-DETECT] Path classified as BRANCH (neither endpoint connected). firstConnected=" + firstEndpointConnected + ", lastConnected=" + lastEndpointConnected);
+                    }
+                }
+
+                if (pathIsBranch) {
                     // For skip-final, we need to know which end is the register end
                     // Check which endpoint T-junctions onto another path (that's the trunk connection)
                     var firstTJunctions = endpointTJunctionsOntoPath(pathItem, 0);
@@ -10189,13 +10217,7 @@ function setStaticTextColor(control, rgbArray) {
                             addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment but endpoint is IGNORED - WILL ortho");
                             return true; // Ortho this segment normally
                         }
-                        // If no register exists at this endpoint, DON'T skip ortho
-                        // (trunk/path without register at end should be orthogonalized)
-                        if (!registerEndpointHasRegister) {
-                            addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment but NO REGISTER at endpoint - WILL ortho");
-                            return true; // Ortho this segment normally
-                        }
-                        addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment with REGISTER - SKIPPING ortho");
+                        addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment on branch - SKIPPING ortho");
                         return false;
                     }
                     return true;
@@ -14920,6 +14942,364 @@ function setStaticTextColor(control, rgbArray) {
             addDebug("[IGNORE-MARKER-PRESERVE] Error: " + eIgnorePreserve);
         }
 
+        function classifySelectedDuctworkRoles(selectedPaths) {
+            if (!selectedPaths || selectedPaths.length === 0) return;
+
+            var unitAnchors = [];
+            var thermostatEndpointCount = 0;
+            try { unitAnchors = getExistingAnchorPoints(["Units"]) || []; } catch (eUnits) { unitAnchors = []; }
+            try {
+                var thermostatPathsAll = getPathsOnLayerAll("Thermostat Lines") || [];
+                var thermostatEndpointsAll = getEndpoints(thermostatPathsAll) || [];
+                thermostatEndpointCount = thermostatEndpointsAll.length;
+                for (var tpi = 0; tpi < thermostatEndpointsAll.length; tpi++) {
+                    var tEnd = thermostatEndpointsAll[tpi];
+                    if (tEnd && tEnd.pos) unitAnchors.push([tEnd.pos[0], tEnd.pos[1]]);
+                }
+            } catch (eThermo) { }
+
+            var ahuAnchors = [];
+            try { ahuAnchors = getExistingAnchorPoints(["AHU"]) || []; } catch (eAhu) { ahuAnchors = []; }
+
+            var UNIT_TOL = 10;
+            var AHU_TOL = 10;
+            var ENDPOINT_TOL = 15;
+            var T_JUNCTION_TOL = 3;
+            var UNIT_TOL2 = UNIT_TOL * UNIT_TOL;
+            var AHU_TOL2 = AHU_TOL * AHU_TOL;
+            var ENDPOINT_TOL2 = ENDPOINT_TOL * ENDPOINT_TOL;
+            var T_JUNCTION_TOL2 = T_JUNCTION_TOL * T_JUNCTION_TOL;
+
+            var selectionBounds = null;
+            try { selectionBounds = $.global.MDUX_SELECTION_BOUNDS || null; } catch (eBoundsRole) { selectionBounds = null; }
+            function isNearSelectionBounds(pt, tol) {
+                if (!selectionBounds) return true;
+                if (pt[0] < selectionBounds.minX - tol) return false;
+                if (pt[0] > selectionBounds.maxX + tol) return false;
+                if (pt[1] < selectionBounds.minY - tol) return false;
+                if (pt[1] > selectionBounds.maxY + tol) return false;
+                return true;
+            }
+
+            if (selectionBounds) {
+                var boundTol = Math.max(UNIT_TOL, AHU_TOL, ENDPOINT_TOL);
+                var filteredUnits = [];
+                for (var fu = 0; fu < unitAnchors.length; fu++) {
+                    if (isNearSelectionBounds(unitAnchors[fu], boundTol)) filteredUnits.push(unitAnchors[fu]);
+                }
+                unitAnchors = filteredUnits;
+
+                var filteredAhu = [];
+                for (var fa = 0; fa < ahuAnchors.length; fa++) {
+                    if (isNearSelectionBounds(ahuAnchors[fa], boundTol)) filteredAhu.push(ahuAnchors[fa]);
+                }
+                ahuAnchors = filteredAhu;
+            }
+
+            function pointNearAny(pt, anchors, tol2) {
+                for (var ai = 0; ai < anchors.length; ai++) {
+                    if (dist2(pt, anchors[ai]) <= tol2) return true;
+                }
+                return false;
+            }
+
+            function pathHasEndpointNear(info, anchors, tol2) {
+                for (var ei = 0; ei < info.endpoints.length; ei++) {
+                    if (pointNearAny(info.endpoints[ei].pos, anchors, tol2)) return true;
+                }
+                return false;
+            }
+
+            function pathHasAnchorNearSegment(info, anchors, tol2) {
+                if (!anchors || anchors.length === 0) return false;
+                for (var ai = 0; ai < anchors.length; ai++) {
+                    var anchorPt = anchors[ai];
+                    for (var si = 0; si < info.segments.length; si++) {
+                        var seg = info.segments[si];
+                        var res = closestPointOnSegment(seg.start, seg.end, anchorPt);
+                        var dx = anchorPt[0] - res.pt[0];
+                        var dy = anchorPt[1] - res.pt[1];
+                        if ((dx * dx + dy * dy) <= tol2) {
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            var buckets = {};
+            function getBucket(layerName) {
+                if (!buckets[layerName]) buckets[layerName] = { paths: [] };
+                return buckets[layerName];
+            }
+
+            var totalPaths = 0;
+            for (var spIdx = 0; spIdx < selectedPaths.length; spIdx++) {
+                var spath = selectedPaths[spIdx];
+                if (!spath) continue;
+                var layerName = getPathLayerName(spath);
+                if (!isDuctworkColorLayer(layerName)) continue;
+                var pts = null;
+                try { pts = spath.pathPoints; } catch (ePts) { pts = null; }
+                if (!pts || pts.length < 2) continue;
+
+                var info = {
+                    path: spath,
+                    layer: layerName,
+                    endpoints: [],
+                    segments: []
+                };
+
+                if (!spath.closed) {
+                    info.endpoints.push({ index: 0, pos: [pts[0].anchor[0], pts[0].anchor[1]] });
+                    var lastIdx = pts.length - 1;
+                    info.endpoints.push({ index: lastIdx, pos: [pts[lastIdx].anchor[0], pts[lastIdx].anchor[1]] });
+                }
+
+                for (var si = 0; si < pts.length - 1; si++) {
+                    info.segments.push({
+                        index: si,
+                        start: [pts[si].anchor[0], pts[si].anchor[1]],
+                        end: [pts[si + 1].anchor[0], pts[si + 1].anchor[1]]
+                    });
+                }
+                if (spath.closed && pts.length > 1) {
+                    info.segments.push({
+                        index: pts.length - 1,
+                        start: [pts[pts.length - 1].anchor[0], pts[pts.length - 1].anchor[1]],
+                        end: [pts[0].anchor[0], pts[0].anchor[1]]
+                    });
+                }
+
+                getBucket(layerName).paths.push(info);
+                totalPaths++;
+            }
+
+            var trunkCount = 0;
+            var branchCount = 0;
+            var unknownCount = 0;
+            var seedCount = 0;
+
+            for (var bucketName in buckets) {
+                if (!buckets.hasOwnProperty(bucketName)) continue;
+                var pathInfos = buckets[bucketName].paths;
+                if (!pathInfos || pathInfos.length === 0) continue;
+
+                var roles = [];
+                var reasons = [];
+                var adjacency = [];
+                for (var bi = 0; bi < pathInfos.length; bi++) {
+                    roles[bi] = null;
+                    reasons[bi] = null;
+                    adjacency[bi] = [];
+                }
+
+                function assignRole(idx, role, reason, force) {
+                    if (!roles[idx]) {
+                        roles[idx] = role;
+                        reasons[idx] = reason || null;
+                        return true;
+                    }
+                    if (roles[idx] === "branch" && role === "trunk") {
+                        roles[idx] = "trunk";
+                        reasons[idx] = reason || reasons[idx];
+                        return true;
+                    }
+                    if (force && roles[idx] !== role) {
+                        roles[idx] = role;
+                        reasons[idx] = reason || reasons[idx];
+                        return true;
+                    }
+                    return false;
+                }
+
+                for (var siSeed = 0; siSeed < pathInfos.length; siSeed++) {
+                    var infoSeed = pathInfos[siSeed];
+                    var layer = infoSeed.layer;
+                    var isBlue = (layer === "Blue Ductwork" || layer === "Orange Ductwork");
+                    var isGreen = (layer === "Green Ductwork" || layer === "Light Green Ductwork" || layer === "Light Orange Ductwork");
+
+                    var unitEndpoint = pathHasEndpointNear(infoSeed, unitAnchors, UNIT_TOL2);
+                    var unitSegment = !unitEndpoint && pathHasAnchorNearSegment(infoSeed, unitAnchors, UNIT_TOL2);
+                    var ahuEndpoint = pathHasEndpointNear(infoSeed, ahuAnchors, AHU_TOL2);
+                    var ahuSegment = !ahuEndpoint && pathHasAnchorNearSegment(infoSeed, ahuAnchors, AHU_TOL2);
+
+                    if (isBlue) {
+                        if (unitEndpoint || unitSegment) {
+                            if (assignRole(siSeed, "trunk", unitEndpoint ? "unit-endpoint" : "unit-segment", true)) {
+                                seedCount++;
+                            }
+                        }
+                    } else if (isGreen) {
+                        if (ahuEndpoint || ahuSegment) {
+                            if (assignRole(siSeed, "trunk", ahuEndpoint ? "ahu-endpoint" : "ahu-segment", true)) {
+                                seedCount++;
+                            }
+                        } else if (unitEndpoint || unitSegment) {
+                            if (assignRole(siSeed, "branch", unitEndpoint ? "unit-endpoint" : "unit-segment", true)) {
+                                seedCount++;
+                            }
+                        }
+                    }
+                }
+
+                function addEndpointEndpoint(aIdx, bIdx) {
+                    var key = (aIdx < bIdx) ? ("ee:" + aIdx + "-" + bIdx) : ("ee:" + bIdx + "-" + aIdx);
+                    if (connectionMap[key]) return;
+                    connectionMap[key] = true;
+                    var conn = { type: "endpoint-endpoint", a: aIdx, b: bIdx };
+                    adjacency[aIdx].push(conn);
+                    adjacency[bIdx].push(conn);
+                }
+
+                function addEndpointSegment(endIdx, segIdx) {
+                    var key = "es:" + endIdx + "->" + segIdx;
+                    if (connectionMap[key]) return;
+                    connectionMap[key] = true;
+                    var conn = { type: "endpoint-segment", end: endIdx, seg: segIdx };
+                    adjacency[endIdx].push(conn);
+                    adjacency[segIdx].push(conn);
+                }
+
+                function addSegmentSegment(aIdx, bIdx) {
+                    var key = (aIdx < bIdx) ? ("ss:" + aIdx + "-" + bIdx) : ("ss:" + bIdx + "-" + aIdx);
+                    if (connectionMap[key]) return;
+                    connectionMap[key] = true;
+                    var conn = { type: "segment-segment", a: aIdx, b: bIdx };
+                    adjacency[aIdx].push(conn);
+                    adjacency[bIdx].push(conn);
+                }
+
+                var endpoints = [];
+                var segments = [];
+                for (var bi2 = 0; bi2 < pathInfos.length; bi2++) {
+                    var info2 = pathInfos[bi2];
+                    for (var e2 = 0; e2 < info2.endpoints.length; e2++) {
+                        endpoints.push({ pathIdx: bi2, pos: info2.endpoints[e2].pos });
+                    }
+                    for (var s2 = 0; s2 < info2.segments.length; s2++) {
+                        var seg2 = info2.segments[s2];
+                        segments.push({ pathIdx: bi2, start: seg2.start, end: seg2.end });
+                    }
+                }
+
+                var connectionMap = {};
+
+                for (var eA = 0; eA < endpoints.length; eA++) {
+                    var epA = endpoints[eA];
+                    for (var eB = eA + 1; eB < endpoints.length; eB++) {
+                        var epB = endpoints[eB];
+                        if (epA.pathIdx === epB.pathIdx) continue;
+                        if (dist2(epA.pos, epB.pos) <= ENDPOINT_TOL2) {
+                            addEndpointEndpoint(epA.pathIdx, epB.pathIdx);
+                        }
+                    }
+                }
+
+                for (var eIdx = 0; eIdx < endpoints.length; eIdx++) {
+                    var ep = endpoints[eIdx];
+                    for (var sIdx = 0; sIdx < segments.length; sIdx++) {
+                        var segCheck = segments[sIdx];
+                        if (segCheck.pathIdx === ep.pathIdx) continue;
+                        var resTJ = closestPointOnSegment(segCheck.start, segCheck.end, ep.pos);
+                        if (resTJ.t <= 0.001 || resTJ.t >= 0.999) continue;
+                        var dxTJ = ep.pos[0] - resTJ.pt[0];
+                        var dyTJ = ep.pos[1] - resTJ.pt[1];
+                        if ((dxTJ * dxTJ + dyTJ * dyTJ) <= T_JUNCTION_TOL2) {
+                            addEndpointSegment(ep.pathIdx, segCheck.pathIdx);
+                        }
+                    }
+                }
+
+                for (var pA = 0; pA < pathInfos.length; pA++) {
+                    var segsA = pathInfos[pA].segments;
+                    if (!segsA || segsA.length === 0) continue;
+                    for (var pB = pA + 1; pB < pathInfos.length; pB++) {
+                        var segsB = pathInfos[pB].segments;
+                        if (!segsB || segsB.length === 0) continue;
+                        var foundIntersection = false;
+                        for (var sa = 0; sa < segsA.length && !foundIntersection; sa++) {
+                            var segA = segsA[sa];
+                            for (var sb = 0; sb < segsB.length; sb++) {
+                                var segB = segsB[sb];
+                                var inter = computeSegmentIntersection(segA.start, segA.end, segB.start, segB.end, 1e-6);
+                                if (!inter) continue;
+                                if (inter.t1 > 0.01 && inter.t1 < 0.99 && inter.t2 > 0.01 && inter.t2 < 0.99) {
+                                    addSegmentSegment(pA, pB);
+                                    foundIntersection = true;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                var queue = [];
+                var queueIdx = 0;
+                for (var qr = 0; qr < roles.length; qr++) {
+                    if (roles[qr]) queue.push(qr);
+                }
+
+                function enqueueRole(idx, role, reason) {
+                    var updated = assignRole(idx, role, reason, false);
+                    if (updated) queue.push(idx);
+                }
+
+                while (queueIdx < queue.length) {
+                    var current = queue[queueIdx++];
+                    var currentRole = roles[current];
+                    if (!currentRole) continue;
+                    var edges = adjacency[current] || [];
+                    for (var ci = 0; ci < edges.length; ci++) {
+                        var conn = edges[ci];
+                        if (!conn) continue;
+                        if (conn.type === "endpoint-endpoint") {
+                            var other = (conn.a === current) ? conn.b : conn.a;
+                            if (!roles[other]) enqueueRole(other, currentRole, "endpoint-join");
+                        } else if (conn.type === "endpoint-segment") {
+                            if (conn.seg === current) {
+                                if (!roles[conn.end]) enqueueRole(conn.end, "branch", "t-junction");
+                            }
+                        } else if (conn.type === "segment-segment") {
+                            var otherSeg = (conn.a === current) ? conn.b : conn.a;
+                            if (!roles[otherSeg]) enqueueRole(otherSeg, "branch", "segment-cross");
+                        }
+                    }
+                }
+
+                for (var fi = 0; fi < pathInfos.length; fi++) {
+                    var finalRole = roles[fi];
+                    var finalReason = reasons[fi];
+                    var targetPath = pathInfos[fi].path;
+                    if (finalRole === "trunk") trunkCount++;
+                    else if (finalRole === "branch") branchCount++;
+                    else unknownCount++;
+
+                    try {
+                        var meta = MDUX_getMetadata(targetPath) || {};
+                        if (finalRole) {
+                            meta.ductRole = finalRole;
+                            meta.ductRoleReason = finalReason || "classified";
+                            meta.ductRoleVersion = 1;
+                            MDUX_setMetadata(targetPath, meta);
+                        } else if (meta.ductRole) {
+                            delete meta.ductRole;
+                            delete meta.ductRoleReason;
+                            delete meta.ductRoleVersion;
+                            MDUX_setMetadata(targetPath, meta);
+                        }
+                    } catch (eMetaRole) { }
+
+                    try { targetPath.__ductRole = finalRole || null; } catch (eSetRole) { }
+                    try { targetPath.__ductRoleReason = finalReason || null; } catch (eSetRoleReason) { }
+                }
+            }
+
+            addDebug("[ROLE-CLASSIFY] Classified " + totalPaths + " selected ductwork path(s): trunk=" + trunkCount +
+                ", branch=" + branchCount + ", unknown=" + unknownCount + ", seeds=" + seedCount + " (units=" + unitAnchors.length +
+                ", thermostatEndpoints=" + thermostatEndpointCount + ", ahu=" + ahuAnchors.length + ")");
+        }
+
         // STEP 1: Process selected paths (snap, orthogonalize)
         updateProgress("Orthogonalizing paths...");
         var geometryPaths = [];
@@ -14928,20 +15308,33 @@ function setStaticTextColor(control, rgbArray) {
         for (var allPathIdx = 0; allPathIdx < allPaths.length; allPathIdx++) {
             var checkPath = allPaths[allPathIdx];
             var isIgnoredLayer = false;
+            var isThermostatLayer = false;
             try {
                 var layerName = checkPath.layer ? checkPath.layer.name : null;
-                if (layerName && (layerName === "Ignored" || layerName === "Ignore" || layerName === "ignored" || layerName === "ignore")) {
+                var lowerName = layerName ? ("" + layerName).toLowerCase() : "";
+                if (lowerName === "ignored" || lowerName === "ignore") {
                     isIgnoredLayer = true;
+                } else if (lowerName === "thermostat lines") {
+                    isThermostatLayer = true;
                 }
             } catch (e) {}
 
-            if (!isIgnoredLayer) {
+            if (!isIgnoredLayer && !isThermostatLayer) {
                 geometryPaths.push(checkPath);
-            } else {
+            } else if (isIgnoredLayer) {
                 addDebug("[GEOMETRY-PATHS] Excluding path on Ignored layer from orthogonalization");
+            } else if (isThermostatLayer) {
+                addDebug("[GEOMETRY-PATHS] Excluding Thermostat Lines from orthogonalization");
             }
         }
-        addDebug("[GEOMETRY-PATHS] Filtered " + allPaths.length + " paths -> " + geometryPaths.length + " paths for orthogonalization (excluded Ignored layer)");
+        addDebug("[GEOMETRY-PATHS] Filtered " + allPaths.length + " paths -> " + geometryPaths.length + " paths for orthogonalization (excluded Ignored + Thermostat Lines)");
+
+        // STEP 1.1: Classify selected ductwork paths as trunk/branch (selection-only)
+        try {
+            classifySelectedDuctworkRoles(geometryPaths);
+        } catch (eRoleClassify) {
+            addDebug("[ROLE-CLASSIFY] Error: " + eRoleClassify);
+        }
 
         BLUE_BRANCH_CONNECTIONS = [];
         for (var gpClear = 0; gpClear < geometryPaths.length; gpClear++) {
@@ -15048,6 +15441,132 @@ function setStaticTextColor(control, rgbArray) {
         }
 
         var preOrthoConnections = collectEndpointConnections(geometryPaths, RECONNECT_CAPTURE_DIST);
+
+        var BRANCH_FINAL_SEGMENTS = [];
+        if (SKIP_FINAL_REGISTER_ORTHO) {
+            try {
+                var endpointPairs = preOrthoConnections && preOrthoConnections.pairs ? preOrthoConnections.pairs : [];
+                var endpointSegments = preOrthoConnections && preOrthoConnections.endpointSegments ? preOrthoConnections.endpointSegments : [];
+                var IGNORE_CHECK_DIST = 10;
+                var REGISTER_CHECK_DIST = 25;
+
+                function endpointHasConnectionPair(path, anchorIndex) {
+                    if (!endpointPairs || !endpointPairs.length) return false;
+                    for (var pi = 0; pi < endpointPairs.length; pi++) {
+                        var pair = endpointPairs[pi];
+                        if (!pair) continue;
+                        if (pair.a && pair.a.path === path && pair.a.index === anchorIndex) return true;
+                        if (pair.b && pair.b.path === path && pair.b.index === anchorIndex) return true;
+                    }
+                    return false;
+                }
+
+                function endpointHasTJunction(path, anchorIndex) {
+                    if (!endpointSegments || !endpointSegments.length) return false;
+                    for (var si = 0; si < endpointSegments.length; si++) {
+                        var seg = endpointSegments[si];
+                        if (!seg || !seg.endpoint) continue;
+                        if (seg.endpoint.path === path && seg.endpoint.index === anchorIndex) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                function endpointHasIgnoreMarker(path, endpointName) {
+                    for (var imIdx = 0; imIdx < ORTHO_IGNORE_MARKER_PATHS.length; imIdx++) {
+                        var im = ORTHO_IGNORE_MARKER_PATHS[imIdx];
+                        if (im && im.path === path && im.endpoint === endpointName) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+
+                function endpointNearIgnoredAnchor(pt) {
+                    for (var igIdx = 0; igIdx < ORTHO_IGNORED_ANCHORS.length; igIdx++) {
+                        var igPt = ORTHO_IGNORED_ANCHORS[igIdx];
+                        var dx = pt[0] - igPt[0];
+                        var dy = pt[1] - igPt[1];
+                        if ((dx * dx + dy * dy) <= (IGNORE_CHECK_DIST * IGNORE_CHECK_DIST)) return true;
+                    }
+                    return false;
+                }
+
+                function endpointNearRegister(pt) {
+                    for (var regIdx = 0; regIdx < ORTHO_REGISTER_ANCHORS.length; regIdx++) {
+                        var regPt = ORTHO_REGISTER_ANCHORS[regIdx];
+                        var dx = pt[0] - regPt[0];
+                        var dy = pt[1] - regPt[1];
+                        if ((dx * dx + dy * dy) <= (REGISTER_CHECK_DIST * REGISTER_CHECK_DIST)) return true;
+                    }
+                    return false;
+                }
+
+                for (var bfIdx = 0; bfIdx < geometryPaths.length; bfIdx++) {
+                    var bfPath = geometryPaths[bfIdx];
+                    if (!bfPath || bfPath.closed || !bfPath.pathPoints || bfPath.pathPoints.length < 2) continue;
+                    var bfPts = null;
+                    try { bfPts = bfPath.pathPoints; } catch (eBfPts) { bfPts = null; }
+                    if (!bfPts || bfPts.length < 2) continue;
+                    var lastIdx = bfPts.length - 1;
+
+                    var ductRole = getDuctRoleForPath(bfPath);
+                    var roleFromMetadata = (ductRole === "branch" || ductRole === "trunk");
+                    var isBranch = false;
+                    if (ductRole === "branch") {
+                        isBranch = true;
+                    } else if (ductRole === "trunk") {
+                        isBranch = false;
+                    } else {
+                        var firstConnected = endpointHasConnectionPair(bfPath, 0);
+                        var lastConnected = endpointHasConnectionPair(bfPath, lastIdx);
+                        if (!firstConnected && !lastConnected) {
+                            isBranch = true;
+                        }
+                    }
+
+                    if (!isBranch) continue;
+
+                    var firstTJunctions = endpointHasTJunction(bfPath, 0);
+                    var lastTJunctions = endpointHasTJunction(bfPath, lastIdx);
+                    var registerEndIsFirst = false;
+                    if (firstTJunctions && !lastTJunctions) {
+                        registerEndIsFirst = false;
+                    } else if (!firstTJunctions && lastTJunctions) {
+                        registerEndIsFirst = true;
+                    }
+
+                    var endIndex = registerEndIsFirst ? 0 : lastIdx;
+                    var jointIndex = registerEndIsFirst ? 1 : (lastIdx - 1);
+                    if (jointIndex < 0 || jointIndex >= bfPts.length) continue;
+
+                    var endpointName = registerEndIsFirst ? "start" : "end";
+                    var endPt = bfPts[endIndex].anchor;
+                    if (endpointHasIgnoreMarker(bfPath, endpointName)) continue;
+                    if (endpointNearIgnoredAnchor(endPt)) continue;
+
+                    var jointPt = bfPts[jointIndex].anchor;
+                    var dxFinal = endPt[0] - jointPt[0];
+                    var dyFinal = endPt[1] - jointPt[1];
+                    if (Math.abs(dxFinal) < 0.001 && Math.abs(dyFinal) < 0.001) continue;
+
+                    BRANCH_FINAL_SEGMENTS.push({
+                        path: bfPath,
+                        endIndex: endIndex,
+                        jointIndex: jointIndex,
+                        dx: dxFinal,
+                        dy: dyFinal
+                    });
+                }
+
+                if (BRANCH_FINAL_SEGMENTS.length > 0) {
+                    addDebug("[SKIP-FINAL] Stored " + BRANCH_FINAL_SEGMENTS.length + " branch final segment(s) for post-Python restore");
+                }
+            } catch (eSkipFinalCapture) {
+                addDebug("[SKIP-FINAL] Error capturing branch final segments: " + eSkipFinalCapture);
+            }
+        }
 
         // NOTE: T-junction detection moved to AFTER cleanup (so ORTHO_IGNORE_MARKER_PATHS is populated)
         // See T-junction detection code after line 13975
@@ -15388,26 +15907,46 @@ function setStaticTextColor(control, rgbArray) {
             // Instead, only send paths WITHOUT ignore markers to Python
             var pathsForPython = [];
             var excludedPaths = [];
+            var excludedIgnoreCount = 0;
+            var excludedBranchCount = 0;
+            var skipBranchOrthoInPython = SKIP_ALL_BRANCH_ORTHO;
             for (var pyPathIdx = 0; pyPathIdx < geometryPaths.length; pyPathIdx++) {
                 var hasIgnoreMarker = false;
+                var isBranchSkip = false;
+                var exclusionReasons = [];
                 for (var checkIdx = 0; checkIdx < ORTHO_IGNORE_MARKER_PATHS.length; checkIdx++) {
                     if (ORTHO_IGNORE_MARKER_PATHS[checkIdx].path === geometryPaths[pyPathIdx]) {
                         hasIgnoreMarker = true;
-                        excludedPaths.push(pyPathIdx);
-                        addDebug("[PYTHON-ORTHO] EXCLUDING path " + pyPathIdx + " (has ignore marker - already processed correctly)");
+                        exclusionReasons.push("ignore marker");
                         break;
                     }
                 }
-                if (!hasIgnoreMarker) {
-                    pathsForPython.push(geometryPaths[pyPathIdx]);
+                if (!hasIgnoreMarker && skipBranchOrthoInPython) {
+                    var roleCheck = getDuctRoleForPath(geometryPaths[pyPathIdx]);
+                    if (roleCheck === "branch") {
+                        isBranchSkip = true;
+                        exclusionReasons.push("branch skip-ortho");
+                    }
                 }
+
+                if (exclusionReasons.length > 0) {
+                    excludedPaths.push(pyPathIdx);
+                    if (hasIgnoreMarker) excludedIgnoreCount++;
+                    if (isBranchSkip) excludedBranchCount++;
+                    addDebug("[PYTHON-ORTHO] EXCLUDING path " + pyPathIdx + " (" + exclusionReasons.join(", ") + ")");
+                    try { geometryPaths[pyPathIdx].__pythonOrtho = false; } catch (ePythonFlag) { }
+                    continue;
+                }
+
+                try { geometryPaths[pyPathIdx].__pythonOrtho = true; } catch (ePythonFlag2) { }
+                pathsForPython.push(geometryPaths[pyPathIdx]);
             }
 
             var lockedPointsForPython = [];
 
             try {
                 updateProgress("Orthogonalizing paths (Python)...");
-                addDebug("[PYTHON-ORTHO] Sending " + pathsForPython.length + " paths to Python (excluded " + excludedPaths.length + " paths with ignore markers)");
+                addDebug("[PYTHON-ORTHO] Sending " + pathsForPython.length + " paths to Python (excluded " + excludedPaths.length + " paths: " + excludedIgnoreCount + " ignore markers, " + excludedBranchCount + " branch skip)");
                 var pyOrthoResult = PythonBridge.orthogonalize(pathsForPython, SNAP_THRESHOLD, lockedPointsForPython);
 
                 if (pyOrthoResult && pyOrthoResult.paths && !pyOrthoResult.error) {
@@ -15492,6 +16031,33 @@ function setStaticTextColor(control, rgbArray) {
                             if (restoreEndpointConnections(preOrthoConnections)) esChanged = true;
                         }
                         addDebug("[EXTENDSCRIPT-ORTHO] Completed in " + esIteration + " iterations");
+                    }
+
+                    // Restore branch final segments for Python-processed paths (skip-final-ortho)
+                    if (SKIP_FINAL_REGISTER_ORTHO && BRANCH_FINAL_SEGMENTS && BRANCH_FINAL_SEGMENTS.length > 0) {
+                        var restoredCount = 0;
+                        for (var rfIdx = 0; rfIdx < BRANCH_FINAL_SEGMENTS.length; rfIdx++) {
+                            var rf = BRANCH_FINAL_SEGMENTS[rfIdx];
+                            if (!rf || !rf.path) continue;
+                            try {
+                                if (!rf.path.__pythonOrtho) continue;
+                                var rfPts = rf.path.pathPoints;
+                                if (!rfPts || rfPts.length < 2) continue;
+                                if (rf.endIndex < 0 || rf.endIndex >= rfPts.length) continue;
+                                if (rf.jointIndex < 0 || rf.jointIndex >= rfPts.length) continue;
+                                var joint = rfPts[rf.jointIndex].anchor;
+                                var newX = joint[0] + rf.dx;
+                                var newY = joint[1] + rf.dy;
+                                var endPt = rfPts[rf.endIndex];
+                                endPt.anchor = [newX, newY];
+                                endPt.leftDirection = [newX, newY];
+                                endPt.rightDirection = [newX, newY];
+                                restoredCount++;
+                            } catch (eRestoreFinal) { }
+                        }
+                        if (restoredCount > 0) {
+                            addDebug("[SKIP-FINAL-RESTORE] Restored " + restoredCount + " branch final segment(s) after Python ortho");
+                        }
                     }
 
                     // POST-PYTHON-ORTHO: Adjust ignore marker segments to preserve original distance
@@ -19007,8 +19573,8 @@ function setStaticTextColor(control, rgbArray) {
                         continue;
                     }
 
-                    // Check if collinear (no direction change) - use tolerance of 0.02 (~8 degrees)
-                    if (!isAnchorCollinear(prevPt, anchorPt, nextPt, 0.02)) {
+                    // Check if collinear (no direction change) - use tighter tolerance of 0.005 (~6 degrees)
+                    if (!isAnchorCollinear(prevPt, anchorPt, nextPt, 0.005)) {
                         continue; // Has direction change - don't place register
                     }
 
