@@ -24,6 +24,7 @@ MDUX_debugLog_Early("panel-bridge.jsx is loading...");
 
 #include "./register-ignore.jsx"
 #include "./export-utils.jsx"
+#include "./gap-tools.jsx"
 
 MDUX_debugLog_Early("Includes finished. MDUX_performExport type: " + typeof MDUX_performExport);
 
@@ -470,6 +471,56 @@ function MDUX_isDebugEnabled() {
         return $.global.MDUX_DEBUG.ENABLED;
     }
     return true; // Default to enabled if config not loaded yet
+}
+
+function MDUX_setDebugEnabledBridge(enabled) {
+    if (typeof $.global.MDUX_DEBUG === "undefined" || !$.global.MDUX_DEBUG) {
+        $.global.MDUX_DEBUG = {};
+    }
+    $.global.MDUX_DEBUG.ENABLED = !!enabled;
+    return $.global.MDUX_DEBUG.ENABLED ? "true" : "false";
+}
+
+function MDUX_getDebugEnabledBridge() {
+    return MDUX_isDebugEnabled() ? "true" : "false";
+}
+
+function MDUX_resetSessionStateBridge() {
+    var cleared = [];
+
+    function clearKey(key, value) {
+        try {
+            if (typeof $.global[key] !== "undefined") {
+                if (typeof value === "undefined") {
+                    try { delete $.global[key]; } catch (eDel) { $.global[key] = null; }
+                } else {
+                    $.global[key] = value;
+                }
+                cleared.push(key);
+            }
+        } catch (e) { }
+    }
+
+    clearKey("MDUX_SELECTION_BOUNDS");
+    clearKey("MDUX_NAME_COUNTERS");
+    clearKey("MDUX_PROGRESS_WIN", null);
+    clearKey("MDUX_PROGRESS_CANCELLED", false);
+
+    try {
+        if ($.global.MDUX && $.global.MDUX.forcedOptions) {
+            delete $.global.MDUX.forcedOptions;
+            cleared.push("MDUX.forcedOptions");
+        }
+    } catch (eForced) { }
+
+    try {
+        if (typeof PythonBridge !== "undefined" && PythonBridge.resetServerStatus) {
+            PythonBridge.resetServerStatus();
+            cleared.push("PythonBridge.resetServerStatus");
+        }
+    } catch (ePy) { }
+
+    return "Session reset: " + (cleared.length ? cleared.join(", ") : "nothing to clear");
 }
 
 // In-memory debug log buffer
@@ -2525,7 +2576,7 @@ function MDUX_testNoteProperty() {
 function MDUX_getDebugLog() {
     // PERFORMANCE: Skip expensive operations if debug mode is off
     if (!MDUX_isDebugEnabled()) {
-        return "Debug mode is disabled. Set $.global.MDUX_DEBUG.ENABLED = true in magic-final.jsx to enable logging.";
+        return "Debug mode is disabled. Enable Debug Logging in the panel or set $.global.MDUX_DEBUG.ENABLED = true.";
     }
 
     try {

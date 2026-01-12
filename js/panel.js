@@ -13,6 +13,8 @@
     // const ignoreStatus = document.getElementById('ignore-status'); // Removed - status no longer exists
     const reloadBtn = document.getElementById('reload-btn');
     const debugStatus = document.getElementById('debug-status');
+    const debugLoggingOption = document.getElementById('debug-logging-option');
+    const resetSessionBtn = document.getElementById('reset-session-btn');
     const skipOrthoOption = document.getElementById('skip-ortho-option');
     const rotationInput = document.getElementById('rotation-input');
     const getAngleBtn = document.getElementById('get-angle-btn');
@@ -42,6 +44,8 @@
     const exportDuctworkBtn = document.getElementById('export-ductwork-btn');
     const reexportFloorplanBtn = document.getElementById('reexport-floorplan-btn');
     const exportStatus = document.getElementById('export-status');
+    const healGapsBtn = document.getElementById('heal-gaps-btn');
+    const recutGapsBtn = document.getElementById('recut-gaps-btn');
     const mergePathsBtn = document.getElementById('merge-paths-btn');
 
     // Document Scale Controls (read-only anchor display)
@@ -259,6 +263,31 @@
         rotationInput.placeholder = nextPlaceholder;
     }
 
+    async function refreshDebugLoggingState() {
+        if (!debugLoggingOption) return;
+        try {
+            await ensureBridgeLoaded();
+        } catch (e) {
+            return;
+        }
+        const result = normaliseResult(await evalScript('MDUX_getDebugEnabledBridge()'));
+        if (!result.ok) return;
+        debugLoggingOption.checked = String(result.value).toLowerCase() === 'true';
+    }
+
+    async function setDebugLoggingState(enabled) {
+        if (!debugLoggingOption) return;
+        try {
+            await ensureBridgeLoaded();
+        } catch (e) {
+            return;
+        }
+        const result = normaliseResult(await evalScript('MDUX_setDebugEnabledBridge(' + (enabled ? 'true' : 'false') + ')'));
+        if (!result.ok && debugStatus) {
+            debugStatus.textContent = 'Debug toggle error: ' + result.value;
+        }
+    }
+
     async function refreshSkipOrthoState() {
         if (!skipOrthoOption) return;
         try {
@@ -367,24 +396,26 @@
         scheduleSkipOrthoRefresh();
 
         // Auto-copy debug log to clipboard and write to file after processing
-        try {
-            console.log('[PANEL] Calling MDUX_getDebugLog()...');
-            const debugLog = await evalScript('MDUX_getDebugLog()');
-            console.log('[PANEL] MDUX_getDebugLog returned ' + (debugLog ? debugLog.length : 0) + ' chars');
-            if (debugLog && debugLog.length > 0) {
-                // Use textarea + execCommand for CEP compatibility
-                const ta = document.createElement('textarea');
-                ta.value = debugLog;
-                ta.style.position = 'fixed';
-                ta.style.left = '-9999px';
-                document.body.appendChild(ta);
-                ta.select();
-                const copyResult = document.execCommand('copy');
-                document.body.removeChild(ta);
-                console.log('[PANEL] Debug log copied to clipboard: ' + copyResult + ' (' + debugLog.length + ' chars)');
+        if (!debugLoggingOption || debugLoggingOption.checked) {
+            try {
+                console.log('[PANEL] Calling MDUX_getDebugLog()...');
+                const debugLog = await evalScript('MDUX_getDebugLog()');
+                console.log('[PANEL] MDUX_getDebugLog returned ' + (debugLog ? debugLog.length : 0) + ' chars');
+                if (debugLog && debugLog.length > 0) {
+                    // Use textarea + execCommand for CEP compatibility
+                    const ta = document.createElement('textarea');
+                    ta.value = debugLog;
+                    ta.style.position = 'fixed';
+                    ta.style.left = '-9999px';
+                    document.body.appendChild(ta);
+                    ta.select();
+                    const copyResult = document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    console.log('[PANEL] Debug log copied to clipboard: ' + copyResult + ' (' + debugLog.length + ' chars)');
+                }
+            } catch (clipErr) {
+                console.log('[PANEL] Failed to copy debug log to clipboard:', clipErr);
             }
-        } catch (clipErr) {
-            console.log('[PANEL] Failed to copy debug log to clipboard:', clipErr);
         }
 
         } catch (processingError) {
@@ -1374,6 +1405,54 @@
             if (exportDuctworkBtn) exportDuctworkBtn.addEventListener('click', () => handleExport('ductwork'));
             if (reexportFloorplanBtn) reexportFloorplanBtn.addEventListener('click', () => handleExport('floorplan'));
 
+            // Heal Gaps button handler
+            if (healGapsBtn) {
+                healGapsBtn.addEventListener('click', async () => {
+                    try {
+                        await ensureBridgeLoaded();
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Healing gaps...';
+                            protectionStatus.style.color = '#f0f';
+                        }
+                        const result = await evalScript('MDUX_healGapsInSelection()');
+                        if (protectionStatus) {
+                            protectionStatus.textContent = result || 'Heal complete';
+                            protectionStatus.style.color = '#0f0';
+                            setTimeout(() => { if (protectionStatus) protectionStatus.textContent = ''; }, 4000);
+                        }
+                    } catch (err) {
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Error: ' + err;
+                            protectionStatus.style.color = '#f00';
+                        }
+                    }
+                });
+            }
+
+            // Recreate Gaps button handler
+            if (recutGapsBtn) {
+                recutGapsBtn.addEventListener('click', async () => {
+                    try {
+                        await ensureBridgeLoaded();
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Recreating gaps...';
+                            protectionStatus.style.color = '#f0f';
+                        }
+                        const result = await evalScript('MDUX_recreateGapsInSelection()');
+                        if (protectionStatus) {
+                            protectionStatus.textContent = result || 'Recreate complete';
+                            protectionStatus.style.color = '#0f0';
+                            setTimeout(() => { if (protectionStatus) protectionStatus.textContent = ''; }, 4000);
+                        }
+                    } catch (err) {
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Error: ' + err;
+                            protectionStatus.style.color = '#f00';
+                        }
+                    }
+                });
+            }
+
             // Merge Paths button handler
             if (mergePathsBtn) {
                 mergePathsBtn.addEventListener('click', async () => {
@@ -1490,9 +1569,29 @@
                 });
             }
 
+            if (resetSessionBtn) {
+                resetSessionBtn.addEventListener('click', async () => {
+                    try {
+                        await ensureBridgeLoaded();
+                        const result = await evalScript('MDUX_resetSessionStateBridge()');
+                        debugStatus.textContent = result || 'Session state reset';
+                        scheduleSkipOrthoRefresh();
+                        refreshDebugLoggingState().catch(function () { });
+                    } catch (e) {
+                        debugStatus.textContent = 'Reset failed: ' + e.message;
+                    }
+                });
+            }
+
             if (closeLogBtn) {
                 closeLogBtn.addEventListener('click', () => {
                     debugLogModal.style.display = 'none';
+                });
+            }
+
+            if (debugLoggingOption) {
+                debugLoggingOption.addEventListener('change', () => {
+                    setDebugLoggingState(debugLoggingOption.checked);
                 });
             }
 
@@ -1531,6 +1630,7 @@
             if (skipAllBranchesOption) skipAllBranchesOption.checked = false;
             if (skipFinalOption) skipFinalOption.checked = true;  // Default to checked
             if (createRegisterWiresOption) createRegisterWiresOption.checked = false;
+            if (debugLoggingOption) debugLoggingOption.checked = true;
             // Scale controls are hidden - only set values if they exist
             if (scaleSlider) scaleSlider.value = 100;
             if (scaleLabel) scaleLabel.textContent = '100%';
@@ -1573,6 +1673,7 @@
 
             refreshSkipOrthoState().catch(function () { });
             refreshRotationOverrideState().catch(function () { });
+            refreshDebugLoggingState().catch(function () { });
             refreshDocScale().catch(function () { });
 
             // SMART POLLING: Only refresh when selection actually changes

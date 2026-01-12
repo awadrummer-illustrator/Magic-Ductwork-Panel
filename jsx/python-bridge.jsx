@@ -226,8 +226,8 @@ var PythonBridge = (function() {
      * @param {number} maxDist - Maximum distance for connection detection (default: 10)
      * @returns {Object} { connections: [...], ignored_anchors: [...] }
      */
-    function findConnections(pathItems, maxDist) {
-        return executePython('find_connections', pathItems, { max_dist: maxDist || 10 });
+    function findConnections(pathItems, maxDist, tTolerance) {
+        return executePython('find_connections', pathItems, { max_dist: maxDist || 10, t_tolerance: tTolerance });
     }
 
     /**

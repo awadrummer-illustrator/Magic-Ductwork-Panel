@@ -128,12 +128,19 @@ def closest_point_on_segment(seg_start: Tuple, seg_end: Tuple, point: Tuple) -> 
     return closest, t
 
 
-def find_connections(paths_data: List[Dict], max_dist: float = CLOSE_DIST) -> Dict:
+def find_connections(paths_data: List[Dict], max_dist: float = CLOSE_DIST, t_tolerance: Optional[float] = None) -> Dict:
     """
     Find all connected path pairs using spatial indexing.
     This is the O(n log n) replacement for the O(n^2) ExtendScript version.
     """
     start_time = time.time()
+
+    try:
+        t_tol = float(t_tolerance) if t_tolerance is not None else T_JUNCTION_DIST
+        if t_tol <= 0:
+            t_tol = T_JUNCTION_DIST
+    except Exception:
+        t_tol = T_JUNCTION_DIST
 
     lines = paths_to_linestrings(paths_data)
     valid_indices = [i for i, line in enumerate(lines) if line is not None and isinstance(line, LineString)]
@@ -155,7 +162,7 @@ def find_connections(paths_data: List[Dict], max_dist: float = CLOSE_DIST) -> Di
         original_idx_a = valid_indices[idx_a]
 
         # Query spatial index for nearby lines (buffer by max_dist)
-        buffered = line_a.buffer(max_dist + T_JUNCTION_DIST)
+        buffered = line_a.buffer(max_dist + t_tol)
         candidate_indices = tree.query(buffered)
 
         for idx_b in candidate_indices:
@@ -218,14 +225,14 @@ def find_connections(paths_data: List[Dict], max_dist: float = CLOSE_DIST) -> Di
                         closest, t = closest_point_on_segment(coords_b[bi], coords_b[bi + 1], pt_a)
                         dist = Point(pt_a).distance(Point(closest))
 
-                        if MIN_DIST <= dist <= T_JUNCTION_DIST and 0 < t < 1:
+                        if dist <= t_tol and 0 < t < 1:
                             # Skip if at carve-gap distance (4.25pt)
                             if abs(dist - 4.25) < 0.5:
                                 continue
 
                             # Check for crossover
                             int_pt = Point(closest)
-                            if is_crossover(int_pt, line_a, line_b, T_JUNCTION_DIST):
+                            if is_crossover(int_pt, line_a, line_b, t_tol):
                                 continue  # Crossover, not a real connection
 
                             connected = True
@@ -242,12 +249,12 @@ def find_connections(paths_data: List[Dict], max_dist: float = CLOSE_DIST) -> Di
                             closest, t = closest_point_on_segment(coords_a[ai], coords_a[ai + 1], pt_b)
                             dist = Point(pt_b).distance(Point(closest))
 
-                            if MIN_DIST <= dist <= T_JUNCTION_DIST and 0 < t < 1:
+                            if dist <= t_tol and 0 < t < 1:
                                 if abs(dist - 4.25) < 0.5:
                                     continue
 
                                 int_pt = Point(closest)
-                                if is_crossover(int_pt, line_a, line_b, T_JUNCTION_DIST):
+                                if is_crossover(int_pt, line_a, line_b, t_tol):
                                     continue
 
                                 connected = True

@@ -53,7 +53,7 @@ if (typeof JSON.parse !== "function") {
 // ============================================================================
 // Set these to true/false to control logging throughout the entire script
 // ============================================================================
-$.global.MDUX_DEBUG = {
+var MDUX_DEBUG_DEFAULTS = {
     ENABLED: true,              // Master switch - enables/disables ALL debug logging
     CONNECTIONS: true,          // Log path connection detection details
     INTERSECTIONS: true,        // Log intersection vertex detection
@@ -61,6 +61,14 @@ $.global.MDUX_DEBUG = {
     COMPONENTS: true,           // Log component placement (units, registers, etc.)
     OVERLAP_DETECTION: true     // Visual indicators for overlapping/collinear paths
 };
+if (typeof $.global.MDUX_DEBUG === "undefined" || !$.global.MDUX_DEBUG) {
+    $.global.MDUX_DEBUG = {};
+}
+for (var dbgKey in MDUX_DEBUG_DEFAULTS) {
+    if (MDUX_DEBUG_DEFAULTS.hasOwnProperty(dbgKey) && typeof $.global.MDUX_DEBUG[dbgKey] === "undefined") {
+        $.global.MDUX_DEBUG[dbgKey] = MDUX_DEBUG_DEFAULTS[dbgKey];
+    }
+}
 // ============================================================================
 
 // ============================================================================
@@ -275,7 +283,8 @@ var PythonBridge = (function() {
     }
 
     return {
-        findConnections: function(p, d) { return executePython('find_connections', p, { max_dist: d || 10 }); },
+        findConnections: function(p, d, t) { return executePython('find_connections', p, { max_dist: d || 10, t_tolerance: t }); },
+        detectIntersections: function(p) { return executePython('detect_intersections', p, {}); },
         buildGroups: function(p, d) { return executePython('build_groups', p, { max_dist: d || 10 }); },
         orthogonalize: function(p, t, lockedPts) { return executePython('orthogonalize', p, { snap_threshold: t || 5, steep_min: 17, steep_max: 70, locked_points: lockedPts || [] }); },
         isAvailable: function() {
@@ -8825,14 +8834,15 @@ function isDuctworkLineLayer(name) {
         }
 
         function closestPointOnSegment(a, b, p) {
-            function dot(v1, v2) { return v1[0] * v2[0] + v1[1] * v2[1]; }
-            var ab = [b[0] - a[0], b[1] - a[1]];
-            var ap = [p[0] - a[0], p[1] - a[1]];
-            var ab2 = dot(ab, ab);
+            var abx = b[0] - a[0];
+            var aby = b[1] - a[1];
+            var apx = p[0] - a[0];
+            var apy = p[1] - a[1];
+            var ab2 = (abx * abx) + (aby * aby);
             if (ab2 === 0) return { pt: a, t: 0 };
-            var t = dot(ap, ab) / ab2;
+            var t = ((apx * abx) + (apy * aby)) / ab2;
             t = t < 0 ? 0 : (t > 1 ? 1 : t);
-            return { pt: [a[0] + ab[0] * t, a[1] + ab[1] * t], t: t };
+            return { pt: [a[0] + abx * t, a[1] + aby * t], t: t };
         }
 
         function cubicAt(p0, p1, p2, p3, t) {
@@ -10509,8 +10519,14 @@ function isDuctworkLineLayer(name) {
             existingIgnoredAnchors = existingIgnoredAnchors || [];
             tTolerance = tTolerance || 3; // Default T-junction tolerance if not provided
 
-            // Minimum paths threshold - Python startup overhead (~7s) isn't worth it for small groups
-            var MIN_PATHS_FOR_PYTHON = 20;
+            // Minimum paths threshold - lower to offload more geometry to Python when available
+            var MIN_PATHS_FOR_PYTHON = 8;
+            if (typeof $.global.MDUX_PYTHON_MIN_PATHS !== "undefined") {
+                var pyMin = parseInt($.global.MDUX_PYTHON_MIN_PATHS, 10);
+                if (!isNaN(pyMin) && pyMin >= 2) {
+                    MIN_PATHS_FOR_PYTHON = pyMin;
+                }
+            }
 
             // Try Python acceleration first (only for larger path sets)
             if ($.global.MDUX_USE_PYTHON && typeof PythonBridge !== 'undefined' && PythonBridge.isAvailable() && pathItems.length >= MIN_PATHS_FOR_PYTHON) {
@@ -14860,6 +14876,17 @@ function isDuctworkLineLayer(name) {
                 }
                 allPaths = newAllPaths;
                 addDebug("[COMPOUND-RELEASE] Re-collected " + allPaths.length + " path(s) after release");
+                // Ensure released paths are treated as selected for downstream processing
+                var addedSelected = 0;
+                for (var addIdx = 0; addIdx < newAllPaths.length; addIdx++) {
+                    if (!isPathInList(SELECTED_PATHS, newAllPaths[addIdx])) {
+                        SELECTED_PATHS.push(newAllPaths[addIdx]);
+                        addedSelected++;
+                    }
+                }
+                if (addedSelected > 0) {
+                    addDebug("[COMPOUND-RELEASE] Added " + addedSelected + " released path(s) to SELECTED_PATHS (now " + SELECTED_PATHS.length + ")");
+                }
             }
         } catch (ePreRelease) {
             addDebug("[COMPOUND-RELEASE] Error: " + ePreRelease);
@@ -17063,6 +17090,35 @@ function isDuctworkLineLayer(name) {
             if (colorPathsForIntersect.length < 2) continue;
 
             addDebug("[INTERSECT-VERTEX] Checking " + ivSource.name + ": " + colorPathsForIntersect.length + " paths");
+
+            var usedPythonIntersect = false;
+            var MIN_PATHS_FOR_PY_INTERSECT = 8;
+            if ($.global.MDUX_USE_PYTHON && typeof PythonBridge !== 'undefined' && PythonBridge.isAvailable() && colorPathsForIntersect.length >= MIN_PATHS_FOR_PY_INTERSECT) {
+                try {
+                    var pyIntersections = PythonBridge.detectIntersections(colorPathsForIntersect);
+                    if (pyIntersections && pyIntersections.intersections && !pyIntersections.error) {
+                        for (var piIdx = 0; piIdx < pyIntersections.intersections.length; piIdx++) {
+                            var pi = pyIntersections.intersections[piIdx];
+                            if (!pi || !pi.point) continue;
+                            if (pi.a_has_vertex || pi.b_has_vertex) {
+                                intersectionVertexIgnorePoints.push([pi.point[0], pi.point[1]]);
+                                ignoredAnchors.push([pi.point[0], pi.point[1]]);
+                                addDebug("[INTERSECT-VERTEX] " + ivSource.name + ": Found intersection with vertex at [" + pi.point[0].toFixed(1) + "," + pi.point[1].toFixed(1) + "] - added to ignore list (Python)");
+                            }
+                        }
+                        addDebug("[INTERSECT-VERTEX] Python intersections: " + pyIntersections.intersections.length + " in " + (pyIntersections.time_ms || "?") + "ms");
+                        usedPythonIntersect = true;
+                    } else {
+                        addDebug("[INTERSECT-VERTEX] Python result invalid, falling back to ExtendScript");
+                    }
+                } catch (ePyInt) {
+                    addDebug("[INTERSECT-VERTEX] Python error: " + ePyInt + ", falling back to ExtendScript");
+                }
+            }
+
+            if (usedPythonIntersect) {
+                continue;
+            }
 
             for (var intA = 0; intA < colorPathsForIntersect.length; intA++) {
                 var pathIntA = colorPathsForIntersect[intA];
@@ -19720,6 +19776,27 @@ function isDuctworkLineLayer(name) {
         // Track crossover segment coordinates for post-processing (ignore anchors + segment deletion)
         var ALL_CROSSOVER_SEGMENTS = [];
 
+        // PERF: Filter ignored anchors to selection bounds for connection-heavy work
+        var ignoredAnchorsForConnections = ignoredAnchors || [];
+        var connBounds = $.global.MDUX_SELECTION_BOUNDS || null;
+        var CONN_IGNORE_BUFFER = 60;
+        if (connBounds && ignoredAnchorsForConnections.length > 0 && typeof connBounds.minX === 'number' && isFinite(connBounds.minX)) {
+            var filteredConnIgnored = [];
+            for (var ci = 0; ci < ignoredAnchorsForConnections.length; ci++) {
+                var ignPt = ignoredAnchorsForConnections[ci];
+                if (ignPt[0] >= connBounds.minX - CONN_IGNORE_BUFFER &&
+                    ignPt[0] <= connBounds.maxX + CONN_IGNORE_BUFFER &&
+                    ignPt[1] >= connBounds.minY - CONN_IGNORE_BUFFER &&
+                    ignPt[1] <= connBounds.maxY + CONN_IGNORE_BUFFER) {
+                    filteredConnIgnored.push(ignPt);
+                }
+            }
+            if (filteredConnIgnored.length < ignoredAnchorsForConnections.length) {
+                addDebug("[COMPOUND] Filtered ignored anchors from " + ignoredAnchorsForConnections.length + " to " + filteredConnIgnored.length + " near selection");
+            }
+            ignoredAnchorsForConnections = filteredConnIgnored;
+        }
+
         for (var layerIdx = 0; layerIdx < layersToProcess.length; layerIdx++) {
             var layerName = layersToProcess[layerIdx];
             addDebug("[COMPOUND] Processing layer: " + layerName);
@@ -19788,18 +19865,18 @@ function isDuctworkLineLayer(name) {
             // PERSISTENT CARVE-OUT SIBLINGS: On reruns, CARVE_OUT_COMPOUNDS is empty but we need to
             // detect existing compound paths that contain carve-out siblings (paths with endpoints
             // near carve-out gap pairs). Force connect children of such compounds.
-            if (carveOutForcedConnections.length === 0 && ignoredAnchors && ignoredAnchors.length >= 2) {
+            if (carveOutForcedConnections.length === 0 && ignoredAnchorsForConnections && ignoredAnchorsForConnections.length >= 2) {
                 var CARVE_GAP_MIN = 7;
                 var CARVE_GAP_MAX = 10;
                 var CARVE_EP_TOL = 5;
 
                 // Find carve-out gap pairs (ignored anchor pairs ~8.5pt apart)
                 var carveGapPairs = [];
-                for (var gp1 = 0; gp1 < ignoredAnchors.length - 1; gp1++) {
-                    for (var gp2 = gp1 + 1; gp2 < ignoredAnchors.length; gp2++) {
-                        var gpDist = Math.sqrt(Math.pow(ignoredAnchors[gp1][0] - ignoredAnchors[gp2][0], 2) + Math.pow(ignoredAnchors[gp1][1] - ignoredAnchors[gp2][1], 2));
+                for (var gp1 = 0; gp1 < ignoredAnchorsForConnections.length - 1; gp1++) {
+                    for (var gp2 = gp1 + 1; gp2 < ignoredAnchorsForConnections.length; gp2++) {
+                        var gpDist = Math.sqrt(Math.pow(ignoredAnchorsForConnections[gp1][0] - ignoredAnchorsForConnections[gp2][0], 2) + Math.pow(ignoredAnchorsForConnections[gp1][1] - ignoredAnchorsForConnections[gp2][1], 2));
                         if (gpDist >= CARVE_GAP_MIN && gpDist <= CARVE_GAP_MAX) {
-                            carveGapPairs.push([ignoredAnchors[gp1], ignoredAnchors[gp2]]);
+                            carveGapPairs.push([ignoredAnchorsForConnections[gp1], ignoredAnchorsForConnections[gp2]]);
                         }
                     }
                 }
@@ -20139,7 +20216,7 @@ function isDuctworkLineLayer(name) {
             if (layerPaths.length > 1) {
                 // Array to collect intersection points where paths connect (should not get components)
                 var intersectionIgnorePoints = [];
-                var connections = findAllConnections(layerPaths, dynamicConnectionDist, intersectionIgnorePoints, ignoredAnchors, dynamicTTolerance);
+                var connections = findAllConnections(layerPaths, dynamicConnectionDist, intersectionIgnorePoints, ignoredAnchorsForConnections, dynamicTTolerance);
 
                 // Add intersection ignore points to main ignoredAnchors list
                 if (intersectionIgnorePoints.length > 0) {
@@ -20193,7 +20270,7 @@ function isDuctworkLineLayer(name) {
                 // CROSSOVER FILTER: Remove connections between paths that are linked by a crossover segment
                 // Also filter AUTO-CARVE blocked connections (carved halves should not connect to crossing path)
                 // Also filter PERSISTENT crossovers (on rerun) by checking path endpoints near ignored anchors
-                if (crossoverInfo.length > 0 || (typeof splitPathCrossoverBlocks !== 'undefined' && splitPathCrossoverBlocks.length > 0) || (typeof CARVE_BLOCKED_CONNECTIONS !== 'undefined' && CARVE_BLOCKED_CONNECTIONS.length > 0) || (ignoredAnchors && ignoredAnchors.length > 0)) {
+                if (crossoverInfo.length > 0 || (typeof splitPathCrossoverBlocks !== 'undefined' && splitPathCrossoverBlocks.length > 0) || (typeof CARVE_BLOCKED_CONNECTIONS !== 'undefined' && CARVE_BLOCKED_CONNECTIONS.length > 0) || (ignoredAnchorsForConnections && ignoredAnchorsForConnections.length > 0)) {
                     var originalConnCount = connections.length;
                     var filteredConnections = [];
                     for (var connIdx = 0; connIdx < connections.length; connIdx++) {
@@ -20310,7 +20387,7 @@ function isDuctworkLineLayer(name) {
                             // 3. The other path passes through the gap (near the midpoint between the pair)
                             // IMPORTANT: Do NOT block if BOTH paths have endpoints near the SAME gap pair
                             // (those are siblings from the same carve-out, not crossovers)
-                            if (!isCrossoverConnection && ignoredAnchors && ignoredAnchors.length >= 2) {
+                            if (!isCrossoverConnection && ignoredAnchorsForConnections && ignoredAnchorsForConnections.length >= 2) {
                                 var CARVE_GAP_MIN = 7; // Minimum distance between carve-out anchor pairs
                                 var CARVE_GAP_MAX = 10; // Maximum distance between carve-out anchor pairs (8.5pt nominal)
                                 var CARVE_ENDPOINT_TOLERANCE = 3; // How close endpoint must be to an anchor
@@ -20323,10 +20400,10 @@ function isDuctworkLineLayer(name) {
                                         var endpointsB = [[ptsB[0].anchor[0], ptsB[0].anchor[1]], [ptsB[ptsB.length - 1].anchor[0], ptsB[ptsB.length - 1].anchor[1]]];
 
                                         // Find pairs of ignored anchors that are ~8.5pt apart (carve-out gaps)
-                                        for (var ignIdx1 = 0; ignIdx1 < ignoredAnchors.length - 1 && !isCrossoverConnection; ignIdx1++) {
-                                            for (var ignIdx2 = ignIdx1 + 1; ignIdx2 < ignoredAnchors.length && !isCrossoverConnection; ignIdx2++) {
-                                                var ign1 = ignoredAnchors[ignIdx1];
-                                                var ign2 = ignoredAnchors[ignIdx2];
+                                        for (var ignIdx1 = 0; ignIdx1 < ignoredAnchorsForConnections.length - 1 && !isCrossoverConnection; ignIdx1++) {
+                                            for (var ignIdx2 = ignIdx1 + 1; ignIdx2 < ignoredAnchorsForConnections.length && !isCrossoverConnection; ignIdx2++) {
+                                                var ign1 = ignoredAnchorsForConnections[ignIdx1];
+                                                var ign2 = ignoredAnchorsForConnections[ignIdx2];
                                                 var pairDx = ign1[0] - ign2[0];
                                                 var pairDy = ign1[1] - ign2[1];
                                                 var pairDist = Math.sqrt(pairDx * pairDx + pairDy * pairDy);
@@ -21047,31 +21124,27 @@ function isDuctworkLineLayer(name) {
                         drawFrame_local(doc, frameLayer, doc.artboards[0]);
                     }
 
-                    // Re-collect selected paths from ductwork layers RIGHT BEFORE component placement
-                    // This ensures paths created by carve-out splits are included in proximity filter
+                    // Build selected paths for proximity filtering from cached SELECTED_PATHS.
+                    // Illustrator can clear .selected during processing; using cached selection keeps placement reliable.
                     var selectedPathsToUse = [];
                     var ductworkLayerNamesForPlacement = ["Blue Ductwork", "Green Ductwork", "Orange Ductwork", "Light Orange Ductwork"];
-                    for (var dpLayerIdx = 0; dpLayerIdx < ductworkLayerNamesForPlacement.length; dpLayerIdx++) {
-                        try {
-                            var dpLayer = doc.layers.getByName(ductworkLayerNamesForPlacement[dpLayerIdx]);
-                            if (!dpLayer) continue;
-                            // Collect selected PathItems
-                            for (var dpPathIdx = 0; dpPathIdx < dpLayer.pathItems.length; dpPathIdx++) {
-                                var dpPath = dpLayer.pathItems[dpPathIdx];
-                                if (dpPath.selected && !dpPath.guides && !dpPath.clipping) {
-                                    selectedPathsToUse.push(dpPath);
-                                }
-                            }
-                            // Collect selected CompoundPathItems
-                            for (var dpCpIdx = 0; dpCpIdx < dpLayer.compoundPathItems.length; dpCpIdx++) {
-                                var dpCp = dpLayer.compoundPathItems[dpCpIdx];
-                                if (dpCp.selected) {
-                                    selectedPathsToUse.push(dpCp);
-                                }
-                            }
-                        } catch (eDpLayer) { }
+                    var ductworkLayerLookup = {};
+                    for (var dlIdx = 0; dlIdx < ductworkLayerNamesForPlacement.length; dlIdx++) {
+                        ductworkLayerLookup[ductworkLayerNamesForPlacement[dlIdx]] = true;
                     }
-                    addDebug("[COMPONENT PLACEMENT] Re-collected " + selectedPathsToUse.length + " selected path(s) from ductwork layers");
+                    if (typeof SELECTED_PATHS !== "undefined" && SELECTED_PATHS && SELECTED_PATHS.length > 0) {
+                        for (var spIdx = 0; spIdx < SELECTED_PATHS.length; spIdx++) {
+                            try {
+                                var sp = SELECTED_PATHS[spIdx];
+                                if (!sp) continue;
+                                if (typeof isPathValid === "function" && !isPathValid(sp)) continue;
+                                if (sp.layer && ductworkLayerLookup[sp.layer.name]) {
+                                    selectedPathsToUse.push(sp);
+                                }
+                            } catch (eSp) { }
+                        }
+                    }
+                    addDebug("[COMPONENT PLACEMENT] Using " + selectedPathsToUse.length + " cached selected path(s) from SELECTED_PATHS");
                     if (selectedPathsToUse.length === 0) selectedPathsToUse = null;
                     placeLinkedComponents_local(doc, selectedPathsToUse);
 
@@ -21361,7 +21434,7 @@ function isDuctworkLineLayer(name) {
                     addDebug("");
                     addDebug("========== " + type.name + " ==========");
                     addDebug("[" + type.name + "] Collecting anchors from layer: " + type.layer);
-                    var anchorPts = collectAnchorPoints_local(docParam, layer, selectedPaths);
+                    var anchorPts = collectAnchorPoints_local(docParam, layer, selectedPaths, cachedIgnoredAnchors, selectionBounds);
                     addDebug("[" + type.name + "] Collected " + anchorPts.length + " anchor points");
 
                     // UNIT PRIORITY: Check if this is a register type (not Unit/Thermostat)
@@ -21875,80 +21948,96 @@ function isDuctworkLineLayer(name) {
                     }
                 }
 
-                function collectAnchorPoints_local(docParam, layer, selectedPaths) {
+                function collectAnchorPoints_local(docParam, layer, selectedPaths, cachedIgnoredAnchors, selectionBounds) {
                     var pts = [], seen = {};
                     if (!layer || layer.locked) return pts;
 
                     // Collect ignored anchors first (same logic as main script)
-                    var ignoredAnchors = [];
+                    var ignoredAnchors = null;
                     var IGNORED_DIST_LOCAL = 4; // Same threshold as main script
                     var possibleLayerNames = ["Ignore", "Ignored", "ignore", "ignored"];
                     var ignoredLayers = [];
+                    var useCachedIgnoredAnchors = (cachedIgnoredAnchors !== null && typeof cachedIgnoredAnchors !== "undefined");
 
-                    // Collect ALL layers that match any of the possible names
-                    for (var layerIdx = 0; layerIdx < docParam.layers.length; layerIdx++) {
-                        var checkLayer = docParam.layers[layerIdx];
-                        for (var nameIdx = 0; nameIdx < possibleLayerNames.length; nameIdx++) {
-                            if (checkLayer.name === possibleLayerNames[nameIdx]) {
-                                ignoredLayers.push(checkLayer);
-                                break;
+                    if (useCachedIgnoredAnchors) {
+                        ignoredAnchors = cachedIgnoredAnchors;
+                    } else {
+                        ignoredAnchors = [];
+
+                        // Collect ALL layers that match any of the possible names
+                        for (var layerIdx = 0; layerIdx < docParam.layers.length; layerIdx++) {
+                            var checkLayer = docParam.layers[layerIdx];
+                            for (var nameIdx = 0; nameIdx < possibleLayerNames.length; nameIdx++) {
+                                if (checkLayer.name === possibleLayerNames[nameIdx]) {
+                                    ignoredLayers.push(checkLayer);
+                                    break;
+                                }
                             }
+                        }
+
+                        if (ignoredLayers.length > 0) {
+                            // PERF: Removed per-item logging (Gemini optimization)
+                            function collectIgnoredAnchors(container) {
+                                try {
+                                    // Collect anchor points from PathItems (no logging)
+                                    for (var i = 0; i < container.pathItems.length; i++) {
+                                        try {
+                                            var path = container.pathItems[i];
+                                            for (var j = 0; j < path.pathPoints.length; j++) {
+                                                try {
+                                                    var anchor = path.pathPoints[j].anchor;
+                                                    ignoredAnchors.push([anchor[0], anchor[1]]);
+                                                } catch (e) { }
+                                            }
+                                        } catch (e) { }
+                                    }
+                                    // Collect center points from PlacedItems
+                                    for (var p = 0; p < container.placedItems.length; p++) {
+                                        try {
+                                            var placed = container.placedItems[p];
+                                            var gb = placed.geometricBounds;
+                                            var centerX = (gb[0] + gb[2]) / 2;
+                                            var centerY = (gb[1] + gb[3]) / 2;
+                                            ignoredAnchors.push([centerX, centerY]);
+                                        } catch (e) { }
+                                    }
+                                    for (var k = 0; k < container.groupItems.length; k++) {
+                                        try { collectIgnoredAnchors(container.groupItems[k]); } catch (e) { }
+                                    }
+                                    if (container.layers) {
+                                        for (var s = 0; s < container.layers.length; s++) {
+                                            try { collectIgnoredAnchors(container.layers[s]); } catch (e) { }
+                                        }
+                                    }
+                                } catch (e) { }
+                            }
+                            for (var igIdx = 0; igIdx < ignoredLayers.length; igIdx++) {
+                                collectIgnoredAnchors(ignoredLayers[igIdx]);
+                            }
+                            addDebug("[ANCHOR COLLECTION] Found " + ignoredAnchors.length + " ignored anchors across " + ignoredLayers.length + " layers");
                         }
                     }
 
-                    if (ignoredLayers.length > 0) {
-                        // PERF: Removed per-item logging (Gemini optimization)
-                        function collectIgnoredAnchors(container) {
-                            try {
-                                // Collect anchor points from PathItems (no logging)
-                                for (var i = 0; i < container.pathItems.length; i++) {
-                                    try {
-                                        var path = container.pathItems[i];
-                                        for (var j = 0; j < path.pathPoints.length; j++) {
-                                            try {
-                                                var anchor = path.pathPoints[j].anchor;
-                                                ignoredAnchors.push([anchor[0], anchor[1]]);
-                                            } catch (e) { }
-                                        }
-                                    } catch (e) { }
-                                }
-                                // Collect center points from PlacedItems
-                                for (var p = 0; p < container.placedItems.length; p++) {
-                                    try {
-                                        var placed = container.placedItems[p];
-                                        var gb = placed.geometricBounds;
-                                        var centerX = (gb[0] + gb[2]) / 2;
-                                        var centerY = (gb[1] + gb[3]) / 2;
-                                        ignoredAnchors.push([centerX, centerY]);
-                                    } catch (e) { }
-                                }
-                                for (var k = 0; k < container.groupItems.length; k++) {
-                                    try { collectIgnoredAnchors(container.groupItems[k]); } catch (e) { }
-                                }
-                                if (container.layers) {
-                                    for (var s = 0; s < container.layers.length; s++) {
-                                        try { collectIgnoredAnchors(container.layers[s]); } catch (e) { }
-                                    }
-                                }
-                            } catch (e) { }
-                        }
-                        for (var igIdx = 0; igIdx < ignoredLayers.length; igIdx++) {
-                            collectIgnoredAnchors(ignoredLayers[igIdx]);
-                        }
-                        addDebug("[ANCHOR COLLECTION] Found " + ignoredAnchors.length + " ignored anchors across " + ignoredLayers.length + " layers");
+                    var selBounds = selectionBounds || $.global.MDUX_SELECTION_BOUNDS;
+                    var SELECTION_BUFFER = 60;
+                    var hasSelectionBounds = selBounds && typeof selBounds.minX === 'number' && isFinite(selBounds.minX);
+
+                    function isWithinSelectionBounds(pos, buffer) {
+                        if (!hasSelectionBounds) return true;
+                        var buf = (typeof buffer === 'number') ? buffer : SELECTION_BUFFER;
+                        return (pos[0] >= selBounds.minX - buf &&
+                            pos[0] <= selBounds.maxX + buf &&
+                            pos[1] >= selBounds.minY - buf &&
+                            pos[1] <= selBounds.maxY + buf);
                     }
 
                     // PERF: Pre-filter ignored anchors to only those near selection bounds
                     var filteredIgnoredAnchors = [];
-                    var selBounds = $.global.MDUX_SELECTION_BOUNDS;
-                    var IGNORE_BUFFER = 100; // Only check ignored markers within 100pt of selection
-                    if (selBounds && ignoredAnchors.length > 0) {
+                    var IGNORE_BUFFER = 60; // Only check ignored markers within 60pt of selection
+                    if (ignoredAnchors && ignoredAnchors.length > 0 && hasSelectionBounds) {
                         for (var iIdx = 0; iIdx < ignoredAnchors.length; iIdx++) {
                             var ign = ignoredAnchors[iIdx];
-                            if (ign[0] >= selBounds.minX - IGNORE_BUFFER &&
-                                ign[0] <= selBounds.maxX + IGNORE_BUFFER &&
-                                ign[1] >= selBounds.minY - IGNORE_BUFFER &&
-                                ign[1] <= selBounds.maxY + IGNORE_BUFFER) {
+                            if (isWithinSelectionBounds(ign, IGNORE_BUFFER)) {
                                 filteredIgnoredAnchors.push(ign);
                             }
                         }
@@ -21956,7 +22045,7 @@ function isDuctworkLineLayer(name) {
                             addDebug("[ANCHOR COLLECTION] Filtered " + ignoredAnchors.length + " ignored anchors down to " + filteredIgnoredAnchors.length + " near selection");
                         }
                     } else {
-                        filteredIgnoredAnchors = ignoredAnchors;
+                        filteredIgnoredAnchors = ignoredAnchors || [];
                     }
 
                     // Helper to check if point is ignored (within IGNORED_DIST of any ignored anchor)
@@ -22025,6 +22114,7 @@ function isDuctworkLineLayer(name) {
                     // Helper to check if a point is near any selected path endpoint
                     function isNearSelectedPath(pos) {
                         if (!useProximityFilter) return true; // No filter active
+                        if (!isWithinSelectionBounds(pos)) return false;
                         var PROXIMITY_THRESHOLD = 10; // CLOSE_DIST constant
                         for (var i = 0; i < selectedEndpoints.length; i++) {
                             var ep = selectedEndpoints[i];
@@ -22049,6 +22139,13 @@ function isDuctworkLineLayer(name) {
                         }
 
                         if (p.locked) return;
+
+                        var bypassProximity = false;
+                        try {
+                            if (typeof isPathCreated === "function" && isAnchorPointPath(p) && isPathCreated(p)) {
+                                bypassProximity = true;
+                            }
+                        } catch (eBypass) { }
 
                         // Priority: global rotation override > path rotation override > stored point rotation
                         // This ensures re-processing with a new angle override updates existing parts correctly
@@ -22076,13 +22173,16 @@ function isDuctworkLineLayer(name) {
                             var key = a[0].toFixed(2) + "_" + a[1].toFixed(2);
                             if (!seen[key]) {
                                 var anchorPos = [a[0], a[1]];
+                                if (!isWithinSelectionBounds(anchorPos)) {
+                                    continue;
+                                }
                                 // Skip if anchor is ignored (within IGNORED_DIST of any ignored anchor)
                                 if (isPointIgnored_local(anchorPos)) {
                                     addDebug("[ANCHOR " + key + "] SKIPPED (on Ignored layer)");
                                     continue;
                                 }
                                 // Only include anchor if it's near selected paths (or no filter active)
-                                if (isNearSelectedPath(anchorPos)) {
+                                if (isNearSelectedPath(anchorPos) || bypassProximity) {
                                     seen[key] = true;
                                     pts.push({ pos: anchorPos, rotation: rotation });
                                     addDebug("[ANCHOR " + key + "] Rotation: " + (rotation !== null ? rotation + "° from " + rotationSource : "null"));
@@ -22126,6 +22226,10 @@ function isDuctworkLineLayer(name) {
 
                                     // Skip if already seen
                                     if (seen[key]) continue;
+
+                                    if (!isWithinSelectionBounds(centerPos)) {
+                                        continue;
+                                    }
 
                                     // Skip if anchor is ignored
                                     if (isPointIgnored_local(centerPos)) {
