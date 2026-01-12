@@ -3254,6 +3254,11 @@ function MDUX_mergePathsAtEndpoints() {
         }
 
         var TOLERANCE = 5.0; // Generous tolerance for matching endpoints
+        try {
+            if ($.global && typeof $.global.MDUX_MERGE_TOL === "number") {
+                TOLERANCE = $.global.MDUX_MERGE_TOL;
+            }
+        } catch (e) { }
         var mergeCount = 0;
         var removedPaths = [];
 
