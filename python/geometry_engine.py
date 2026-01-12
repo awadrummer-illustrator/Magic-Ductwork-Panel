@@ -128,7 +128,7 @@ def closest_point_on_segment(seg_start: Tuple, seg_end: Tuple, point: Tuple) -> 
     return closest, t
 
 
-def find_connections(paths_data: List[Dict], max_dist: float = CLOSE_DIST, t_tolerance: Optional[float] = None) -> Dict:
+def find_connections(paths_data: List[Dict], max_dist: float = CLOSE_DIST, t_tolerance: Optional[float] = None, allow_non_vertex_intersections: Optional[bool] = None) -> Dict:
     """
     Find all connected path pairs using spatial indexing.
     This is the O(n log n) replacement for the O(n^2) ExtendScript version.
@@ -141,6 +141,8 @@ def find_connections(paths_data: List[Dict], max_dist: float = CLOSE_DIST, t_tol
             t_tol = T_JUNCTION_DIST
     except Exception:
         t_tol = T_JUNCTION_DIST
+
+    allow_non_vertex = True if allow_non_vertex_intersections else False
 
     lines = paths_to_linestrings(paths_data)
     valid_indices = [i for i, line in enumerate(lines) if line is not None and isinstance(line, LineString)]
@@ -290,9 +292,9 @@ def find_connections(paths_data: List[Dict], max_dist: float = CLOSE_DIST, t_tol
                         else:
                             int_pt = intersection.centroid
 
-                        if not is_crossover(int_pt, line_a, line_b):
+                        if not is_crossover(int_pt, line_a, line_b) or allow_non_vertex:
                             connected = True
-                            connection_type = 'intersection_vertex'
+                            connection_type = 'intersection'
                             connection_point = [int_pt.x, int_pt.y]
                             ignored_anchors.append([int_pt.x, int_pt.y])
 

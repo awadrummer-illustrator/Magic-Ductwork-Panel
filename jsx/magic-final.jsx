@@ -10591,10 +10591,11 @@ function isDuctworkLineLayer(name) {
         // This wrapper function uses Python for 100-1000x faster processing
         // Falls back to ExtendScript if Python is unavailable
         // =====================================================================
-        function findAllConnections(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors, tTolerance) {
+        function findAllConnections(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors, tTolerance, allowIntersectionConnect) {
             ignoredAnchorsOut = ignoredAnchorsOut || [];
             existingIgnoredAnchors = existingIgnoredAnchors || [];
             tTolerance = tTolerance || 3; // Default T-junction tolerance if not provided
+            allowIntersectionConnect = !!allowIntersectionConnect;
 
             // Minimum paths threshold - lower to offload more geometry to Python when available
             var MIN_PATHS_FOR_PYTHON = 8;
@@ -10611,7 +10612,7 @@ function isDuctworkLineLayer(name) {
                 var startTime = new Date().getTime();
 
                 try {
-                    var pyResult = PythonBridge.findConnections(pathItems, maxDist, tTolerance);
+                    var pyResult = PythonBridge.findConnections(pathItems, maxDist, tTolerance, allowIntersectionConnect);
 
                     if (pyResult && pyResult.connections && !pyResult.error) {
                         // Map Python indices back to actual path objects
@@ -10644,11 +10645,11 @@ function isDuctworkLineLayer(name) {
             }
 
             // Fall back to original ExtendScript implementation
-            return findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors, tTolerance);
+            return findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors, tTolerance, allowIntersectionConnect);
         }
 
         // Original ExtendScript implementation (renamed from findAllConnections)
-        function findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors, tTolerance) {
+        function findAllConnectionsExtendScript(pathItems, maxDist, ignoredAnchorsOut, existingIgnoredAnchors, tTolerance, allowIntersectionConnect) {
             var connections = [];
             var seen = {};
             var ANGLE_THRESHOLD_DEG = 20;
@@ -10658,6 +10659,7 @@ function isDuctworkLineLayer(name) {
             var DEBUG_CONNECTIONS = $.global.MDUX_DEBUG && $.global.MDUX_DEBUG.CONNECTIONS; // References global config
             ignoredAnchorsOut = ignoredAnchorsOut || []; // Array to collect intersection points to ignore
             existingIgnoredAnchors = existingIgnoredAnchors || []; // Array of existing ignored anchors to skip
+            allowIntersectionConnect = !!allowIntersectionConnect;
 
             if (DEBUG_CONNECTIONS && pathItems.length > 0) {
                 addDebug("[CONN-DEBUG] Checking " + pathItems.length + " paths with maxDist=" + maxDist);
@@ -10716,6 +10718,29 @@ function isDuctworkLineLayer(name) {
                         return true;
                     }
                 }
+                return false;
+            }
+
+            // Helper to check if an intersection is near a gap marker (carve-out gap)
+            function isNearGapMarker(pt) {
+                try {
+                    if (typeof gapPairsForConnections === "undefined" || !gapPairsForConnections || gapPairsForConnections.length === 0) {
+                        return false;
+                    }
+                    for (var gpIdx = 0; gpIdx < gapPairsForConnections.length; gpIdx++) {
+                        var gp = gapPairsForConnections[gpIdx];
+                        if (!gp || !gp[0] || !gp[1]) continue;
+                        var midX = (gp[0][0] + gp[1][0]) / 2;
+                        var midY = (gp[0][1] + gp[1][1]) / 2;
+                        var dx = gp[0][0] - gp[1][0];
+                        var dy = gp[0][1] - gp[1][1];
+                        var radius = Math.sqrt(dx * dx + dy * dy) / 2;
+                        var dist = Math.sqrt(Math.pow(pt[0] - midX, 2) + Math.pow(pt[1] - midY, 2));
+                        if (dist <= radius + 1) {
+                            return true;
+                        }
+                    }
+                } catch (e) { }
                 return false;
             }
 
@@ -11133,6 +11158,11 @@ function isDuctworkLineLayer(name) {
                                                     addDebug("[CONN-DEBUG] Connected at intersection [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - path vertex present, added to ignore list");
                                                 }
                                             }
+                                        } else if (allowIntersectionConnect && !isNearGapMarker(intersectPt)) {
+                                            // Same-color ductwork: treat segment intersections as connections unless a gap marker exists
+                                            connected = true;
+                                            ignoredAnchorsOut.push([intersectPt[0], intersectPt[1]]);
+                                            if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Connected at intersection [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - segment intersection allowed");
                                         } else {
                                             // No path vertex and no marker at intersection - these are separate runs (crossover)
                                             if (DEBUG_CONNECTIONS) addDebug("[CONN-DEBUG] Skipping intersection at [" + intersectPt[0].toFixed(1) + "," + intersectPt[1].toFixed(1) + "] - no path vertex or marker (crossover)");
@@ -18637,6 +18667,8 @@ function isDuctworkLineLayer(name) {
 
         // Track split path pairs that SHOULD be connected (siblings from same carve-out)
         var AUTO_CARVE_SPLIT_PAIRS = [];
+        // Track cross-path intersections that should be connected (single-intersection branches)
+        var SINGLE_INTERSECTION_FORCED_CONNECTIONS = [];
 
         // Helper function to save deleted segments to a "Deleted Segments" layer for safety/recovery
         function saveDeletedSegment(startPt, endPt, sourceLayer) {
@@ -18976,6 +19008,7 @@ function isDuctworkLineLayer(name) {
                                 carveSegIdx: laterSeg.segIdx,
                                 carveT: laterT,
                                 otherPath: pathA,
+                                otherPathIdx: segA.pathIdx,
                                 isSelfIntersection: true
                             });
                         } else {
@@ -18987,6 +19020,7 @@ function isDuctworkLineLayer(name) {
                                 carveSegIdx: pathALen <= pathBLen ? segA.segIdx : segB.segIdx,
                                 carveT: pathALen <= pathBLen ? intersection.t1 : intersection.t2,
                                 otherPath: pathALen <= pathBLen ? pathB : pathA,
+                                otherPathIdx: pathALen <= pathBLen ? segB.pathIdx : segA.pathIdx,
                                 carvedPathLen: pathALen <= pathBLen ? pathALen : pathBLen,
                                 otherPathLen: pathALen <= pathBLen ? pathBLen : pathALen
                             });
@@ -18999,10 +19033,41 @@ function isDuctworkLineLayer(name) {
 
             addDebug("[AUTO-CARVE] Found " + autoIntersections.length + " new intersection(s) to carve out");
 
+            // Identify paths that intersect only one other path (single-intersection branches)
+            var autoIntersectionNeighbors = {};
+            function recordAutoNeighbor(aIdx, bIdx) {
+                if (typeof aIdx !== "number" || typeof bIdx !== "number") return;
+                if (!autoIntersectionNeighbors[aIdx]) autoIntersectionNeighbors[aIdx] = {};
+                autoIntersectionNeighbors[aIdx][bIdx] = true;
+            }
+            for (var aiIdx = 0; aiIdx < autoIntersections.length; aiIdx++) {
+                var ai = autoIntersections[aiIdx];
+                if (!ai || ai.isSelfIntersection) continue;
+                recordAutoNeighbor(ai.pathToCarveIdx, ai.otherPathIdx);
+                recordAutoNeighbor(ai.otherPathIdx, ai.pathToCarveIdx);
+            }
+            var singleIntersectionPathIdx = {};
+            var singleCount = 0;
+            for (var ni in autoIntersectionNeighbors) {
+                if (!autoIntersectionNeighbors.hasOwnProperty(ni)) continue;
+                var count = 0;
+                for (var nk in autoIntersectionNeighbors[ni]) {
+                    if (autoIntersectionNeighbors[ni].hasOwnProperty(nk)) count++;
+                }
+                if (count === 1) {
+                    singleIntersectionPathIdx[ni] = true;
+                    singleCount++;
+                }
+            }
+            if (singleCount > 0) {
+                addDebug("[AUTO-CARVE] Single-intersection path(s): " + singleCount + " (will connect, not carve)");
+            }
+
             // Limit carve-outs to prevent runaway processing on complex selections
             var MAX_CARVE_OUTS = 100;
             var CARVE_BATCH_SIZE = 10; // Update progress every 10 carve-outs
             var carveCount = 0;
+            var singleIntersectionConnectionKeys = {};
 
             // Process carve-outs (work backwards to avoid index issues)
             for (var acIdx = autoIntersections.length - 1; acIdx >= 0 && carveCount < MAX_CARVE_OUTS; acIdx--) {
@@ -19019,6 +19084,25 @@ function isDuctworkLineLayer(name) {
                 var carvePath = autoInt.pathToCarve;
                 var carveSegIdx = autoInt.carveSegIdx;
                 var intPt = autoInt.intPoint;
+
+                if (autoInt && !autoInt.isSelfIntersection) {
+                    var aIdx = autoInt.pathToCarveIdx;
+                    var bIdx = autoInt.otherPathIdx;
+                    var roleA = getDuctRoleForPath(autoInt.pathToCarve);
+                    var roleB = getDuctRoleForPath(autoInt.otherPath);
+                    var bothTrunk = (roleA === "trunk" && roleB === "trunk");
+                    if (!bothTrunk && (singleIntersectionPathIdx[aIdx] || singleIntersectionPathIdx[bIdx]) && autoInt.otherPath) {
+                        var keyA = (typeof aIdx === "number" && typeof bIdx === "number") ?
+                            (aIdx < bIdx ? (aIdx + "_" + bIdx) : (bIdx + "_" + aIdx)) :
+                            null;
+                        if (keyA && !singleIntersectionConnectionKeys[keyA]) {
+                            singleIntersectionConnectionKeys[keyA] = true;
+                            SINGLE_INTERSECTION_FORCED_CONNECTIONS.push({ pathA: autoInt.pathToCarve, pathB: autoInt.otherPath });
+                            addDebug("[AUTO-CARVE] Skipping carve at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - single-intersection connection");
+                        }
+                        continue;
+                    }
+                }
 
                 try {
                     // ROBUST validity check - test multiple properties
@@ -19116,6 +19200,21 @@ function isDuctworkLineLayer(name) {
                     }
                     if (skipAutoCarve) {
                         addDebug("[AUTO-CARVE] Skipping - position was just restored (gap patched) at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "]");
+                        // Treat restored gaps as explicit connections so branches can merge to trunks
+                        try {
+                            if (autoInt && !autoInt.isSelfIntersection && autoInt.otherPath) {
+                                var rAIdx = autoInt.pathToCarveIdx;
+                                var rBIdx = autoInt.otherPathIdx;
+                                var rKey = (typeof rAIdx === "number" && typeof rBIdx === "number") ?
+                                    (rAIdx < rBIdx ? (rAIdx + "_" + rBIdx) : (rBIdx + "_" + rAIdx)) :
+                                    null;
+                                if (!rKey || !singleIntersectionConnectionKeys[rKey]) {
+                                    if (rKey) singleIntersectionConnectionKeys[rKey] = true;
+                                    SINGLE_INTERSECTION_FORCED_CONNECTIONS.push({ pathA: autoInt.pathToCarve, pathB: autoInt.otherPath });
+                                    addDebug("[AUTO-CARVE] Restored gap -> forcing connection at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "]");
+                                }
+                            }
+                        } catch (eRestConn) { }
                         continue;
                     }
 
@@ -19976,6 +20075,57 @@ function isDuctworkLineLayer(name) {
             ignoredAnchorsForConnections = filteredConnIgnored;
         }
 
+        // Prefer explicit gap markers for persistent carve/crossover filtering (more reliable than ignore anchors)
+        var gapPairsForConnections = [];
+        try {
+            var gapMarkersForConnections = readAllGapMemoryMarkers();
+            if (gapMarkersForConnections && gapMarkersForConnections.length > 0) {
+                for (var gmIdx = 0; gmIdx < gapMarkersForConnections.length; gmIdx++) {
+                    try {
+                        var gm = gapMarkersForConnections[gmIdx];
+                        if (!gm || !gm.metadata) continue;
+                        var gmX = gm.metadata.x;
+                        var gmY = gm.metadata.y;
+                        if (typeof gmX !== "number" || typeof gmY !== "number") continue;
+                        if (connBounds && typeof connBounds.minX === 'number' && isFinite(connBounds.minX)) {
+                            if (gmX < connBounds.minX - CONN_IGNORE_BUFFER ||
+                                gmX > connBounds.maxX + CONN_IGNORE_BUFFER ||
+                                gmY < connBounds.minY - CONN_IGNORE_BUFFER ||
+                                gmY > connBounds.maxY + CONN_IGNORE_BUFFER) {
+                                continue;
+                            }
+                        }
+
+                        var gp1 = null;
+                        var gp2 = null;
+                        try {
+                            if (gm.marker && gm.marker.pathPoints && gm.marker.pathPoints.length >= 2) {
+                                var gmp0 = gm.marker.pathPoints[0].anchor;
+                                var gmp1 = gm.marker.pathPoints[1].anchor;
+                                gp1 = [gmp0[0], gmp0[1]];
+                                gp2 = [gmp1[0], gmp1[1]];
+                            }
+                        } catch (eGapPts) { }
+
+                        if (!gp1 || !gp2) {
+                            var dirX = (typeof gm.metadata.dirX === "number") ? gm.metadata.dirX : 1;
+                            var dirY = (typeof gm.metadata.dirY === "number") ? gm.metadata.dirY : 0;
+                            var halfGap = (typeof gm.metadata.gapSize === "number") ? gm.metadata.gapSize : 4.25;
+                            gp1 = [gmX - halfGap * dirX, gmY - halfGap * dirY];
+                            gp2 = [gmX + halfGap * dirX, gmY + halfGap * dirY];
+                        }
+
+                        gapPairsForConnections.push([gp1, gp2]);
+                    } catch (eGapPair) { }
+                }
+            }
+        } catch (eGapPairs) {
+            addDebug("[COMPOUND] Gap marker read failed: " + eGapPairs);
+        }
+        if (gapPairsForConnections.length > 0) {
+            addDebug("[COMPOUND] Using " + gapPairsForConnections.length + " gap marker pair(s) for persistent crossover filtering");
+        }
+
         for (var layerIdx = 0; layerIdx < layersToProcess.length; layerIdx++) {
             var layerName = layersToProcess[layerIdx];
             addDebug("[COMPOUND] Processing layer: " + layerName);
@@ -20044,24 +20194,12 @@ function isDuctworkLineLayer(name) {
             // PERSISTENT CARVE-OUT SIBLINGS: On reruns, CARVE_OUT_COMPOUNDS is empty but we need to
             // detect existing compound paths that contain carve-out siblings (paths with endpoints
             // near carve-out gap pairs). Force connect children of such compounds.
-            if (carveOutForcedConnections.length === 0 && ignoredAnchorsForConnections && ignoredAnchorsForConnections.length >= 2) {
-                var CARVE_GAP_MIN = 7;
-                var CARVE_GAP_MAX = 10;
+            if (carveOutForcedConnections.length === 0 && gapPairsForConnections && gapPairsForConnections.length > 0) {
                 var CARVE_EP_TOL = 5;
-
-                // Find carve-out gap pairs (ignored anchor pairs ~8.5pt apart)
-                var carveGapPairs = [];
-                for (var gp1 = 0; gp1 < ignoredAnchorsForConnections.length - 1; gp1++) {
-                    for (var gp2 = gp1 + 1; gp2 < ignoredAnchorsForConnections.length; gp2++) {
-                        var gpDist = Math.sqrt(Math.pow(ignoredAnchorsForConnections[gp1][0] - ignoredAnchorsForConnections[gp2][0], 2) + Math.pow(ignoredAnchorsForConnections[gp1][1] - ignoredAnchorsForConnections[gp2][1], 2));
-                        if (gpDist >= CARVE_GAP_MIN && gpDist <= CARVE_GAP_MAX) {
-                            carveGapPairs.push([ignoredAnchorsForConnections[gp1], ignoredAnchorsForConnections[gp2]]);
-                        }
-                    }
-                }
+                var carveGapPairs = gapPairsForConnections;
 
                 if (carveGapPairs.length > 0) {
-                    addDebug("[COMPOUND] Found " + carveGapPairs.length + " carve-out gap pair(s) for persistent sibling detection");
+                    addDebug("[COMPOUND] Found " + carveGapPairs.length + " carve-out gap pair(s) from gap markers for persistent sibling detection");
 
                     // Check each existing compound path on this layer
                     try {
@@ -20395,7 +20533,14 @@ function isDuctworkLineLayer(name) {
             if (layerPaths.length > 1) {
                 // Array to collect intersection points where paths connect (should not get components)
                 var intersectionIgnorePoints = [];
-                var connections = findAllConnections(layerPaths, dynamicConnectionDist, intersectionIgnorePoints, ignoredAnchorsForConnections, dynamicTTolerance);
+                var allowSegmentIntersectionConnect = false;
+                try {
+                    var lowerLayerName = (layerName || "").toLowerCase();
+                    if (lowerLayerName.indexOf("ductwork") !== -1) {
+                        allowSegmentIntersectionConnect = true;
+                    }
+                } catch (eLayerConn) { }
+                var connections = findAllConnections(layerPaths, dynamicConnectionDist, intersectionIgnorePoints, ignoredAnchorsForConnections, dynamicTTolerance, allowSegmentIntersectionConnect);
 
                 // Add intersection ignore points to main ignoredAnchors list
                 if (intersectionIgnorePoints.length > 0) {
@@ -20558,17 +20703,9 @@ function isDuctworkLineLayer(name) {
                                 }
                             }
 
-                            // PERSISTENT CROSSOVER CHECK: On reruns, CARVE_BLOCKED_CONNECTIONS is empty
-                            // but we can detect carve-out crossovers by looking for PAIRS of ignored anchors
-                            // that are ~8.5pt apart (indicating a carve-out gap). Only block connections where:
-                            // 1. There's a PAIR of ignored anchors ~8.5pt apart (carve-out gap signature)
-                            // 2. One path has an endpoint near one of these paired anchors
-                            // 3. The other path passes through the gap (near the midpoint between the pair)
-                            // IMPORTANT: Do NOT block if BOTH paths have endpoints near the SAME gap pair
-                            // (those are siblings from the same carve-out, not crossovers)
-                            if (!isCrossoverConnection && ignoredAnchorsForConnections && ignoredAnchorsForConnections.length >= 2) {
-                                var CARVE_GAP_MIN = 7; // Minimum distance between carve-out anchor pairs
-                                var CARVE_GAP_MAX = 10; // Maximum distance between carve-out anchor pairs (8.5pt nominal)
+                            // PERSISTENT CROSSOVER CHECK: On reruns, CARVE_BLOCKED_CONNECTIONS is empty.
+                            // Use explicit gap markers so patched gaps (marker deleted) don't block connections.
+                            if (!isCrossoverConnection && gapPairsForConnections && gapPairsForConnections.length > 0) {
                                 var CARVE_ENDPOINT_TOLERANCE = 3; // How close endpoint must be to an anchor
                                 try {
                                     var ptsA = connPathA.pathPoints;
@@ -20578,109 +20715,98 @@ function isDuctworkLineLayer(name) {
                                         var endpointsA = [[ptsA[0].anchor[0], ptsA[0].anchor[1]], [ptsA[ptsA.length - 1].anchor[0], ptsA[ptsA.length - 1].anchor[1]]];
                                         var endpointsB = [[ptsB[0].anchor[0], ptsB[0].anchor[1]], [ptsB[ptsB.length - 1].anchor[0], ptsB[ptsB.length - 1].anchor[1]]];
 
-                                        // Find pairs of ignored anchors that are ~8.5pt apart (carve-out gaps)
-                                        for (var ignIdx1 = 0; ignIdx1 < ignoredAnchorsForConnections.length - 1 && !isCrossoverConnection; ignIdx1++) {
-                                            for (var ignIdx2 = ignIdx1 + 1; ignIdx2 < ignoredAnchorsForConnections.length && !isCrossoverConnection; ignIdx2++) {
-                                                var ign1 = ignoredAnchorsForConnections[ignIdx1];
-                                                var ign2 = ignoredAnchorsForConnections[ignIdx2];
-                                                var pairDx = ign1[0] - ign2[0];
-                                                var pairDy = ign1[1] - ign2[1];
-                                                var pairDist = Math.sqrt(pairDx * pairDx + pairDy * pairDy);
+                                        // Use gap marker endpoint pairs directly
+                                        for (var gpIdx = 0; gpIdx < gapPairsForConnections.length && !isCrossoverConnection; gpIdx++) {
+                                            var ign1 = gapPairsForConnections[gpIdx][0];
+                                            var ign2 = gapPairsForConnections[gpIdx][1];
+                                            if (!ign1 || !ign2) continue;
+                                            var pairDx = ign1[0] - ign2[0];
+                                            var pairDy = ign1[1] - ign2[1];
+                                            var pairDist = Math.sqrt(pairDx * pairDx + pairDy * pairDy);
+                                            if (pairDist < 0.01) continue;
+                                            var gapMidpoint = [(ign1[0] + ign2[0]) / 2, (ign1[1] + ign2[1]) / 2];
+                                            var gapRadius = pairDist / 2;
 
-                                                // Only consider pairs that are ~8.5pt apart (carve-out gap signature)
-                                                if (pairDist >= CARVE_GAP_MIN && pairDist <= CARVE_GAP_MAX) {
-                                                    var gapMidpoint = [(ign1[0] + ign2[0]) / 2, (ign1[1] + ign2[1]) / 2];
+                                            // Check if pathA has an endpoint near either anchor of this pair
+                                            var pathAEndpointNearPair = false;
+                                            for (var epAIdx = 0; epAIdx < endpointsA.length && !pathAEndpointNearPair; epAIdx++) {
+                                                var d1 = Math.sqrt(Math.pow(endpointsA[epAIdx][0] - ign1[0], 2) + Math.pow(endpointsA[epAIdx][1] - ign1[1], 2));
+                                                var d2 = Math.sqrt(Math.pow(endpointsA[epAIdx][0] - ign2[0], 2) + Math.pow(endpointsA[epAIdx][1] - ign2[1], 2));
+                                                if (d1 <= CARVE_ENDPOINT_TOLERANCE || d2 <= CARVE_ENDPOINT_TOLERANCE) {
+                                                    pathAEndpointNearPair = true;
+                                                }
+                                            }
 
-                                                    // Check if pathA has an endpoint near either anchor of this pair
-                                                    var pathAEndpointNearPair = false;
-                                                    var pathANearWhichAnchor = 0; // 1 or 2
-                                                    for (var epAIdx = 0; epAIdx < endpointsA.length && !pathAEndpointNearPair; epAIdx++) {
-                                                        var d1 = Math.sqrt(Math.pow(endpointsA[epAIdx][0] - ign1[0], 2) + Math.pow(endpointsA[epAIdx][1] - ign1[1], 2));
-                                                        var d2 = Math.sqrt(Math.pow(endpointsA[epAIdx][0] - ign2[0], 2) + Math.pow(endpointsA[epAIdx][1] - ign2[1], 2));
-                                                        if (d1 <= CARVE_ENDPOINT_TOLERANCE) {
-                                                            pathAEndpointNearPair = true;
-                                                            pathANearWhichAnchor = 1;
-                                                        } else if (d2 <= CARVE_ENDPOINT_TOLERANCE) {
-                                                            pathAEndpointNearPair = true;
-                                                            pathANearWhichAnchor = 2;
+                                            // SIBLING CHECK: Before checking if B passes through gap,
+                                            // check if B ALSO has an endpoint near this gap pair (sibling)
+                                            var pathBEndpointNearPair = false;
+                                            if (pathAEndpointNearPair) {
+                                                for (var epBSibIdx = 0; epBSibIdx < endpointsB.length && !pathBEndpointNearPair; epBSibIdx++) {
+                                                    var db1 = Math.sqrt(Math.pow(endpointsB[epBSibIdx][0] - ign1[0], 2) + Math.pow(endpointsB[epBSibIdx][1] - ign1[1], 2));
+                                                    var db2 = Math.sqrt(Math.pow(endpointsB[epBSibIdx][0] - ign2[0], 2) + Math.pow(endpointsB[epBSibIdx][1] - ign2[1], 2));
+                                                    if (db1 <= CARVE_ENDPOINT_TOLERANCE || db2 <= CARVE_ENDPOINT_TOLERANCE) {
+                                                        pathBEndpointNearPair = true;
+                                                    }
+                                                }
+                                            }
+
+                                            // If BOTH paths have endpoints near this gap pair, they're SIBLINGS - don't block!
+                                            if (pathAEndpointNearPair && pathBEndpointNearPair) {
+                                                // Skip this gap pair - these are siblings, not crossovers
+                                                continue;
+                                            }
+
+                                            // Check if pathB passes through the gap (near the midpoint)
+                                            var pathBPassesThroughGap = false;
+                                            if (pathAEndpointNearPair) {
+                                                for (var segBIdx = 0; segBIdx < ptsB.length - 1 && !pathBPassesThroughGap; segBIdx++) {
+                                                    var segStart = [ptsB[segBIdx].anchor[0], ptsB[segBIdx].anchor[1]];
+                                                    var segEnd = [ptsB[segBIdx + 1].anchor[0], ptsB[segBIdx + 1].anchor[1]];
+                                                    var res = closestPointOnSegment(segStart, segEnd, gapMidpoint);
+                                                    if (res.t > 0.01 && res.t < 0.99) {
+                                                        var distToMid = Math.sqrt(Math.pow(gapMidpoint[0] - res.pt[0], 2) + Math.pow(gapMidpoint[1] - res.pt[1], 2));
+                                                        if (distToMid <= gapRadius) {
+                                                            pathBPassesThroughGap = true;
                                                         }
                                                     }
+                                                }
+                                            }
 
-                                                    // SIBLING CHECK: Before checking if B passes through gap,
-                                                    // check if B ALSO has an endpoint near this gap pair (sibling)
-                                                    var pathBEndpointNearPair = false;
-                                                    if (pathAEndpointNearPair) {
-                                                        for (var epBSibIdx = 0; epBSibIdx < endpointsB.length && !pathBEndpointNearPair; epBSibIdx++) {
-                                                            var db1 = Math.sqrt(Math.pow(endpointsB[epBSibIdx][0] - ign1[0], 2) + Math.pow(endpointsB[epBSibIdx][1] - ign1[1], 2));
-                                                            var db2 = Math.sqrt(Math.pow(endpointsB[epBSibIdx][0] - ign2[0], 2) + Math.pow(endpointsB[epBSibIdx][1] - ign2[1], 2));
-                                                            if (db1 <= CARVE_ENDPOINT_TOLERANCE || db2 <= CARVE_ENDPOINT_TOLERANCE) {
-                                                                pathBEndpointNearPair = true;
-                                                            }
+                                            if (pathAEndpointNearPair && pathBPassesThroughGap) {
+                                                isCrossoverConnection = true;
+                                                addDebug("[XOVER-FILTER] Blocking persistent carve-out crossover (pathA endpoint near gap pair)");
+                                            }
+
+                                            // Also check reverse: pathB endpoint near pair, pathA passes through gap
+                                            if (!isCrossoverConnection && !pathBEndpointNearPair) {
+                                                // Re-check if pathB has endpoint near pair (wasn't checked in sibling check if pathA wasn't near)
+                                                for (var epBIdx = 0; epBIdx < endpointsB.length && !pathBEndpointNearPair; epBIdx++) {
+                                                    var dbRev1 = Math.sqrt(Math.pow(endpointsB[epBIdx][0] - ign1[0], 2) + Math.pow(endpointsB[epBIdx][1] - ign1[1], 2));
+                                                    var dbRev2 = Math.sqrt(Math.pow(endpointsB[epBIdx][0] - ign2[0], 2) + Math.pow(endpointsB[epBIdx][1] - ign2[1], 2));
+                                                    if (dbRev1 <= CARVE_ENDPOINT_TOLERANCE || dbRev2 <= CARVE_ENDPOINT_TOLERANCE) {
+                                                        pathBEndpointNearPair = true;
+                                                    }
+                                                }
+                                            }
+
+                                            if (!isCrossoverConnection && pathBEndpointNearPair && !pathAEndpointNearPair) {
+                                                // PathB is near gap but pathA isn't - check if A passes through gap
+                                                var pathAPassesThroughGap = false;
+                                                for (var segAIdx = 0; segAIdx < ptsA.length - 1 && !pathAPassesThroughGap; segAIdx++) {
+                                                    var segStartA = [ptsA[segAIdx].anchor[0], ptsA[segAIdx].anchor[1]];
+                                                    var segEndA = [ptsA[segAIdx + 1].anchor[0], ptsA[segAIdx + 1].anchor[1]];
+                                                    var resA = closestPointOnSegment(segStartA, segEndA, gapMidpoint);
+                                                    if (resA.t > 0.01 && resA.t < 0.99) {
+                                                        var distToMidA = Math.sqrt(Math.pow(gapMidpoint[0] - resA.pt[0], 2) + Math.pow(gapMidpoint[1] - resA.pt[1], 2));
+                                                        if (distToMidA <= gapRadius) {
+                                                            pathAPassesThroughGap = true;
                                                         }
                                                     }
+                                                }
 
-                                                    // If BOTH paths have endpoints near this gap pair, they're SIBLINGS - don't block!
-                                                    if (pathAEndpointNearPair && pathBEndpointNearPair) {
-                                                        // Skip this gap pair - these are siblings, not crossovers
-                                                        continue;
-                                                    }
-
-                                                    // Check if pathB passes through the gap (near the midpoint)
-                                                    var pathBPassesThroughGap = false;
-                                                    if (pathAEndpointNearPair) {
-                                                        for (var segBIdx = 0; segBIdx < ptsB.length - 1 && !pathBPassesThroughGap; segBIdx++) {
-                                                            var segStart = [ptsB[segBIdx].anchor[0], ptsB[segBIdx].anchor[1]];
-                                                            var segEnd = [ptsB[segBIdx + 1].anchor[0], ptsB[segBIdx + 1].anchor[1]];
-                                                            var res = closestPointOnSegment(segStart, segEnd, gapMidpoint);
-                                                            if (res.t > 0.01 && res.t < 0.99) {
-                                                                var distToMid = Math.sqrt(Math.pow(gapMidpoint[0] - res.pt[0], 2) + Math.pow(gapMidpoint[1] - res.pt[1], 2));
-                                                                if (distToMid <= CARVE_GAP_MAX / 2) {
-                                                                    pathBPassesThroughGap = true;
-                                                                }
-                                                            }
-                                                        }
-                                                    }
-
-                                                    if (pathAEndpointNearPair && pathBPassesThroughGap) {
-                                                        isCrossoverConnection = true;
-                                                        addDebug("[XOVER-FILTER] Blocking persistent carve-out crossover (pathA endpoint near gap pair)");
-                                                    }
-
-                                                    // Also check reverse: pathB endpoint near pair, pathA passes through gap
-                                                    // Note: pathBEndpointNearPair may already be set from sibling check above
-                                                    // If it was set, and pathAEndpointNearPair was also set, we already skipped this pair
-                                                    // So if we get here, either pathB wasn't near the pair, or we need to check if A passes through
-                                                    if (!isCrossoverConnection && !pathBEndpointNearPair) {
-                                                        // Re-check if pathB has endpoint near pair (wasn't checked in sibling check if pathA wasn't near)
-                                                        for (var epBIdx = 0; epBIdx < endpointsB.length && !pathBEndpointNearPair; epBIdx++) {
-                                                            var dbRev1 = Math.sqrt(Math.pow(endpointsB[epBIdx][0] - ign1[0], 2) + Math.pow(endpointsB[epBIdx][1] - ign1[1], 2));
-                                                            var dbRev2 = Math.sqrt(Math.pow(endpointsB[epBIdx][0] - ign2[0], 2) + Math.pow(endpointsB[epBIdx][1] - ign2[1], 2));
-                                                            if (dbRev1 <= CARVE_ENDPOINT_TOLERANCE || dbRev2 <= CARVE_ENDPOINT_TOLERANCE) {
-                                                                pathBEndpointNearPair = true;
-                                                            }
-                                                        }
-                                                    }
-
-                                                    if (!isCrossoverConnection && pathBEndpointNearPair && !pathAEndpointNearPair) {
-                                                        // PathB is near gap but pathA isn't - check if A passes through gap
-                                                        var pathAPassesThroughGap = false;
-                                                        for (var segAIdx = 0; segAIdx < ptsA.length - 1 && !pathAPassesThroughGap; segAIdx++) {
-                                                            var segStartA = [ptsA[segAIdx].anchor[0], ptsA[segAIdx].anchor[1]];
-                                                            var segEndA = [ptsA[segAIdx + 1].anchor[0], ptsA[segAIdx + 1].anchor[1]];
-                                                            var resA = closestPointOnSegment(segStartA, segEndA, gapMidpoint);
-                                                            if (resA.t > 0.01 && resA.t < 0.99) {
-                                                                var distToMidA = Math.sqrt(Math.pow(gapMidpoint[0] - resA.pt[0], 2) + Math.pow(gapMidpoint[1] - resA.pt[1], 2));
-                                                                if (distToMidA <= CARVE_GAP_MAX / 2) {
-                                                                    pathAPassesThroughGap = true;
-                                                                }
-                                                            }
-                                                        }
-
-                                                        if (pathAPassesThroughGap) {
-                                                            isCrossoverConnection = true;
-                                                            addDebug("[XOVER-FILTER] Blocking persistent carve-out crossover (pathB endpoint near gap pair)");
-                                                        }
-                                                    }
+                                                if (pathAPassesThroughGap) {
+                                                    isCrossoverConnection = true;
+                                                    addDebug("[XOVER-FILTER] Blocking persistent carve-out crossover (pathB endpoint near gap pair)");
                                                 }
                                             }
                                         }
@@ -20700,6 +20826,36 @@ function isDuctworkLineLayer(name) {
                         addDebug("[XOVER-FILTER] Blocked " + blockedCount + " crossover connection(s)");
                     }
                     connections = filteredConnections;
+                }
+
+                // Add forced connections for single-intersection branches (skipped carve-outs)
+                if (typeof SINGLE_INTERSECTION_FORCED_CONNECTIONS !== 'undefined' && SINGLE_INTERSECTION_FORCED_CONNECTIONS.length > 0) {
+                    var addedSingleConnections = 0;
+                    var singleConnKeys = {};
+                    function indexOfPathInLayer(list, path) {
+                        if (!list || !path) return -1;
+                        for (var li = 0; li < list.length; li++) {
+                            if (list[li] === path) return li;
+                        }
+                        return -1;
+                    }
+                    for (var scIdx = 0; scIdx < SINGLE_INTERSECTION_FORCED_CONNECTIONS.length; scIdx++) {
+                        try {
+                            var sc = SINGLE_INTERSECTION_FORCED_CONNECTIONS[scIdx];
+                            if (!sc || !sc.pathA || !sc.pathB) continue;
+                            var idxA = indexOfPathInLayer(layerPaths, sc.pathA);
+                            var idxB = indexOfPathInLayer(layerPaths, sc.pathB);
+                            if (idxA === -1 || idxB === -1) continue;
+                            var key = idxA < idxB ? (idxA + "_" + idxB) : (idxB + "_" + idxA);
+                            if (singleConnKeys[key]) continue;
+                            singleConnKeys[key] = true;
+                            connections.push([sc.pathA, sc.pathB]);
+                            addedSingleConnections++;
+                        } catch (eSc) { }
+                    }
+                    if (addedSingleConnections > 0) {
+                        addDebug("[COMPOUND] Added " + addedSingleConnections + " single-intersection forced connection(s)");
+                    }
                 }
 
                 var components = findConnectedComponents(layerPaths, connections);
