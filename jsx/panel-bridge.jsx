@@ -485,6 +485,22 @@ function MDUX_getDebugEnabledBridge() {
     return MDUX_isDebugEnabled() ? "true" : "false";
 }
 
+function MDUX_isYieldToUIEnabled() {
+    if (typeof $.global.MDUX_YIELD_TO_UI !== "undefined") {
+        return !!$.global.MDUX_YIELD_TO_UI;
+    }
+    return true; // Default to enabled if config not loaded yet
+}
+
+function MDUX_setYieldToUIBridge(enabled) {
+    $.global.MDUX_YIELD_TO_UI = !!enabled;
+    return $.global.MDUX_YIELD_TO_UI ? "true" : "false";
+}
+
+function MDUX_getYieldToUIBridge() {
+    return MDUX_isYieldToUIEnabled() ? "true" : "false";
+}
+
 function MDUX_resetSessionStateBridge() {
     var cleared = [];
 

@@ -72,6 +72,20 @@ for (var dbgKey in MDUX_DEBUG_DEFAULTS) {
 // ============================================================================
 
 // ============================================================================
+// UI YIELD CONFIGURATION
+// ============================================================================
+if (typeof $.global.MDUX_YIELD_TO_UI === "undefined") {
+    $.global.MDUX_YIELD_TO_UI = true;
+}
+if (typeof $.global.MDUX_YIELD_TO_UI_INTERVAL === "undefined") {
+    $.global.MDUX_YIELD_TO_UI_INTERVAL = 40; // ms throttle for yielding
+}
+if (typeof $.global.MDUX_LAST_YIELD_TIME === "undefined") {
+    $.global.MDUX_LAST_YIELD_TIME = 0;
+}
+// ============================================================================
+
+// ============================================================================
 // PYTHON GEOMETRY BRIDGE - High-performance geometry operations
 // ============================================================================
 $.global.MDUX_USE_PYTHON = true;
@@ -219,9 +233,12 @@ var PythonBridge = (function() {
             $.sleep(pollInterval);
             waited += pollInterval;
 
+            // Yield to UI to keep Illustrator responsive during Python wait
+            try { if (typeof yieldToUI === "function") yieldToUI(); } catch (e) { }
+
             // Update progress window if available (keeps UI responsive)
-            if (waited % 200 === 0 && $.global.MDUX_PROGRESS_WIN) {
-                try { $.global.MDUX_PROGRESS_WIN.update(); } catch (e) { }
+            if (waited % 200 === 0) {
+                try { if ($.global.MDUX_PROGRESS_WIN) $.global.MDUX_PROGRESS_WIN.update(); } catch (e) { }
             }
 
             // Check for output file (create fresh File object to avoid caching)
@@ -315,10 +332,30 @@ var PythonBridge = (function() {
 $.global.PythonBridge = PythonBridge;
 // ============================================================================
 
-// Emergency Shim: Define yieldToUI globally to prevent ReferenceError if any calls remain.
-// This function intentionally does nothing.
-if (typeof yieldToUI === "undefined") {
-    var yieldToUI = function () { };
+// Yield to UI during long loops to keep Illustrator responsive.
+function yieldToUI(force) {
+    try {
+        if ($.global.MDUX_YIELD_TO_UI === false) return;
+    } catch (e) { return; }
+
+    var now = new Date().getTime();
+    var interval = 75;
+    try {
+        if (typeof $.global.MDUX_YIELD_TO_UI_INTERVAL !== "undefined") {
+            interval = $.global.MDUX_YIELD_TO_UI_INTERVAL;
+        }
+    } catch (e) { }
+
+    if (!force) {
+        var last = 0;
+        try { last = $.global.MDUX_LAST_YIELD_TIME || 0; } catch (e) { last = 0; }
+        if (now - last < interval) return;
+    }
+
+    try { $.global.MDUX_LAST_YIELD_TIME = now; } catch (e) { }
+    try { if (typeof app !== "undefined" && app && app.redraw) app.redraw(); } catch (e) { }
+    try { if ($.global.MDUX_PROGRESS_WIN) $.global.MDUX_PROGRESS_WIN.update(); } catch (e) { }
+    try { $.sleep(8); } catch (e) { }
 }
 
 /**
@@ -16249,6 +16286,7 @@ function isDuctworkLineLayer(name) {
                                     progressWin.update();
                                 } catch (e) { }
                             }
+                            try { yieldToUI(); } catch (e) { }
                         }
                     }
                     if (restoreEndpointConnections(preOrthoConnections)) changed = true;
@@ -18146,7 +18184,7 @@ function isDuctworkLineLayer(name) {
             // For each register, check only nearby paths (spatial hash lookup)
             for (var rcIdx = 0; rcIdx < registerCenters.length; rcIdx++) {
                 var regCenter = registerCenters[rcIdx];
-                // if (rcIdx % 10 === 0) yieldToUI();
+                if (rcIdx % 10 === 0) yieldToUI();
 
                 // Find which cell this register is in
                 var regCellX = Math.floor(regCenter[0] / RC_CELL_SIZE);
@@ -18738,7 +18776,7 @@ function isDuctworkLineLayer(name) {
                 // UI yield every 100 cells
                 segCheckCount++;
                 if (segCheckCount % 100 === 0) {
-                    // yieldToUI();
+                    yieldToUI();
                 }
 
                 // Check all segment pairs in this cell
@@ -19996,7 +20034,7 @@ function isDuctworkLineLayer(name) {
                     var pts = path.pathPoints;
                     // UI yield with app.redraw
                     if (pathIdx % 10 === 0) {
-                        // yieldToUI();
+                        yieldToUI();
                     }
 
                     // Get candidate paths from shared cells
@@ -21416,6 +21454,7 @@ function isDuctworkLineLayer(name) {
 
                     for (var i = 0; i < COMPONENT_TYPES.length; i++) {
                         placeComponentAtAnchorPoints_local(docParam, COMPONENT_TYPES[i], globalScale, selectedPaths, CACHED_IGNORED_ANCHORS, selectionBounds_placement, EXISTING_UNIT_POSITIONS);
+                        try { yieldToUI(); } catch (e) { }
                     }
                 }
 
@@ -21504,6 +21543,9 @@ function isDuctworkLineLayer(name) {
                                 }
                             } catch (e) {
                                 // Item may be invalid after copy/paste
+                            }
+                            if (pi % 200 === 0) {
+                                try { yieldToUI(); } catch (e) { }
                             }
                         }
                         if (removedCount > 0) {
@@ -21611,6 +21653,9 @@ function isDuctworkLineLayer(name) {
                         var aInfo = anchorPts[ai];
                         var aKey = aInfo.pos[0].toFixed(2) + "_" + aInfo.pos[1].toFixed(2);
                         anchorRotations[aKey] = aInfo.rotation;
+                        if (ai > 0 && ai % 200 === 0) {
+                            try { yieldToUI(); } catch (e) { }
+                        }
                     }
 
                     // Build list of existing items with their positions (tolerance-based matching)
@@ -21718,6 +21763,9 @@ function isDuctworkLineLayer(name) {
                         } catch (e) {
                             // Item may be invalid after copy/paste
                         }
+                        if (i > 0 && i % 200 === 0) {
+                            try { yieldToUI(); } catch (e) { }
+                        }
                     }
 
                     var PLACEMENT_BATCH_SIZE = 15; // Update progress every 15 placements
@@ -21730,6 +21778,7 @@ function isDuctworkLineLayer(name) {
                                     progressWin.update();
                                 } catch (e) { }
                             }
+                            try { yieldToUI(); } catch (e) { }
                         }
                         var info = anchorPts[j];
                         var a = info.pos;
