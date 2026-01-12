@@ -12,8 +12,21 @@
     // const applyIgnoreBtn = document.getElementById('apply-ignore-btn'); // Removed - button no longer exists
     // const ignoreStatus = document.getElementById('ignore-status'); // Removed - status no longer exists
     const reloadBtn = document.getElementById('reload-btn');
+    const extensionId = 'com.chris.magicductwork.panel';
+    function reloadExtensionView() {
+        try {
+            const base = window.location.href.split('?')[0];
+            window.location.href = base + '?v=' + Date.now();
+            return;
+        } catch (e) {
+            console.error('View reload failed:', e);
+        }
+        window.location.reload();
+    }
     const debugStatus = document.getElementById('debug-status');
     const debugLoggingOption = document.getElementById('debug-logging-option');
+    const devModeOption = document.getElementById('dev-mode-option');
+    const yieldToUiOption = document.getElementById('yield-to-ui-option');
     const resetSessionBtn = document.getElementById('reset-session-btn');
     const skipOrthoOption = document.getElementById('skip-ortho-option');
     const rotationInput = document.getElementById('rotation-input');
@@ -169,7 +182,13 @@
     }
 
     async function ensureBridgeLoaded() {
-        // Check if bridge is already loaded to avoid unnecessary reloads
+        // DEV MODE: always reload JSX if enabled
+        const devMode = devModeOption && devModeOption.checked;
+        if (devMode) {
+            await forceReloadScripts();
+            return;
+        }
+        // Normal mode: only load once per session
         if (bridgeReloaded) {
             return;
         }
@@ -189,6 +208,42 @@
         }
         bridgeReloaded = true;
         debugStatus.textContent = 'Bridge ready: ' + bridgePath.replace(/\\/g, '/');
+    }
+
+    async function forceReloadScripts() {
+        bridgeReloaded = false;
+        const root = csInterface.getSystemPath(CSInterface.SystemPath.EXTENSION).replace(/\\/g, '/');
+        const bridge = escapeForExtendScript(root + '/jsx/panel-bridge.jsx');
+        const gapTools = escapeForExtendScript(root + '/jsx/gap-tools.jsx');
+        const clearScript = '(function(){' +
+            'var cleared = [];' +
+            'for (var key in $.global) {' +
+            '  if (key.indexOf("MDUX") === 0) {' +
+            '    delete $.global[key];' +
+            '    cleared.push(key);' +
+            '  }' +
+            '}' +
+            'return cleared.length;' +
+            '})()';
+        await evalScript(clearScript);
+        const loadScript = '(function(){' +
+            'try {' +
+            ' $.evalFile("' + gapTools + '");' +
+            ' $.evalFile("' + bridge + '");' +
+            ' return "OK";' +
+            ' } catch (e) {' +
+            ' return "ERROR:" + e;' +
+            ' }' +
+            '})()';
+        const result = await evalScript(loadScript);
+        if (typeof result === 'string' && result.indexOf('ERROR:') === 0) {
+            console.error('Script reload failed:', result);
+            debugStatus.textContent = 'Script reload failed: ' + result.substring(6);
+        } else {
+            bridgeReloaded = true;
+            debugStatus.textContent = 'JSX reloaded @ ' + new Date().toLocaleTimeString();
+        }
+        return result;
     }
 
     function scheduleSkipOrthoRefresh() {
@@ -275,6 +330,18 @@
         debugLoggingOption.checked = String(result.value).toLowerCase() === 'true';
     }
 
+    async function refreshYieldToUiState() {
+        if (!yieldToUiOption) return;
+        try {
+            await ensureBridgeLoaded();
+        } catch (e) {
+            return;
+        }
+        const result = normaliseResult(await evalScript('MDUX_getYieldToUIBridge()'));
+        if (!result.ok) return;
+        yieldToUiOption.checked = String(result.value).toLowerCase() === 'true';
+    }
+
     async function setDebugLoggingState(enabled) {
         if (!debugLoggingOption) return;
         try {
@@ -285,6 +352,19 @@
         const result = normaliseResult(await evalScript('MDUX_setDebugEnabledBridge(' + (enabled ? 'true' : 'false') + ')'));
         if (!result.ok && debugStatus) {
             debugStatus.textContent = 'Debug toggle error: ' + result.value;
+        }
+    }
+
+    async function setYieldToUiState(enabled) {
+        if (!yieldToUiOption) return;
+        try {
+            await ensureBridgeLoaded();
+        } catch (e) {
+            return;
+        }
+        const result = normaliseResult(await evalScript('MDUX_setYieldToUIBridge(' + (enabled ? 'true' : 'false') + ')'));
+        if (!result.ok && debugStatus) {
+            debugStatus.textContent = 'Yield toggle error: ' + result.value;
         }
     }
 
@@ -1352,18 +1432,22 @@
         });
     }
 
-    reloadBtn.addEventListener('click', () => window.location.reload());
+    reloadBtn.addEventListener('click', () => {
+        forceReloadScripts().finally(() => reloadExtensionView());
+    });
 
     // Refresh button (top right)
     const refreshBtnTop = document.getElementById('refresh-btn-top');
     if (refreshBtnTop) {
-        refreshBtnTop.addEventListener('click', () => window.location.reload());
+        refreshBtnTop.addEventListener('click', () => {
+            forceReloadScripts().finally(() => reloadExtensionView());
+        });
     }
 
     // Add keyboard shortcut for reloading (F5)
     window.addEventListener('keydown', (e) => {
         if (e.key === 'F5') {
-            window.location.reload();
+            forceReloadScripts().finally(() => reloadExtensionView());
         }
         // ESC to close debug log
         if (e.key === 'Escape') {
@@ -1528,6 +1612,7 @@
             const testNoteBtn = document.getElementById('test-note-btn');
             const viewLogBtn = document.getElementById('view-log-btn');
             const clearLogBtn = document.getElementById('clear-log-btn');
+            const reloadJsxBtn = document.getElementById('reload-jsx-btn');
             const debugLogModal = document.getElementById('debug-log-modal');
             const closeLogBtn = document.getElementById('close-log-btn');
             const debugLogContent = document.getElementById('debug-log-content');
@@ -1577,8 +1662,19 @@
                         debugStatus.textContent = result || 'Session state reset';
                         scheduleSkipOrthoRefresh();
                         refreshDebugLoggingState().catch(function () { });
+                        refreshYieldToUiState().catch(function () { });
                     } catch (e) {
                         debugStatus.textContent = 'Reset failed: ' + e.message;
+                    }
+                });
+            }
+
+            if (reloadJsxBtn) {
+                reloadJsxBtn.addEventListener('click', async () => {
+                    try {
+                        await forceReloadScripts();
+                    } catch (e) {
+                        debugStatus.textContent = 'Reload JSX failed: ' + e.message;
                     }
                 });
             }
@@ -1592,6 +1688,12 @@
             if (debugLoggingOption) {
                 debugLoggingOption.addEventListener('change', () => {
                     setDebugLoggingState(debugLoggingOption.checked);
+                });
+            }
+
+            if (yieldToUiOption) {
+                yieldToUiOption.addEventListener('change', () => {
+                    setYieldToUiState(yieldToUiOption.checked);
                 });
             }
 
@@ -1631,6 +1733,7 @@
             if (skipFinalOption) skipFinalOption.checked = true;  // Default to checked
             if (createRegisterWiresOption) createRegisterWiresOption.checked = false;
             if (debugLoggingOption) debugLoggingOption.checked = true;
+            if (yieldToUiOption) yieldToUiOption.checked = true;
             // Scale controls are hidden - only set values if they exist
             if (scaleSlider) scaleSlider.value = 100;
             if (scaleLabel) scaleLabel.textContent = '100%';
@@ -1674,6 +1777,7 @@
             refreshSkipOrthoState().catch(function () { });
             refreshRotationOverrideState().catch(function () { });
             refreshDebugLoggingState().catch(function () { });
+            refreshYieldToUiState().catch(function () { });
             refreshDocScale().catch(function () { });
 
             // SMART POLLING: Only refresh when selection actually changes

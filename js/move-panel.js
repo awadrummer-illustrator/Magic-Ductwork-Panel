@@ -13,6 +13,17 @@
     const moveStatus = document.getElementById('move-status');
     const debugStatus = document.getElementById('debug-status');
     const reloadBtn = document.getElementById('reload-btn');
+    const extensionId = 'com.chris.magicductwork.movepanel';
+    function reloadExtensionView() {
+        try {
+            const base = window.location.href.split('?')[0];
+            window.location.href = base + '?v=' + Date.now();
+            return;
+        } catch (e) {
+            console.error('View reload failed:', e);
+        }
+        window.location.reload();
+    }
 
     let bridgeReloaded = false;
 
@@ -142,7 +153,9 @@
         moveToIgnoreBtn.addEventListener('click', () => {
             moveToLayer('Ignored', null);
         });
-        reloadBtn.addEventListener('click', () => window.location.reload());
+        reloadBtn.addEventListener('click', () => {
+            reloadExtensionView();
+        });
     }
 
     async function initialise() {
