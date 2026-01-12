@@ -160,13 +160,16 @@ function MDUX_getMetadata(item) {
         var note = item.note || "";
         if (!note || note.indexOf("MDUX_META:") !== 0) return null;
         var jsonStr = note.substring(10); // Remove "MDUX_META:" prefix
-
+        // Strip pipe tokens and any trailing chars after the JSON
+        var pipeIdx = jsonStr.indexOf("|");
+        if (pipeIdx !== -1) {
+            jsonStr = jsonStr.substring(0, pipeIdx);
+        }
         // Fix corrupted metadata: strip any trailing chars after the closing brace
         var lastBrace = jsonStr.lastIndexOf("}");
         if (lastBrace !== -1 && lastBrace < jsonStr.length - 1) {
             jsonStr = jsonStr.substring(0, lastBrace + 1);
         }
-
         return JSON.parse(jsonStr);
     } catch (e) {
         return null;
@@ -176,7 +179,20 @@ function MDUX_getMetadata(item) {
 function MDUX_setMetadata(item, metadata) {
     try {
         var jsonStr = JSON.stringify(metadata);
-        item.note = "MDUX_META:" + jsonStr;
+        var existingNote = "";
+        try { existingNote = item.note || ""; } catch (e) { existingNote = ""; }
+        var pipeSuffix = "";
+        if (existingNote) {
+            if (existingNote.indexOf("MDUX_META:") === 0) {
+                var pipeIdx = existingNote.indexOf("|");
+                if (pipeIdx !== -1) {
+                    pipeSuffix = existingNote.substring(pipeIdx);
+                }
+            } else {
+                pipeSuffix = "|" + existingNote;
+            }
+        }
+        item.note = "MDUX_META:" + jsonStr + pipeSuffix;
     } catch (e) {
         // Silent fail - logging here would be expensive
     }

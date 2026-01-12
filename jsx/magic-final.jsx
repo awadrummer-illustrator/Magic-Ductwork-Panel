@@ -1892,8 +1892,21 @@ function writeNoteTokens(pathItem, tokens) {
             if (token.length > 0) result.push(token);
         }
     }
+    var metaPrefix = "";
     try {
-        pathItem.note = result.join('|');
+        var existingNote = getNoteString(pathItem);
+        if (existingNote.indexOf("MDUX_META:") === 0) {
+            var pipeIdx = existingNote.indexOf("|");
+            metaPrefix = (pipeIdx === -1) ? existingNote : existingNote.substring(0, pipeIdx);
+        }
+    } catch (e) { }
+    try {
+        var joined = result.join('|');
+        if (metaPrefix) {
+            pathItem.note = metaPrefix + (joined ? "|" + joined : "");
+        } else {
+            pathItem.note = joined;
+        }
     } catch (e) { }
 }
 
@@ -2875,13 +2888,18 @@ function MDUX_setMetadata(item, metadata) {
         var existingNote = "";
         try { existingNote = item.note || ""; } catch (e) { existingNote = ""; }
         var pipeSuffix = "";
-        if (existingNote.indexOf("MDUX_META:") === 0) {
-            var pipeIdx = existingNote.indexOf("|");
-            if (pipeIdx !== -1) {
-                pipeSuffix = existingNote.substring(pipeIdx); // Keep everything from first | onwards
-                if (typeof MDUX_debugLog === 'function') {
-                    MDUX_debugLog("[META SET] Preserving pipe tokens: " + pipeSuffix.substring(0, 100));
+        if (existingNote) {
+            if (existingNote.indexOf("MDUX_META:") === 0) {
+                var pipeIdx = existingNote.indexOf("|");
+                if (pipeIdx !== -1) {
+                    pipeSuffix = existingNote.substring(pipeIdx); // Keep everything from first | onwards
+                    if (typeof MDUX_debugLog === 'function') {
+                        MDUX_debugLog("[META SET] Preserving pipe tokens: " + pipeSuffix.substring(0, 100));
+                    }
                 }
+            } else {
+                // Preserve non-MDUX_META tokens by appending them after new metadata
+                pipeSuffix = "|" + existingNote;
             }
         }
 
@@ -3213,10 +3231,15 @@ function setStaticTextColor(control, rgbArray) {
                 var existingNote = "";
                 try { existingNote = item.note || ""; } catch (e) { existingNote = ""; }
                 var pipeSuffix = "";
-                if (existingNote.indexOf("MDUX_META:") === 0) {
-                    var pipeIdx = existingNote.indexOf("|");
-                    if (pipeIdx !== -1) {
-                        pipeSuffix = existingNote.substring(pipeIdx); // Keep everything from first | onwards
+                if (existingNote) {
+                    if (existingNote.indexOf("MDUX_META:") === 0) {
+                        var pipeIdx = existingNote.indexOf("|");
+                        if (pipeIdx !== -1) {
+                            pipeSuffix = existingNote.substring(pipeIdx); // Keep everything from first | onwards
+                        }
+                    } else {
+                        // Preserve non-MDUX_META tokens by appending them after new metadata
+                        pipeSuffix = "|" + existingNote;
                     }
                 }
 
@@ -6058,8 +6081,21 @@ function isDuctworkLineLayer(name) {
                     if (token.length > 0) result.push(token);
                 }
             }
+            var metaPrefix = "";
             try {
-                pathItem.note = result.join('|');
+                var existingNote = getNoteString(pathItem);
+                if (existingNote.indexOf("MDUX_META:") === 0) {
+                    var pipeIdx = existingNote.indexOf("|");
+                    metaPrefix = (pipeIdx === -1) ? existingNote : existingNote.substring(0, pipeIdx);
+                }
+            } catch (e) { }
+            try {
+                var joined = result.join('|');
+                if (metaPrefix) {
+                    pathItem.note = metaPrefix + (joined ? "|" + joined : "");
+                } else {
+                    pathItem.note = joined;
+                }
             } catch (e) { }
         }
 
@@ -16727,9 +16763,16 @@ function isDuctworkLineLayer(name) {
 
                         // Store stroke width on individual paths for later use
                         try {
-                            var splitMeta = { MDUX_PreCompoundScale: preCompoundScale, MDUX_EarlySplitPath: true };
-                            MDUX_setMetadata(targetPath, splitMeta);
-                            MDUX_setMetadata(dupPath, splitMeta);
+                            var splitMetaA = MDUX_getMetadata(targetPath) || {};
+                            splitMetaA.MDUX_PreCompoundScale = preCompoundScale;
+                            splitMetaA.MDUX_EarlySplitPath = true;
+                            MDUX_setMetadata(targetPath, splitMetaA);
+
+                            var splitMetaB = MDUX_getMetadata(dupPath) || {};
+                            splitMetaB.MDUX_PreCompoundScale = preCompoundScale;
+                            splitMetaB.MDUX_EarlySplitPath = true;
+                            MDUX_setMetadata(dupPath, splitMetaB);
+
                             addDebug("[POST-ORTHO-SPLIT] Stored preCompoundScale=" + preCompoundScale + " on both split paths");
                         } catch (eStoreMeta) {
                             addDebug("[POST-ORTHO-SPLIT] Failed to store metadata: " + eStoreMeta);
