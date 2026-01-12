@@ -10300,6 +10300,10 @@ function isDuctworkLineLayer(name) {
                             addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment but endpoint is IGNORED - WILL ortho");
                             return true; // Ortho this segment normally
                         }
+                        if (!registerEndpointHasRegister) {
+                            addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment but no register found - WILL ortho");
+                            return true; // Ortho when no register exists at endpoint
+                        }
                         addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment on branch - SKIPPING ortho");
                         return false;
                     }
@@ -15061,12 +15065,26 @@ function isDuctworkLineLayer(name) {
             var ahuAnchors = [];
             try { ahuAnchors = getExistingAnchorPoints(["AHU"]) || []; } catch (eAhu) { ahuAnchors = []; }
 
+            var registerAnchors = [];
+            try {
+                registerAnchors = getExistingAnchorPoints([
+                    "Square Registers",
+                    "Rectangular Registers",
+                    "Circular Registers",
+                    "Exhaust Registers",
+                    "Secondary Exhaust Registers",
+                    "Orange Register"
+                ]) || [];
+            } catch (eRegs) { registerAnchors = []; }
+
             var UNIT_TOL = 10;
             var AHU_TOL = 10;
+            var REGISTER_TOL = 10;
             var ENDPOINT_TOL = 15;
             var T_JUNCTION_TOL = 3;
             var UNIT_TOL2 = UNIT_TOL * UNIT_TOL;
             var AHU_TOL2 = AHU_TOL * AHU_TOL;
+            var REGISTER_TOL2 = REGISTER_TOL * REGISTER_TOL;
             var ENDPOINT_TOL2 = ENDPOINT_TOL * ENDPOINT_TOL;
             var T_JUNCTION_TOL2 = T_JUNCTION_TOL * T_JUNCTION_TOL;
 
@@ -15094,6 +15112,12 @@ function isDuctworkLineLayer(name) {
                     if (isNearSelectionBounds(ahuAnchors[fa], boundTol)) filteredAhu.push(ahuAnchors[fa]);
                 }
                 ahuAnchors = filteredAhu;
+
+                var filteredRegs = [];
+                for (var fr = 0; fr < registerAnchors.length; fr++) {
+                    if (isNearSelectionBounds(registerAnchors[fr], boundTol)) filteredRegs.push(registerAnchors[fr]);
+                }
+                registerAnchors = filteredRegs;
             }
 
             function pointNearAny(pt, anchors, tol2) {
@@ -15147,7 +15171,8 @@ function isDuctworkLineLayer(name) {
                     path: spath,
                     layer: layerName,
                     endpoints: [],
-                    segments: []
+                    segments: [],
+                    length: 0
                 };
 
                 if (!spath.closed) {
@@ -15157,6 +15182,9 @@ function isDuctworkLineLayer(name) {
                 }
 
                 for (var si = 0; si < pts.length - 1; si++) {
+                    var segDxLen = pts[si + 1].anchor[0] - pts[si].anchor[0];
+                    var segDyLen = pts[si + 1].anchor[1] - pts[si].anchor[1];
+                    info.length += Math.sqrt(segDxLen * segDxLen + segDyLen * segDyLen);
                     info.segments.push({
                         index: si,
                         start: [pts[si].anchor[0], pts[si].anchor[1]],
@@ -15223,10 +15251,15 @@ function isDuctworkLineLayer(name) {
                     var unitSegment = !unitEndpoint && pathHasAnchorNearSegment(infoSeed, unitAnchors, UNIT_TOL2);
                     var ahuEndpoint = pathHasEndpointNear(infoSeed, ahuAnchors, AHU_TOL2);
                     var ahuSegment = !ahuEndpoint && pathHasAnchorNearSegment(infoSeed, ahuAnchors, AHU_TOL2);
+                    var registerEndpoint = pathHasEndpointNear(infoSeed, registerAnchors, REGISTER_TOL2);
 
                     if (isBlue) {
                         if (unitEndpoint || unitSegment) {
                             if (assignRole(siSeed, "trunk", unitEndpoint ? "unit-endpoint" : "unit-segment", true)) {
+                                seedCount++;
+                            }
+                        } else if (registerEndpoint) {
+                            if (assignRole(siSeed, "branch", "register-endpoint", true)) {
                                 seedCount++;
                             }
                         }
@@ -15237,6 +15270,10 @@ function isDuctworkLineLayer(name) {
                             }
                         } else if (unitEndpoint || unitSegment) {
                             if (assignRole(siSeed, "branch", unitEndpoint ? "unit-endpoint" : "unit-segment", true)) {
+                                seedCount++;
+                            }
+                        } else if (registerEndpoint) {
+                            if (assignRole(siSeed, "branch", "register-endpoint", true)) {
                                 seedCount++;
                             }
                         }
@@ -15340,6 +15377,67 @@ function isDuctworkLineLayer(name) {
                     if (roles[qr]) queue.push(qr);
                 }
 
+                // Fallback: ensure at least one trunk per connected component
+                // when no explicit trunk seed was found (units/AHU missing).
+                var visitedFallback = [];
+                for (var vf = 0; vf < roles.length; vf++) visitedFallback[vf] = false;
+                var fallbackSeeds = 0;
+
+                for (var vfIdx = 0; vfIdx < roles.length; vfIdx++) {
+                    if (visitedFallback[vfIdx]) continue;
+                    // Build component via adjacency
+                    var compQueue = [vfIdx];
+                    var comp = [];
+                    visitedFallback[vfIdx] = true;
+                    while (compQueue.length > 0) {
+                        var cur = compQueue.pop();
+                        comp.push(cur);
+                        var edges = adjacency[cur] || [];
+                        for (var ce = 0; ce < edges.length; ce++) {
+                            var conn = edges[ce];
+                            var otherIdx = null;
+                            if (conn.type === "endpoint-endpoint") {
+                                otherIdx = (conn.a === cur) ? conn.b : conn.a;
+                            } else if (conn.type === "endpoint-segment") {
+                                otherIdx = (conn.end === cur) ? conn.seg : conn.end;
+                            } else if (conn.type === "segment-segment") {
+                                otherIdx = (conn.a === cur) ? conn.b : conn.a;
+                            }
+                            if (otherIdx === null || visitedFallback[otherIdx]) continue;
+                            visitedFallback[otherIdx] = true;
+                            compQueue.push(otherIdx);
+                        }
+                    }
+
+                    // Check if component already has a trunk
+                    var compHasTrunk = false;
+                    for (var cci = 0; cci < comp.length; cci++) {
+                        if (roles[comp[cci]] === "trunk") { compHasTrunk = true; break; }
+                    }
+
+                    if (!compHasTrunk) {
+                        // Pick fallback trunk: highest degree, then longest length
+                        var bestIdx = comp[0];
+                        var bestDeg = (adjacency[bestIdx] || []).length;
+                        var bestLen = pathInfos[bestIdx].length || 0;
+                        for (var cb = 1; cb < comp.length; cb++) {
+                            var idx = comp[cb];
+                            var deg = (adjacency[idx] || []).length;
+                            var len = pathInfos[idx].length || 0;
+                            if (deg > bestDeg || (deg === bestDeg && len > bestLen)) {
+                                bestIdx = idx;
+                                bestDeg = deg;
+                                bestLen = len;
+                            }
+                        }
+                        if (assignRole(bestIdx, "trunk", "fallback-topology", true)) {
+                            queue.push(bestIdx);
+                            fallbackSeeds++;
+                            seedCount++;
+                        }
+                    }
+                }
+
                 function enqueueRole(idx, role, reason) {
                     var updated = assignRole(idx, role, reason, false);
                     if (updated) queue.push(idx);
@@ -15397,7 +15495,7 @@ function isDuctworkLineLayer(name) {
 
             addDebug("[ROLE-CLASSIFY] Classified " + totalPaths + " selected ductwork path(s): trunk=" + trunkCount +
                 ", branch=" + branchCount + ", unknown=" + unknownCount + ", seeds=" + seedCount + " (units=" + unitAnchors.length +
-                ", thermostatEndpoints=" + thermostatEndpointCount + ", ahu=" + ahuAnchors.length + ")");
+                ", thermostatEndpoints=" + thermostatEndpointCount + ", ahu=" + ahuAnchors.length + ", registers=" + registerAnchors.length + ")");
         }
 
         // STEP 1: Process selected paths (snap, orthogonalize)
