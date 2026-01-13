@@ -15739,22 +15739,38 @@ function isDuctworkLineLayer(name) {
                     if (!bfPts || bfPts.length < 2) continue;
                     var lastIdx = bfPts.length - 1;
 
+                    // Check endpoint-to-endpoint connections FIRST (more reliable than potentially stale metadata)
+                    var firstConnected = endpointHasConnectionPair(bfPath, 0);
+                    var lastConnected = endpointHasConnectionPair(bfPath, lastIdx);
+
+                    // If EITHER endpoint has an endpoint-to-endpoint connection, this is NOT a pure register branch
+                    // (it's a transitional segment or trunk connector) - should be fully ortho'd
+                    if (firstConnected || lastConnected) {
+                        addDebug("[SKIP-FINAL] Skipping path with endpoint-to-endpoint connection - not pure register branch");
+                        continue;
+                    }
+
+                    // Now check metadata or fallback classification
                     var ductRole = getDuctRoleForPath(bfPath);
-                    var roleFromMetadata = (ductRole === "branch" || ductRole === "trunk");
                     var isBranch = false;
                     if (ductRole === "branch") {
                         isBranch = true;
                     } else if (ductRole === "trunk") {
                         isBranch = false;
                     } else {
-                        var firstConnected = endpointHasConnectionPair(bfPath, 0);
-                        var lastConnected = endpointHasConnectionPair(bfPath, lastIdx);
-                        if (!firstConnected && !lastConnected) {
-                            isBranch = true;
-                        }
+                        // Fallback: if no metadata and no endpoint connections, it's likely a branch
+                        isBranch = true;
                     }
 
                     if (!isBranch) continue;
+
+                    // Skip single-segment branches - they should ALWAYS be ortho'd per line 10294
+                    // (single-segment paths connecting to registers must be ortho'd regardless of skip-final setting)
+                    var totalBranchSegments = bfPts.length - 1; // open path: segments = points - 1
+                    if (totalBranchSegments === 1) {
+                        addDebug("[SKIP-FINAL] Skipping single-segment branch (points=" + bfPts.length + ") - always ortho");
+                        continue;
+                    }
 
                     var firstTJunctions = endpointHasTJunction(bfPath, 0);
                     var lastTJunctions = endpointHasTJunction(bfPath, lastIdx);
@@ -15773,6 +15789,13 @@ function isDuctworkLineLayer(name) {
                     var endPt = bfPts[endIndex].anchor;
                     if (endpointHasIgnoreMarker(bfPath, endpointName)) continue;
                     if (endpointNearIgnoredAnchor(endPt)) continue;
+
+                    // CRITICAL: Only capture branches that actually have a register at the endpoint
+                    // If no register exists, the branch should be fully ortho'd
+                    if (!endpointNearRegister(endPt)) {
+                        addDebug("[SKIP-FINAL] Skipping branch - no register found at endpoint [" + endPt[0].toFixed(1) + "," + endPt[1].toFixed(1) + "]");
+                        continue;
+                    }
 
                     var jointPt = bfPts[jointIndex].anchor;
                     var dxFinal = endPt[0] - jointPt[0];
