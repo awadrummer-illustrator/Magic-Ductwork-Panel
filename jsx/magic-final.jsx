@@ -9280,6 +9280,49 @@ function isDuctworkLineLayer(name) {
             return;
         }
 
+        function pathMatchesPreOrthoGeometry(pathItem, geometry, tol) {
+            if (!pathItem || !geometry || !geometry.points) return false;
+            var pts = null;
+            try { pts = pathItem.pathPoints; } catch (e) { pts = null; }
+            if (!pts || pts.length !== geometry.points.length) return false;
+            if (typeof geometry.closed !== "undefined") {
+                try { if (!!pathItem.closed !== !!geometry.closed) return false; } catch (eClosed) { }
+            }
+            var t = (typeof tol === "number") ? tol : 0.05;
+            for (var i = 0; i < pts.length; i++) {
+                var a = null;
+                try { a = pts[i].anchor; } catch (eA) { a = null; }
+                var b = geometry.points[i] ? geometry.points[i].anchor : null;
+                if (!a || !b) return false;
+                if (Math.abs(a[0] - b[0]) > t || Math.abs(a[1] - b[1]) > t) return false;
+            }
+            return true;
+        }
+
+        // Clear stale ortho locks when selection already matches stored pre-ortho geometry (undo/revert scenarios).
+        try {
+            var staleChecked = 0;
+            var staleCleared = 0;
+            for (var staleIdx = 0; staleIdx < allPaths.length; staleIdx++) {
+                var stalePath = allPaths[staleIdx];
+                if (!stalePath) continue;
+                if (!hasNoteTag(stalePath, ORTHO_LOCK_TAG)) continue;
+                var staleGeom = getPreOrthoGeometry(stalePath);
+                if (!staleGeom) continue;
+                staleChecked++;
+                if (pathMatchesPreOrthoGeometry(stalePath, staleGeom, 0.05)) {
+                    clearPreOrthoGeometry(stalePath);
+                    removeNoteTag(stalePath, ORTHO_LOCK_TAG);
+                    staleCleared++;
+                }
+            }
+            if (staleCleared > 0) {
+                addDebug("[PRE-ORTHO-CLEAN] Cleared stale ortho tags on " + staleCleared + " path(s) (checked " + staleChecked + ")");
+            }
+        } catch (eStale) {
+            addDebug("[PRE-ORTHO-CLEAN] Error: " + eStale);
+        }
+
         // CRITICAL: Calculate and store selection bounds EARLY for use in STEP 2 and STEP 7
         // This must happen BEFORE paths are processed/compounded
         $.global.MDUX_SELECTION_BOUNDS = {

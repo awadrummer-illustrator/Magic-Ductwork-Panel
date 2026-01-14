@@ -1123,13 +1123,20 @@ function MDUX_gapTools_findSegmentsNearPoint(paths, point, maxDist) {
 
     for (var i = 0; i < paths.length; i++) {
         var path = paths[i];
+        if (!MDUX_gapTools_isValidPath(path)) continue;
         var pts = null;
         try { pts = path.pathPoints; } catch (e) { pts = null; }
         if (!pts || pts.length < 2) continue;
 
         for (var s = 0; s < pts.length - 1; s++) {
-            var a = pts[s].anchor;
-            var b = pts[s + 1].anchor;
+            var a = null;
+            var b = null;
+            try {
+                a = pts[s].anchor;
+                b = pts[s + 1].anchor;
+            } catch (e) {
+                continue;
+            }
             var res = MDUX_gapTools_closestPointOnSegment(point, a, b);
             if (res.segLen < 0.01) continue;
             if (res.dist <= distLimit) {
@@ -1229,6 +1236,22 @@ function MDUX_gapTools_parseGapMetadata(note) {
     try { return JSON.parse(note.substring(9)); } catch (e) { return null; }
 }
 
+function MDUX_gapTools_getMarkerCenterFromPath(marker) {
+    if (!marker) return null;
+    try {
+        if (marker.pathPoints && marker.pathPoints.length >= 2) {
+            var mA = marker.pathPoints[0].anchor;
+            var mB = marker.pathPoints[marker.pathPoints.length - 1].anchor;
+            return [(mA[0] + mB[0]) / 2, (mA[1] + mB[1]) / 2];
+        }
+        if (marker.pathPoints && marker.pathPoints.length === 1) {
+            var mC = marker.pathPoints[0].anchor;
+            return [mC[0], mC[1]];
+        }
+    } catch (e) { }
+    return null;
+}
+
 function MDUX_gapTools_getMarkerInfo(marker) {
     var meta = null;
     try { meta = MDUX_gapTools_parseGapMetadata(marker.note); } catch (e) { meta = null; }
@@ -1246,13 +1269,17 @@ function MDUX_gapTools_getMarkerInfo(marker) {
         if (meta.isAutoSized === false) isAutoSized = false;
     }
 
-    try {
-        if (!center && marker.pathPoints && marker.pathPoints.length >= 2) {
-            var mA = marker.pathPoints[0].anchor;
-            var mB = marker.pathPoints[marker.pathPoints.length - 1].anchor;
-            center = [(mA[0] + mB[0]) / 2, (mA[1] + mB[1]) / 2];
+    var geomCenter = MDUX_gapTools_getMarkerCenterFromPath(marker);
+    if (geomCenter) {
+        if (!center || MDUX_gapTools_pointDistance(center, geomCenter) > 0.5) {
+            center = geomCenter;
+            if (meta) {
+                meta.x = geomCenter[0];
+                meta.y = geomCenter[1];
+                try { marker.note = "MDUX_GAP:" + JSON.stringify(meta); } catch (e) { }
+            }
         }
-    } catch (e) { }
+    }
 
     try {
         if (!gapSize && marker.pathPoints && marker.pathPoints.length >= 2) {
@@ -1308,12 +1335,15 @@ function MDUX_gapTools_findGapMarkerNear(gapLayer, center, tol) {
         try {
             var item = gapLayer.pathItems[i];
             if (!item.note || item.note.indexOf("MDUX_GAP:") !== 0) continue;
-            var meta = MDUX_gapTools_parseGapMetadata(item.note);
             var pt = null;
-            if (meta && typeof meta.x === "number" && typeof meta.y === "number") {
-                pt = [meta.x, meta.y];
-            } else if (item.pathPoints && item.pathPoints.length > 0) {
-                pt = [item.pathPoints[0].anchor[0], item.pathPoints[0].anchor[1]];
+            pt = MDUX_gapTools_getMarkerCenterFromPath(item);
+            if (!pt) {
+                var meta = MDUX_gapTools_parseGapMetadata(item.note);
+                if (meta && typeof meta.x === "number" && typeof meta.y === "number") {
+                    pt = [meta.x, meta.y];
+                } else if (item.pathPoints && item.pathPoints.length > 0) {
+                    pt = [item.pathPoints[0].anchor[0], item.pathPoints[0].anchor[1]];
+                }
             }
             if (!pt) continue;
             var dist = MDUX_gapTools_pointDistance(center, pt);
@@ -1546,9 +1576,15 @@ function MDUX_gapTools_createGapMarker(doc, gapLayer, center, gapSize, sourceLay
             try {
                 var chk = gapLayer.pathItems[i];
                 if (!chk.note || chk.note.indexOf("MDUX_GAP:") !== 0) continue;
-                var meta = MDUX_gapTools_parseGapMetadata(chk.note);
-                if (!meta || typeof meta.x !== "number" || typeof meta.y !== "number") continue;
-                var dist = MDUX_gapTools_pointDistance(center, [meta.x, meta.y]);
+                var chkCenter = MDUX_gapTools_getMarkerCenterFromPath(chk);
+                if (!chkCenter) {
+                    var meta = MDUX_gapTools_parseGapMetadata(chk.note);
+                    if (meta && typeof meta.x === "number" && typeof meta.y === "number") {
+                        chkCenter = [meta.x, meta.y];
+                    }
+                }
+                if (!chkCenter) continue;
+                var dist = MDUX_gapTools_pointDistance(center, chkCenter);
                 if (dist < 10) { marker = chk; break; }
             } catch (e) { }
         }
@@ -2265,6 +2301,19 @@ function MDUX_recreateGapsInSelection() {
         var totalGapLayerItems = gapLayer.pathItems.length;
         var gapMarkersScanned = 0;
         traceMsg("RECREATE gapLayer has " + totalGapLayerItems + " items");
+        var restrictToSelectedIntersections = (selectedPaths && selectedPaths.length >= 2);
+        function MDUX_gapTools_centerMatchesSelection(center) {
+            if (!restrictToSelectedIntersections) return true;
+            if (!center) return false;
+            var hits = MDUX_gapTools_findIntersectingSegmentsAtPoint(selectedPaths, center, 12);
+            if (hits.length < 2) {
+                hits = MDUX_gapTools_findIntersectingSegmentsAtPoint(selectedPaths, center, 30);
+            }
+            if (hits.length < 2) return false;
+            var pair = MDUX_gapTools_chooseBestPairByDirection(hits);
+            if (!pair) return false;
+            return pair.dot < 0.9;
+        }
         for (var i = 0; i < gapLayer.pathItems.length; i++) {
             var item = gapLayer.pathItems[i];
             if (!item || !item.pathPoints || item.pathPoints.length < 1) continue;
@@ -2290,6 +2339,12 @@ function MDUX_recreateGapsInSelection() {
             if (!MDUX_gapTools_pointInBounds(center, bounds, 25)) {
                 if (type === "gap") {
                     traceMsg("RECREATE gapMarker outside bounds");
+                }
+                continue;
+            }
+            if (!MDUX_gapTools_centerMatchesSelection(center)) {
+                if (type === "gap") {
+                    traceMsg("RECREATE gapMarker skipped (not near selected intersection)");
                 }
                 continue;
             }
@@ -2323,6 +2378,7 @@ function MDUX_recreateGapsInSelection() {
         var processedCenters = []; // Track processed centers to avoid double-processing nearby targets
 
         for (var t = 0; t < targets.length; t++) {
+            activePaths = MDUX_gapTools_filterValidPaths(activePaths);
             var target = targets[t];
             var center = target.center;
             var info = target.info || {};
