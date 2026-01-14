@@ -34,3 +34,11 @@ _tmp_dev/Magic-Ductwork-Panel/js/panel.js
 
 # Auto Claude data directory
 .auto-claude/
+
+# Temporary Codex/Claude artifacts
+*.ps1
+tmpclaude-*-cwd
+conversation-extract.txt
+conversation-full.txt
+conversation-yesterday.txt
+temp_old_gap_tools.jsx
