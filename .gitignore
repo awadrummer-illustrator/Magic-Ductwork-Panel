@@ -26,3 +26,11 @@ css/style.css.bak
 
 # Standalone scripts (not part of extension)
 jsx/Generate 2K, 4K, 8K Renders With Automatic Compression.jsx
+check_log.txt
+debug_out.txt
+err_log.txt
+_tmp_dev/Magic-Ductwork-Panel/index.html
+_tmp_dev/Magic-Ductwork-Panel/js/panel.js
+
+# Auto Claude data directory
+.auto-claude/

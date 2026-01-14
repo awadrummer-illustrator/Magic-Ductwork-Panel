@@ -160,16 +160,13 @@ function MDUX_getMetadata(item) {
         var note = item.note || "";
         if (!note || note.indexOf("MDUX_META:") !== 0) return null;
         var jsonStr = note.substring(10); // Remove "MDUX_META:" prefix
-        // Strip pipe tokens and any trailing chars after the JSON
-        var pipeIdx = jsonStr.indexOf("|");
-        if (pipeIdx !== -1) {
-            jsonStr = jsonStr.substring(0, pipeIdx);
-        }
+
         // Fix corrupted metadata: strip any trailing chars after the closing brace
         var lastBrace = jsonStr.lastIndexOf("}");
         if (lastBrace !== -1 && lastBrace < jsonStr.length - 1) {
             jsonStr = jsonStr.substring(0, lastBrace + 1);
         }
+
         return JSON.parse(jsonStr);
     } catch (e) {
         return null;
@@ -179,20 +176,7 @@ function MDUX_getMetadata(item) {
 function MDUX_setMetadata(item, metadata) {
     try {
         var jsonStr = JSON.stringify(metadata);
-        var existingNote = "";
-        try { existingNote = item.note || ""; } catch (e) { existingNote = ""; }
-        var pipeSuffix = "";
-        if (existingNote) {
-            if (existingNote.indexOf("MDUX_META:") === 0) {
-                var pipeIdx = existingNote.indexOf("|");
-                if (pipeIdx !== -1) {
-                    pipeSuffix = existingNote.substring(pipeIdx);
-                }
-            } else {
-                pipeSuffix = "|" + existingNote;
-            }
-        }
-        item.note = "MDUX_META:" + jsonStr + pipeSuffix;
+        item.note = "MDUX_META:" + jsonStr;
     } catch (e) {
         // Silent fail - logging here would be expensive
     }
@@ -499,22 +483,6 @@ function MDUX_setDebugEnabledBridge(enabled) {
 
 function MDUX_getDebugEnabledBridge() {
     return MDUX_isDebugEnabled() ? "true" : "false";
-}
-
-function MDUX_isYieldToUIEnabled() {
-    if (typeof $.global.MDUX_YIELD_TO_UI !== "undefined") {
-        return !!$.global.MDUX_YIELD_TO_UI;
-    }
-    return true; // Default to enabled if config not loaded yet
-}
-
-function MDUX_setYieldToUIBridge(enabled) {
-    $.global.MDUX_YIELD_TO_UI = !!enabled;
-    return $.global.MDUX_YIELD_TO_UI ? "true" : "false";
-}
-
-function MDUX_getYieldToUIBridge() {
-    return MDUX_isYieldToUIEnabled() ? "true" : "false";
 }
 
 function MDUX_resetSessionStateBridge() {
@@ -3254,11 +3222,6 @@ function MDUX_mergePathsAtEndpoints() {
         }
 
         var TOLERANCE = 5.0; // Generous tolerance for matching endpoints
-        try {
-            if ($.global && typeof $.global.MDUX_MERGE_TOL === "number") {
-                TOLERANCE = $.global.MDUX_MERGE_TOL;
-            }
-        } catch (e) { }
         var mergeCount = 0;
         var removedPaths = [];
 
@@ -3295,8 +3258,9 @@ function MDUX_mergePathsAtEndpoints() {
             return false;
         }
 
-        // Helper: Merge path B into path A, removing BOTH junction anchors for a clean seamless join
-        function mergePaths(pathA, pathB, matchType) {
+        // Helper: Merge paths by creating a NEW path (avoids setEntirePath reference bug)
+        // Returns: { newPath: PathItem, pathsToRemove: [pathA, pathB] }
+        function mergePaths(pathA, pathB, matchType, targetLayer) {
             var ptsA = pathA.pathPoints;
             var ptsB = pathB.pathPoints;
 
@@ -3323,19 +3287,34 @@ function MDUX_mergePathsAtEndpoints() {
                 for (var i = 1; i < ptsA.length; i++) allPoints.push([ptsA[i].anchor[0], ptsA[i].anchor[1]]);
             }
 
-            MDUX_debugLog("[MERGE-PATHS] Setting path with " + allPoints.length + " points (junction anchors removed)");
-            pathA.setEntirePath(allPoints);
-            return pathA;
+            MDUX_debugLog("[MERGE-PATHS] Creating NEW path with " + allPoints.length + " points");
+
+            // Create a NEW path on the target layer (avoids setEntirePath reference invalidation bug)
+            var newPath = targetLayer.pathItems.add();
+            newPath.setEntirePath(allPoints);
+
+            // Copy styling from pathA
+            try { newPath.strokeColor = pathA.strokeColor; } catch (e) {}
+            try { newPath.strokeWidth = pathA.strokeWidth; } catch (e) {}
+            try { newPath.fillColor = pathA.fillColor; } catch (e) {}
+            try { newPath.filled = pathA.filled; } catch (e) {}
+            try { newPath.stroked = pathA.stroked; } catch (e) {}
+            try { newPath.strokeCap = pathA.strokeCap; } catch (e) {}
+            try { newPath.strokeJoin = pathA.strokeJoin; } catch (e) {}
+
+            return { newPath: newPath, pathsToRemove: [pathA, pathB] };
         }
 
         // Merge loop - keep merging until no more matches
         var keepMerging = true;
         var iterations = 0;
-        var maxIterations = allPaths.length * 3;
+        var maxIterations = allPaths.length * 5; // Increased since we're creating new paths
+        var mergedPaths = []; // Track newly created merged paths for final selection
 
         while (keepMerging && iterations < maxIterations) {
             keepMerging = false;
             iterations++;
+            MDUX_debugLog("[MERGE-PATHS] === Iteration " + iterations + " ===");
 
             for (var i = 0; i < selectedPaths.length; i++) {
                 var pathA = selectedPaths[i];
@@ -3343,6 +3322,8 @@ function MDUX_mergePathsAtEndpoints() {
 
                 var endpointsA = getEndpoints(pathA);
                 if (!endpointsA) continue;
+
+                MDUX_debugLog("[MERGE-PATHS] Checking pathA[" + i + "] start=[" + endpointsA.start[0].toFixed(1) + "," + endpointsA.start[1].toFixed(1) + "] end=[" + endpointsA.end[0].toFixed(1) + "," + endpointsA.end[1].toFixed(1) + "]");
 
                 for (var j = 0; j < allPaths.length; j++) {
                     var pathB = allPaths[j];
@@ -3368,12 +3349,29 @@ function MDUX_mergePathsAtEndpoints() {
                     if (matchType) {
                         MDUX_debugLog("[MERGE-PATHS] MATCH! dist=" + minDist.toFixed(2) + " type=" + matchType);
                         try {
-                            mergePaths(pathA, pathB, matchType);
-                            pathB.remove();
+                            // Get target layer from pathA
+                            var targetLayer = pathA.layer;
+
+                            // Create new merged path
+                            var result = mergePaths(pathA, pathB, matchType, targetLayer);
+                            var newPath = result.newPath;
+
+                            // Remove BOTH old paths from document
+                            try { pathA.remove(); } catch (e) { MDUX_debugLog("[MERGE-PATHS] Failed to remove pathA: " + e); }
+                            try { pathB.remove(); } catch (e) { MDUX_debugLog("[MERGE-PATHS] Failed to remove pathB: " + e); }
+
+                            // Mark both as removed
+                            removedPaths.push(pathA);
                             removedPaths.push(pathB);
+
+                            // Add new path to arrays so it can be merged further
+                            selectedPaths.push(newPath);
+                            allPaths.push(newPath);
+                            mergedPaths.push(newPath);
+
                             mergeCount++;
                             keepMerging = true;
-                            MDUX_debugLog("[MERGE-PATHS] Merge successful!");
+                            MDUX_debugLog("[MERGE-PATHS] Merge successful! New path added to arrays.");
                         } catch (mergeErr) {
                             MDUX_debugLog("[MERGE-PATHS] Merge error: " + mergeErr);
                         }
@@ -3384,18 +3382,26 @@ function MDUX_mergePathsAtEndpoints() {
             }
         }
 
-        // Select the merged path(s) - wrap in try/catch since paths may be invalid
+        MDUX_debugLog("[MERGE-PATHS] Merge loop done after " + iterations + " iterations");
+
+        // Select the merged path(s)
         try {
             doc.selection = null;
+            // Select newly created merged paths
+            for (var mp = 0; mp < mergedPaths.length; mp++) {
+                try {
+                    var mergedP = mergedPaths[mp];
+                    if (mergedP && isPathValid(mergedP) && !wasRemoved(mergedP)) {
+                        mergedP.selected = true;
+                    }
+                } catch (selErr) { /* path error, skip */ }
+            }
+            // Also select any original selected paths that weren't merged
             for (var i = 0; i < selectedPaths.length; i++) {
                 try {
                     var p = selectedPaths[i];
-                    if (p && !wasRemoved(p)) {
-                        // Double-check validity before selecting
-                        var testPts = p.pathPoints;
-                        if (testPts && testPts.length >= 2) {
-                            p.selected = true;
-                        }
+                    if (p && !wasRemoved(p) && isPathValid(p)) {
+                        p.selected = true;
                     }
                 } catch (selErr) { /* path no longer valid, skip */ }
             }

@@ -1,7 +1,7 @@
 // Gap tools for manual heal/recreate workflows
 var MDUX_gapTools_traceLines = null;
 var MDUX_gapTools_traceTag = null;
-var MDUX_gapTools_buildTag = "2026-01-12-1156";
+var MDUX_gapTools_buildTag = "2026-01-14-debug-v23";
 
 function MDUX_gapTools_isTraceEnabled() {
     try {
@@ -86,17 +86,14 @@ function MDUX_gapTools_filterValidPaths(paths) {
 }
 
 function MDUX_gapTools_debug(message) {
+    // Write directly to file - don't rely on MDUX_debugLog
     try {
-        if (typeof MDUX_debugLog === "function") {
-            var tag = "";
-            try {
-                if (MDUX_gapTools_traceTag) tag = MDUX_gapTools_traceTag + " ";
-                else if ($.global && $.global.MDUX_GAP_TRACE_TAG) {
-                    tag = $.global.MDUX_GAP_TRACE_TAG + " ";
-                }
-            } catch (e) { }
-            MDUX_debugLog("[GAP-TOOLS] " + tag + message);
-        }
+        var debugFolder = Folder(Folder.userData.fsName + "/Adobe/CEP/extensions/Magic-Ductwork-Panel/Debug");
+        if (!debugFolder.exists) debugFolder.create();
+        var logFile = new File(debugFolder.fsName + "/gap-tools-debug.log");
+        logFile.open("a");
+        logFile.writeln("[" + new Date().toString() + "] " + message);
+        logFile.close();
     } catch (e) { }
 }
 
@@ -165,7 +162,14 @@ function MDUX_gapTools_formatSegment(path) {
 }
 
 function MDUX_gapTools_writeTrace(tag, traceLines) {
-    if (!MDUX_gapTools_isTraceEnabled()) return "";
+    var forceTrace = false;
+    try {
+        var tagStr = String(tag || "");
+        if (tagStr.indexOf("RECREATE-") === 0 || tagStr.indexOf("HEAL-") === 0) {
+            forceTrace = true;
+        }
+    } catch (e) { }
+    if (!forceTrace && !MDUX_gapTools_isTraceEnabled()) return "";
     if (!traceLines) traceLines = [];
     try {
         var folderPath = "C:/Users/Chris/AppData/Roaming/Adobe/CEP/extensions/Magic-Ductwork-Panel/Debug";
@@ -199,6 +203,166 @@ function MDUX_gapTools_finalizeTrace(tag, traceLines) {
     MDUX_gapTools_clearTraceTag();
     MDUX_gapTools_clearTraceBuffer();
     return traceFile;
+}
+
+// ========================================
+// GRAPHIC STYLE APPLICATION
+// ========================================
+// Style map matching ductwork layer names to graphic style names
+var MDUX_gapTools_styleMap = {
+    "Green Ductwork": "Green Ductwork",
+    "Light Green Ductwork": "Light Green Ductwork",
+    "Blue Ductwork": "Blue Ductwork",
+    "Orange Ductwork": "Orange Ductwork",
+    "Light Orange Ductwork": "Light Orange Ductwork"
+};
+
+function MDUX_gapTools_getStyleNameForLayer(layerName) {
+    if (!layerName) return null;
+    if (MDUX_gapTools_styleMap.hasOwnProperty(layerName)) {
+        return MDUX_gapTools_styleMap[layerName];
+    }
+    return null;
+}
+
+function MDUX_gapTools_getGraphicStyleByName(doc, name) {
+    if (!doc || !name) return null;
+    try {
+        var direct = doc.graphicStyles.getByName(name);
+        if (direct) return direct;
+    } catch (e) { }
+    // Try normalized lookup
+    var targetKey = ("" + name).toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (!targetKey) return null;
+    try {
+        var styles = doc.graphicStyles;
+        for (var i = 0; i < styles.length; i++) {
+            var candidate = styles[i];
+            if (!candidate) continue;
+            var candKey = ("" + (candidate.name || "")).toLowerCase().replace(/[^a-z0-9]/g, "");
+            if (candKey === targetKey) return candidate;
+        }
+    } catch (e2) { }
+    return null;
+}
+
+// Apply graphic style to a path based on its layer
+function MDUX_gapTools_applyGraphicStyle(path) {
+    if (!path) return false;
+    try {
+        var layer = MDUX_gapTools_getParentLayer(path);
+        if (!layer) return false;
+        var layerName = MDUX_gapTools_safeLayerName(layer);
+        if (!layerName) return false;
+        var styleName = MDUX_gapTools_getStyleNameForLayer(layerName);
+        if (!styleName) return false;
+        var doc = app.activeDocument;
+        var style = MDUX_gapTools_getGraphicStyleByName(doc, styleName);
+        if (!style) return false;
+        style.applyTo(path);
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+// Apply graphic styles to all paths in an array
+function MDUX_gapTools_applyStylesToPaths(paths) {
+    if (!paths || paths.length < 1) return 0;
+    var applied = 0;
+    for (var i = 0; i < paths.length; i++) {
+        var p = paths[i];
+        if (!p) continue;
+        if (!MDUX_gapTools_isValidPath(p)) continue;
+        if (MDUX_gapTools_applyGraphicStyle(p)) {
+            applied++;
+        }
+    }
+    return applied;
+}
+
+// Find paths on a layer that have endpoints near the given points
+// Used to find merge candidates beyond just the selection
+function MDUX_gapTools_findPathsWithEndpointsNear(layer, points, tolerance, excludePaths) {
+    var results = [];
+    if (!layer || !points || points.length < 1) return results;
+    excludePaths = excludePaths || [];
+
+    function isExcluded(p) {
+        for (var e = 0; e < excludePaths.length; e++) {
+            if (excludePaths[e] === p) return true;
+        }
+        return false;
+    }
+
+    function hasEndpointNear(path, targetPoints, tol) {
+        try {
+            var pts = path.pathPoints;
+            if (!pts || pts.length < 2) return false;
+            var start = [pts[0].anchor[0], pts[0].anchor[1]];
+            var end = [pts[pts.length - 1].anchor[0], pts[pts.length - 1].anchor[1]];
+            for (var t = 0; t < targetPoints.length; t++) {
+                var tp = targetPoints[t];
+                var dStart = Math.sqrt(Math.pow(start[0] - tp[0], 2) + Math.pow(start[1] - tp[1], 2));
+                var dEnd = Math.sqrt(Math.pow(end[0] - tp[0], 2) + Math.pow(end[1] - tp[1], 2));
+                if (dStart <= tol || dEnd <= tol) return true;
+            }
+        } catch (e) { }
+        return false;
+    }
+
+    function scanContainer(container) {
+        if (!container) return;
+        
+        // Scan PathItems
+        try {
+            var pLimit = container.pathItems.length;
+            // Limit to reasonable number to avoid freeze in huge docs, but usually fine
+            if (pLimit > 2000) pLimit = 2000;
+            for (var i = 0; i < pLimit; i++) {
+                var p = container.pathItems[i];
+                if (!p || p.closed) continue;
+                if (isExcluded(p)) continue;
+                try { if (!p.pathPoints || p.pathPoints.length < 2) continue; } catch (e) { continue; }
+                if (hasEndpointNear(p, points, tolerance)) {
+                    results.push(p);
+                }
+            }
+        } catch (e) { }
+
+        // Scan CompoundPathItems
+        try {
+            var cLimit = container.compoundPathItems.length;
+            if (cLimit > 500) cLimit = 500;
+            for (var c = 0; c < cLimit; c++) {
+                var cp = container.compoundPathItems[c];
+                if (!cp || !cp.pathItems) continue;
+                for (var pi = 0; pi < cp.pathItems.length; pi++) {
+                    var sp = cp.pathItems[pi];
+                    if (!sp || sp.closed) continue;
+                    if (isExcluded(sp)) continue;
+                    try { if (!sp.pathPoints || sp.pathPoints.length < 2) continue; } catch (e) { continue; }
+                    if (hasEndpointNear(sp, points, tolerance)) {
+                        results.push(sp);
+                    }
+                }
+            }
+        } catch (e) { }
+
+        // Scan GroupItems (Recursive)
+        try {
+            var gLimit = container.groupItems.length;
+            if (gLimit > 200) gLimit = 200; // Recurse depth implicitly limited by structure
+            for (var g = 0; g < gLimit; g++) {
+                scanContainer(container.groupItems[g]);
+            }
+        } catch (e) { }
+    }
+
+    // Start scan at root layer
+    scanContainer(layer);
+
+    return results;
 }
 
 function MDUX_gapTools_mergeWithinCompound(compound, tol) {
@@ -345,15 +509,27 @@ function MDUX_gapTools_collectOpenPathsFromCompound(compound) {
     return paths;
 }
 
-function MDUX_gapTools_mergePathWithNeighbors(path, candidates, tol, dotThreshold) {
-    if (!path || !candidates || candidates.length < 1) return 0;
+function MDUX_gapTools_mergePathWithNeighbors(path, candidates, tol, dotThreshold, targetCompound) {
+    if (!path || !candidates || candidates.length < 1) return { count: 0, path: path };
     if (!MDUX_gapTools_isValidPath(path)) {
         MDUX_gapTools_trace("MERGE abort invalid path");
-        return 0;
+        return { count: 0, path: path };
     }
     var tolerance = (typeof tol === "number") ? tol : 3.0;
     var minDot = (typeof dotThreshold === "number") ? dotThreshold : 0.985;
     var liveCandidates = MDUX_gapTools_filterValidPaths(candidates);
+
+    function moveToCompoundIfNeeded(item, compound) {
+        if (!compound || !item) return;
+        try {
+            var currentCompound = MDUX_gapTools_getParentCompound(item);
+            if (currentCompound !== compound) {
+                item.move(compound, ElementPlacement.PLACEATEND);
+            }
+        } catch (e) { }
+    }
+
+    moveToCompoundIfNeeded(path, targetCompound);
 
     MDUX_gapTools_trace("MERGE start " + MDUX_gapTools_formatSegment(path) + " candidates=" + liveCandidates.length);
 
@@ -435,6 +611,7 @@ function MDUX_gapTools_mergePathWithNeighbors(path, candidates, tol, dotThreshol
     }
 
     function mergePaths(pathA, pathB, matchType) {
+        // Extend pathA (restored segment) with merged points - this is the working behavior
         try {
             if (!MDUX_gapTools_isValidPath(pathA) || !MDUX_gapTools_isValidPath(pathB)) return null;
             var pointsA = getPointsCopy(pathA);
@@ -582,6 +759,7 @@ function MDUX_gapTools_mergePathWithNeighbors(path, candidates, tol, dotThreshol
                     continue;
                 }
                 path = mergedPath;
+                moveToCompoundIfNeeded(path, targetCompound);
                 mergeErrStage = "cleanup";
                 var candIndex = (typeof best.candIndex === "number") ? best.candIndex : -1;
                 if (candIndex >= 0 && candIndex < liveCandidates.length) {
@@ -600,6 +778,9 @@ function MDUX_gapTools_mergePathWithNeighbors(path, candidates, tol, dotThreshol
                 if (simplified > 0) {
                     MDUX_gapTools_trace("MERGE simplified=" + simplified);
                 }
+                // Apply graphic style to merged path based on its layer
+                var styleApplied = MDUX_gapTools_applyGraphicStyle(path);
+                MDUX_gapTools_trace("MERGE style applied=" + styleApplied);
             } catch (mergeErr) {
                 MDUX_gapTools_traceError("MERGE error @" + mergeErrStage, mergeErr);
             }
@@ -608,7 +789,7 @@ function MDUX_gapTools_mergePathWithNeighbors(path, candidates, tol, dotThreshol
         }
     }
 
-    return mergedCount;
+    return { count: mergedCount, path: path };
 }
 
 function MDUX_gapTools_collectSelectedPaths(doc) {
@@ -1018,27 +1199,29 @@ function MDUX_gapTools_chooseBestPairByDirection(hits) {
 
 function MDUX_gapTools_chooseFlipHits(hits, segDir) {
     if (!hits || hits.length < 1 || !segDir) return null;
-    var restoreHit = null;
-    var restoreDot = -1;
+    var scored = [];
     for (var i = 0; i < hits.length; i++) {
         var dot = Math.abs(segDir[0] * hits[i].dir[0] + segDir[1] * hits[i].dir[1]);
-        if (dot > restoreDot) {
-            restoreDot = dot;
-            restoreHit = hits[i];
-        }
+        scored.push({ hit: hits[i], dot: dot });
     }
-    if (!restoreHit) return null;
+    scored.sort(function(a, b) { return b.dot - a.dot; });
+    var restoreHit = scored[0].hit;
+    var restoreDot = scored[0].dot;
+
+    scored.sort(function(a, b) { return a.dot - b.dot; });
     var gapHit = null;
     var gapDot = 1e9;
-    for (var j = 0; j < hits.length; j++) {
-        if (hits[j] === restoreHit) continue;
-        var dot2 = Math.abs(restoreHit.dir[0] * hits[j].dir[0] + restoreHit.dir[1] * hits[j].dir[1]);
-        if (dot2 < gapDot) {
-            gapDot = dot2;
-            gapHit = hits[j];
-        }
+    for (var j = 0; j < scored.length; j++) {
+        if (restoreHit && scored[j].hit && scored[j].hit.path === restoreHit.path) continue;
+        gapHit = scored[j].hit;
+        gapDot = scored[j].dot;
+        break;
     }
-    return { restore: restoreHit, gap: gapHit, dot: gapDot };
+    if (!gapHit && scored.length > 0) {
+        gapHit = scored[0].hit;
+        gapDot = scored[0].dot;
+    }
+    return { restore: restoreHit, gap: gapHit, dot: gapDot, restoreDot: restoreDot };
 }
 
 function MDUX_gapTools_parseGapMetadata(note) {
@@ -1188,6 +1371,29 @@ function MDUX_gapTools_restoreDeletedSegment(seg, targetLayer, targetCompound) {
     return newPath;
 }
 
+function MDUX_gapTools_restoreSegmentFromPoints(startPt, endPt, targetLayer, targetCompound, styleFrom) {
+    if (!startPt || !endPt || !targetLayer) return null;
+    var newPath = null;
+    try {
+        newPath = targetLayer.pathItems.add();
+        newPath.setEntirePath([[startPt[0], startPt[1]], [endPt[0], endPt[1]]]);
+        newPath.filled = false;
+        newPath.stroked = true;
+        if (styleFrom) {
+            try { newPath.strokeWidth = styleFrom.strokeWidth; } catch (e) { }
+            try { newPath.strokeColor = styleFrom.strokeColor; } catch (e) { }
+            try { newPath.strokeCap = styleFrom.strokeCap; } catch (e) { }
+            try { newPath.strokeJoin = styleFrom.strokeJoin; } catch (e) { }
+        }
+        if (targetCompound) {
+            try { newPath.move(targetCompound, ElementPlacement.PLACEATEND); } catch (e) { }
+        }
+    } catch (e) {
+        newPath = null;
+    }
+    return newPath;
+}
+
 function MDUX_gapTools_findPatchMarkerNear(gapLayer, center, tol) {
     if (!gapLayer || !center) return null;
     var best = null;
@@ -1214,7 +1420,8 @@ function MDUX_gapTools_createPatchMarker(gapLayer, center) {
     if (existing) return existing;
     try {
         var marker = gapLayer.pathItems.add();
-        marker.setEntirePath([center, center]);
+        // Create single-point path (not two overlapping points which causes issues)
+        marker.setEntirePath([center]);
         marker.stroked = false;
         marker.filled = false;
         marker.note = "MDUX_PATCH";
@@ -1519,11 +1726,19 @@ function MDUX_gapTools_splitPathAtGap(path, segIdx, cutBefore, cutAfter, parentL
             try { newPath.setEntirePath(points); } catch (eSet) {
                 MDUX_gapTools_traceError("SPLIT set path error", eSet);
             }
+            // Copy basic properties first as fallback
             try { newPath.filled = path.filled; } catch (eFill) { }
             try { newPath.stroked = path.stroked; } catch (eStroke) { }
             try { newPath.strokeWidth = path.strokeWidth; } catch (eStrokeW) { }
             try { newPath.strokeColor = path.strokeColor; } catch (eStrokeC) { }
             try { if (path.filled) newPath.fillColor = path.fillColor; } catch (eFillC) { }
+            // Apply graphic style to preserve double-stroke appearance
+            try {
+                var applied = MDUX_gapTools_applyGraphicStyle(newPath);
+                MDUX_gapTools_trace("SPLIT applied graphic style=" + applied);
+            } catch (eStyle) {
+                MDUX_gapTools_traceError("SPLIT apply style error", eStyle);
+            }
             return newPath;
         }
 
@@ -1565,11 +1780,17 @@ function MDUX_healGapsInSelection() {
             MDUX_gapTools_clearTraceBuffer();
             return "Select ductwork paths to heal gaps";
         }
-        function traceMsg(msg) { MDUX_gapTools_trace(msg); }
+        // Always trace during heal (bypass enabled check) for debugging
+        function traceMsg(msg) { trace.push(msg); }
         function fmtPt(pt) { return pt ? (pt[0].toFixed(1) + "," + pt[1].toFixed(1)) : "null"; }
-        traceMsg("HEAL start id=" + traceId + " selected=" + selectedPaths.length + " build=" + MDUX_gapTools_buildTag);
+        MDUX_gapTools_debug("[HEAL] START selectedPaths=" + selectedPaths.length);         traceMsg("HEAL start id=" + traceId + " selected=" + selectedPaths.length + " build=" + MDUX_gapTools_buildTag);
 
         var bounds = MDUX_gapTools_getSelectionBounds(selectedPaths);
+        if (bounds) {
+            traceMsg("HEAL bounds minX=" + bounds.minX.toFixed(1) + " minY=" + bounds.minY.toFixed(1) + " maxX=" + bounds.maxX.toFixed(1) + " maxY=" + bounds.maxY.toFixed(1));
+        } else {
+            traceMsg("HEAL bounds=null");
+        }
         var gapLayer = MDUX_gapTools_getGapLayer(doc, false);
         if (!gapLayer) {
             var traceFileEarly = MDUX_gapTools_finalizeTrace(traceTag, trace);
@@ -1578,7 +1799,7 @@ function MDUX_healGapsInSelection() {
 
         var deletedLayer = null;
         try { deletedLayer = doc.layers.getByName("Deleted Segments"); } catch (e) { deletedLayer = null; }
-
+        MDUX_gapTools_debug("[HEAL] deletedLayer=" + (deletedLayer ? deletedLayer.pathItems.length + " paths" : "null")); 
         var gapLayerWasLocked = gapLayer.locked;
         var gapLayerWasVisible = gapLayer.visible;
         try { if (gapLayerWasLocked) gapLayer.locked = false; } catch (e) { }
@@ -1593,18 +1814,32 @@ function MDUX_healGapsInSelection() {
         var skippedMissing = 0;
 
         var markers = [];
+        var totalGapItems = gapLayer.pathItems.length;
+        var gapMarkersFound = 0;
+        traceMsg("HEAL gapLayer has " + totalGapItems + " items");
         for (var i = 0; i < gapLayer.pathItems.length; i++) {
             var item = gapLayer.pathItems[i];
             if (!item || !item.note || item.note.indexOf("MDUX_GAP:") !== 0) continue;
+            gapMarkersFound++;
             var info = MDUX_gapTools_getMarkerInfo(item);
-            if (!info.center) continue;
-            if (!MDUX_gapTools_pointInBounds(info.center, bounds, 25)) continue;
+            if (!info.center) {
+                traceMsg("HEAL marker " + gapMarkersFound + " has no center");
+                continue;
+            }
+            traceMsg("HEAL marker " + gapMarkersFound + " center=" + fmtPt(info.center));
+            if (!MDUX_gapTools_pointInBounds(info.center, bounds, 25)) {
+                traceMsg("HEAL marker " + gapMarkersFound + " outside bounds");
+                continue;
+            }
             var near = MDUX_gapTools_findNearestSegment(selectedPaths, info.center, info.sourceLayer, 25);
-            if (!near) continue;
+            if (!near) {
+                traceMsg("HEAL marker " + gapMarkersFound + " no nearby segment");
+                continue;
+            }
             markers.push({ marker: item, info: info });
         }
-        traceMsg("HEAL markers=" + markers.length);
-
+        traceMsg("HEAL totalGapMarkers=" + gapMarkersFound + " matchedMarkers=" + markers.length);
+        MDUX_gapTools_debug("[HEAL] Found " + markers.length + " markers near selection"); 
         for (var m = 0; m < markers.length; m++) {
             var entry = markers[m];
             var marker = entry.marker;
@@ -1623,7 +1858,7 @@ function MDUX_healGapsInSelection() {
                     if (!deletedLayer.visible) deletedLayer.visible = true;
                 } catch (e) { }
                 var seg = MDUX_gapTools_findDeletedSegmentNear(deletedLayer, center, 20);
-                if (seg) {
+                MDUX_gapTools_debug("[HEAL] findDeletedSegmentNear result=" + (seg ? "found" : "null"));                 if (seg) {
                     var targetLayer = null;
                     try {
                         if (sourceLayer) targetLayer = doc.layers.getByName(sourceLayer);
@@ -1633,13 +1868,30 @@ function MDUX_healGapsInSelection() {
                     }
                     if (targetLayer) {
                         var targetCompound = null;
+                        // First try to get compound from selected path
                         try {
                             if (nearPath && nearPath.path) {
                                 targetCompound = MDUX_gapTools_getParentCompound(nearPath.path);
                             }
                         } catch (e) { targetCompound = null; }
+                        // If no compound from selection, search for paths near gap center on the layer
+                        // This handles the case where recreate created split paths that aren't selected
+                        if (!targetCompound) {
+                            traceMsg("HEAL no compound from selection, searching layer for nearby compound paths");
+                            var nearbyForCompound = MDUX_gapTools_findPathsWithEndpointsNear(targetLayer, [center], 30, []);
+                            for (var nc = 0; nc < nearbyForCompound.length && !targetCompound; nc++) {
+                                var ncPath = nearbyForCompound[nc];
+                                if (!ncPath) continue;
+                                try {
+                                    targetCompound = MDUX_gapTools_getParentCompound(ncPath);
+                                    if (targetCompound) {
+                                        traceMsg("HEAL found compound from nearby path on layer");
+                                    }
+                                } catch (e) { }
+                            }
+                        }
                         restored = MDUX_gapTools_restoreDeletedSegment(seg, targetLayer, targetCompound);
-                        if (restored) {
+                        MDUX_gapTools_debug("[HEAL] restoreDeletedSegment result=" + (restored ? "OK" : "null"));                         if (restored) {
                             restoredCount++;
                             restoredSegments.push(restored);
                             traceMsg("HEAL restored segment to layer=" + (targetLayer.name || "") + " compound=" + (targetCompound ? "yes" : "no"));
@@ -1653,9 +1905,36 @@ function MDUX_healGapsInSelection() {
             if (nearFilled && nearFilled.dist <= 4) filled = true;
 
             if (!restored && !filled) {
-                skippedMissing++;
-                traceMsg("HEAL skipped (missing restore/filled) center=" + fmtPt(center));
-                continue;
+                // FALLBACK: If deleted segment is missing (e.g. moved), create new segment from marker info
+                if (gapSize && dir) {
+                    var fbLayer = null;
+                    try { if (sourceLayer) fbLayer = doc.layers.getByName(sourceLayer); } catch(e){}
+                    if (!fbLayer && nearFilled && nearFilled.path) {
+                        try { fbLayer = nearFilled.path.layer; } catch(e){}
+                    }
+                    if (fbLayer) {
+                        var fbCompound = null;
+                        if (nearFilled && nearFilled.path) {
+                            try { fbCompound = MDUX_gapTools_getParentCompound(nearFilled.path); } catch(e){}
+                        }
+                        var fbStart = [center[0] - gapSize * dir[0], center[1] - gapSize * dir[1]];
+                        var fbEnd = [center[0] + gapSize * dir[0], center[1] + gapSize * dir[1]];
+                        // Use nearFilled path for style if available
+                        restored = MDUX_gapTools_restoreSegmentFromPoints(fbStart, fbEnd, fbLayer, fbCompound, (nearFilled ? nearFilled.path : null));
+                        if (restored) {
+                            restoredCount++;
+                            restoredSegments.push(restored);
+                            ignoreRemoved += MDUX_gapTools_removeIgnoreAnchorsNear(doc, [fbStart, fbEnd], 12);
+                            traceMsg("HEAL recreated missing segment from marker info");
+                        }
+                    }
+                }
+
+                if (!restored) {
+                    skippedMissing++;
+                    traceMsg("HEAL skipped (missing restore/filled) center=" + fmtPt(center));
+                    continue;
+                }
             }
 
             var cutBefore = null;
@@ -1688,38 +1967,97 @@ function MDUX_healGapsInSelection() {
         try { gapLayer.locked = gapLayerWasLocked; } catch (e) { }
         try { gapLayer.visible = gapLayerWasVisible; } catch (e) { }
 
+        MDUX_gapTools_debug("[HEAL] Loop done. restoredSegments=" + restoredSegments.length + " healedCount=" + healedCount);
         if (restoredSegments.length > 0) {
+            var mergeTol = 5.0;
+            var mergeDot = 0.985;
             var mergedTotal = 0;
             for (var rs = 0; rs < restoredSegments.length; rs++) {
-                var restoredPath = restoredSegments[rs];
-                try { if (restoredPath.isValid === false) continue; } catch (e) { }
-                var candidates = [];
-                var compound = null;
-                try { compound = MDUX_gapTools_getParentCompound(restoredPath); } catch (e) { compound = null; }
-                if (compound) {
-                    candidates = MDUX_gapTools_collectOpenPathsFromCompound(compound);
-                } else {
+                try {
+                    var restoredPath = restoredSegments[rs];
+                    if (!restoredPath) continue;
+                    try { if (!MDUX_gapTools_isValidPath(restoredPath)) continue; } catch (eVal) { continue; }
+
+                    var candidates = [];
+                    var compound = null;
+                    try { compound = MDUX_gapTools_getParentCompound(restoredPath); } catch (e) { compound = null; }
+
+                    // Build candidates from selected paths and restored segments (filter valid only)
                     for (var sp = 0; sp < selectedPaths.length; sp++) {
-                        var p = selectedPaths[sp];
-                        if (!p) continue;
+                        var spPath = selectedPaths[sp];
+                        if (!spPath) continue;
+                        try { if (!MDUX_gapTools_isValidPath(spPath)) continue; } catch (e) { continue; }
                         var exists = false;
                         for (var ci = 0; ci < candidates.length; ci++) {
-                            if (candidates[ci] === p) { exists = true; break; }
+                            if (candidates[ci] === spPath) { exists = true; break; }
                         }
-                        if (!exists) candidates.push(p);
+                        if (!exists) candidates.push(spPath);
                     }
                     for (var rp = 0; rp < restoredSegments.length; rp++) {
                         var rpPath = restoredSegments[rp];
                         if (!rpPath) continue;
+                        try { if (!MDUX_gapTools_isValidPath(rpPath)) continue; } catch (e) { continue; }
                         var exists2 = false;
                         for (var ci2 = 0; ci2 < candidates.length; ci2++) {
                             if (candidates[ci2] === rpPath) { exists2 = true; break; }
                         }
                         if (!exists2) candidates.push(rpPath);
                     }
-                }
-                if (candidates.length > 0) {
-                    mergedTotal += MDUX_gapTools_mergePathWithNeighbors(restoredPath, candidates, 3.0, 0.985);
+
+                    // Add paths from compound if present
+                    if (compound) {
+                        var compoundPaths = MDUX_gapTools_collectOpenPathsFromCompound(compound);
+                        for (var cp = 0; cp < compoundPaths.length; cp++) {
+                            var cpPath = compoundPaths[cp];
+                            if (!cpPath) continue;
+                            try { if (!MDUX_gapTools_isValidPath(cpPath)) continue; } catch (e) { continue; }
+                            var existsC = false;
+                            for (var ciC = 0; ciC < candidates.length; ciC++) {
+                                if (candidates[ciC] === cpPath) { existsC = true; break; }
+                            }
+                            if (!existsC) candidates.push(cpPath);
+                        }
+                    }
+
+                    // Search layer for nearby paths (with error handling)
+                    try {
+                        var restoredLayer = MDUX_gapTools_getParentLayer(restoredPath);
+                        if (restoredLayer && MDUX_gapTools_isValidPath(restoredPath)) {
+                            var rpts = restoredPath.pathPoints;
+                            if (rpts && rpts.length >= 2) {
+                                var restoredEndpoints = [
+                                    [rpts[0].anchor[0], rpts[0].anchor[1]],
+                                    [rpts[rpts.length - 1].anchor[0], rpts[rpts.length - 1].anchor[1]]
+                                ];
+                                var nearbyPaths = MDUX_gapTools_findPathsWithEndpointsNear(restoredLayer, restoredEndpoints, mergeTol, candidates);
+                                traceMsg("HEAL found " + nearbyPaths.length + " nearby paths on layer");
+                                for (var np = 0; np < nearbyPaths.length; np++) {
+                                    var nearPath = nearbyPaths[np];
+                                    if (!nearPath) continue;
+                                    try { if (!MDUX_gapTools_isValidPath(nearPath)) continue; } catch (e) { continue; }
+                                    var exists3 = false;
+                                    for (var ci3 = 0; ci3 < candidates.length; ci3++) {
+                                        if (candidates[ci3] === nearPath) { exists3 = true; break; }
+                                    }
+                                    if (!exists3) candidates.push(nearPath);
+                                }
+                            }
+                        }
+                    } catch (eLayer) {
+                        traceMsg("HEAL layer search error: " + eLayer);
+                    }
+
+                    // Perform merge with error handling
+                    if (candidates.length > 0 && MDUX_gapTools_isValidPath(restoredPath)) {
+                        try {
+                            var mergeRes = MDUX_gapTools_mergePathWithNeighbors(restoredPath, candidates, mergeTol, mergeDot, compound);
+                            mergedTotal += mergeRes.count;
+                        } catch (eMerge) {
+                            traceMsg("HEAL merge error: " + eMerge);
+                        }
+                    }
+                } catch (eOuter) {
+                    traceMsg("HEAL merge loop error: " + eOuter);
                 }
             }
             traceMsg("HEAL merged=" + mergedTotal);
@@ -1734,7 +2072,7 @@ function MDUX_healGapsInSelection() {
         return "Healed " + healedCount + " gap(s), restored " + restoredCount + ", removed " + markerRemoved +
             " marker(s), patched " + patchedCount + ", removed " + ignoreRemoved + " ignore anchor(s)" +
             (skippedMissing > 0 ? ", skipped " + skippedMissing : "") + " (trace " + traceId + ")" +
-            (traceFile ? " file: " + traceFile : "");
+            (traceFile ? " file: " + traceFile : "") + " build " + MDUX_gapTools_buildTag;
     } catch (e) {
         try { trace.push("ERROR: " + e); } catch (e2) { }
         var traceFile = "";
@@ -1742,7 +2080,8 @@ function MDUX_healGapsInSelection() {
             MDUX_gapTools_clearTraceTag();
             MDUX_gapTools_clearTraceBuffer();
         }
-        return "Error: " + e + " (trace " + traceId + ")" + (traceFile ? " file: " + traceFile : "");
+        return "Error: " + e + " (trace " + traceId + ")" + (traceFile ? " file: " + traceFile : "") +
+            " build " + MDUX_gapTools_buildTag;
     }
 }
 
@@ -1766,11 +2105,29 @@ function MDUX_recreateGapsInSelection() {
             MDUX_gapTools_clearTraceBuffer();
             return "Select ductwork paths to recreate gaps";
         }
-        function traceMsg(msg) { MDUX_gapTools_trace(msg); }
+        // Always trace during recreate (bypass enabled check) for debugging
+        function traceMsg(msg) { trace.push(msg); }
         function fmtPt(pt) { return pt ? (pt[0].toFixed(1) + "," + pt[1].toFixed(1)) : "null"; }
         traceMsg("RECREATE start id=" + traceId + " selected=" + selectedPaths.length + " build=" + MDUX_gapTools_buildTag);
 
+        // Debug: show each selected path's bounds
+        for (var dbg = 0; dbg < selectedPaths.length; dbg++) {
+            try {
+                var dbgPath = selectedPaths[dbg];
+                var dbgBounds = dbgPath.geometricBounds;
+                var dbgLayer = "";
+                try { dbgLayer = dbgPath.layer.name; } catch(e) { dbgLayer = "?"; }
+                traceMsg("RECREATE path " + dbg + " layer=" + dbgLayer + " bounds=[" + dbgBounds[0].toFixed(1) + "," + dbgBounds[1].toFixed(1) + "," + dbgBounds[2].toFixed(1) + "," + dbgBounds[3].toFixed(1) + "]");
+            } catch(e) {
+                traceMsg("RECREATE path " + dbg + " bounds error: " + e);
+            }
+        }
         var bounds = MDUX_gapTools_getSelectionBounds(selectedPaths);
+        if (bounds) {
+            traceMsg("RECREATE bounds minX=" + bounds.minX.toFixed(1) + " minY=" + bounds.minY.toFixed(1) + " maxX=" + bounds.maxX.toFixed(1) + " maxY=" + bounds.maxY.toFixed(1));
+        } else {
+            traceMsg("RECREATE bounds=null");
+        }
         var gapLayer = MDUX_gapTools_getGapLayer(doc, true);
         if (!gapLayer) {
             var traceFileEarly = MDUX_gapTools_finalizeTrace(traceTag, trace);
@@ -1792,6 +2149,112 @@ function MDUX_recreateGapsInSelection() {
         try { deletedLayer = doc.layers.getByName("Deleted Segments"); } catch (e) { deletedLayer = null; }
 
         var activePaths = MDUX_gapTools_filterValidPaths(selectedPaths.slice());
+        var mergeTol = 5.0;
+        var mergeDot = 0.985;
+        function pushUniquePath(list, path) {
+            if (!path) return;
+            for (var i = 0; i < list.length; i++) {
+                if (list[i] === path) return;
+            }
+            list.push(path);
+        }
+        function buildMergeCandidates(restoredPath, compoundHint) {
+            var candidates = [];
+            try {
+                if (compoundHint) {
+                    candidates = MDUX_gapTools_collectOpenPathsFromCompound(compoundHint);
+                }
+            } catch(e) {}
+            
+            for (var sp = 0; sp < selectedPaths.length; sp++) {
+                try {
+                    if (MDUX_gapTools_isValidPath(selectedPaths[sp])) {
+                        pushUniquePath(candidates, selectedPaths[sp]);
+                    }
+                } catch(e) {}
+            }
+            for (var rp = 0; rp < restoredSegments.length; rp++) {
+                try {
+                    if (MDUX_gapTools_isValidPath(restoredSegments[rp])) {
+                        pushUniquePath(candidates, restoredSegments[rp]);
+                    }
+                } catch(e) {}
+            }
+            for (var ap = 0; ap < activePaths.length; ap++) {
+                try {
+                    if (MDUX_gapTools_isValidPath(activePaths[ap])) {
+                        pushUniquePath(candidates, activePaths[ap]);
+                    }
+                } catch(e) {}
+            }
+            var restoredLayer = null;
+            try { 
+                if (MDUX_gapTools_isValidPath(restoredPath)) {
+                    restoredLayer = MDUX_gapTools_getParentLayer(restoredPath); 
+                }
+            } catch (e) { restoredLayer = null; }
+            if (restoredLayer) {
+                var restoredEndpoints = [];
+                try {
+                    if (MDUX_gapTools_isValidPath(restoredPath)) {
+                        var rpts = restoredPath.pathPoints;
+                        if (rpts && rpts.length >= 2) {
+                            restoredEndpoints.push([rpts[0].anchor[0], rpts[0].anchor[1]]);
+                            restoredEndpoints.push([rpts[rpts.length - 1].anchor[0], rpts[rpts.length - 1].anchor[1]]);
+                        }
+                    }
+                } catch (e) { }
+                if (restoredEndpoints.length > 0) {
+                    try {
+                        var nearbyPaths = MDUX_gapTools_findPathsWithEndpointsNear(restoredLayer, restoredEndpoints, mergeTol, candidates);
+                        traceMsg("RECREATE found " + nearbyPaths.length + " nearby paths on layer");
+                        for (var np = 0; np < nearbyPaths.length; np++) {
+                            pushUniquePath(candidates, nearbyPaths[np]);
+                        }
+                    } catch(e) {
+                        traceMsg("RECREATE nearby error: " + e);
+                    }
+                }
+            }
+            return candidates;
+        }
+        function mergeRestoredPathNow(restoredPath, compoundHint) {
+            // Debug trace
+            try { 
+                if (typeof traceMsg === 'function') traceMsg("RECREATE mergeRestoredPathNow start (path valid=" + MDUX_gapTools_isValidPath(restoredPath) + ")"); 
+            } catch(e){}
+            
+            if (!restoredPath) return { count: 0, path: restoredPath };
+            
+            // Critical check: if path is invalid (removed?), stop
+            if (!MDUX_gapTools_isValidPath(restoredPath)) {
+                try { if (typeof traceMsg === 'function') traceMsg("RECREATE merge abort: invalid path"); } catch(e){}
+                return { count: 0, path: restoredPath };
+            }
+
+            var candidates = [];
+            try {
+                candidates = buildMergeCandidates(restoredPath, compoundHint);
+                // Ensure candidates is an array
+                if (!candidates) candidates = [];
+            } catch(eBuild) {
+                try { if (typeof traceMsg === 'function') traceMsg("RECREATE buildMergeCandidates ERROR: " + eBuild); } catch(e){}
+                candidates = [];
+            }
+            
+            try { if (typeof traceMsg === 'function') traceMsg("RECREATE merge candidates=" + candidates.length); } catch(e){}
+            
+            if (candidates.length > 0) {
+                try {
+                    var res = MDUX_gapTools_mergePathWithNeighbors(restoredPath, candidates, mergeTol, mergeDot, compoundHint);
+                    try { if (typeof traceMsg === 'function') traceMsg("RECREATE merge result=" + res.count); } catch(e){}
+                    return res;
+                } catch(eRun) {
+                    try { if (typeof traceMsg === 'function') traceMsg("RECREATE merge call ERROR: " + eRun); } catch(e){}
+                }
+            }
+            return { count: 0, path: restoredPath };
+        }
         var targets = [];
         var targetCenters = [];
         var restoredSegments = [];
@@ -1799,6 +2262,9 @@ function MDUX_recreateGapsInSelection() {
         var ignoreRemoved = 0;
         var flippedCount = 0;
         traceMsg("RECREATE activePaths=" + activePaths.length);
+        var totalGapLayerItems = gapLayer.pathItems.length;
+        var gapMarkersScanned = 0;
+        traceMsg("RECREATE gapLayer has " + totalGapLayerItems + " items");
         for (var i = 0; i < gapLayer.pathItems.length; i++) {
             var item = gapLayer.pathItems[i];
             if (!item || !item.pathPoints || item.pathPoints.length < 1) continue;
@@ -1808,6 +2274,8 @@ function MDUX_recreateGapsInSelection() {
             else if (note.indexOf("MDUX_PATCH") === 0) type = "patch";
             else type = "anchor";
 
+            if (type === "gap") gapMarkersScanned++;
+
             var info = (type === "gap") ? MDUX_gapTools_getMarkerInfo(item) : null;
             var center = null;
             if (info && info.center) {
@@ -1816,11 +2284,19 @@ function MDUX_recreateGapsInSelection() {
                 try { center = [item.pathPoints[0].anchor[0], item.pathPoints[0].anchor[1]]; } catch (e) { center = null; }
             }
             if (!center) continue;
-            if (!MDUX_gapTools_pointInBounds(center, bounds, 25)) continue;
+            if (type === "gap") {
+                traceMsg("RECREATE gapMarker center=" + fmtPt(center));
+            }
+            if (!MDUX_gapTools_pointInBounds(center, bounds, 25)) {
+                if (type === "gap") {
+                    traceMsg("RECREATE gapMarker outside bounds");
+                }
+                continue;
+            }
             targets.push({ item: item, type: type, center: center, info: info });
             targetCenters.push(center);
         }
-        traceMsg("RECREATE markers/anchors=" + targets.length);
+        traceMsg("RECREATE gapMarkersScanned=" + gapMarkersScanned + " markers/anchors=" + targets.length);
 
         var intersectionCenters = MDUX_gapTools_collectIntersectionCenters(activePaths, 1);
         traceMsg("RECREATE intersections=" + intersectionCenters.length);
@@ -1844,15 +2320,39 @@ function MDUX_recreateGapsInSelection() {
         var recreated = 0;
         var skipped = 0;
         var skippedExisting = 0;
+        var processedCenters = []; // Track processed centers to avoid double-processing nearby targets
 
         for (var t = 0; t < targets.length; t++) {
             var target = targets[t];
             var center = target.center;
             var info = target.info || {};
             var sourceLayer = info.sourceLayer || null;
+
+            // Skip targets that are too close to already-processed targets
+            var tooClose = false;
+            for (var pc = 0; pc < processedCenters.length; pc++) {
+                var pCenter = processedCenters[pc];
+                var pcDist = Math.sqrt(Math.pow(center[0] - pCenter[0], 2) + Math.pow(center[1] - pCenter[1], 2));
+                if (pcDist < 20) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (tooClose) {
+                traceMsg("RECREATE target " + t + " skipped (too close to processed target)");
+                continue;
+            }
+
             traceMsg("RECREATE target " + t + " type=" + target.type + " center=" + fmtPt(center) + " sourceLayer=" + (sourceLayer || ""));
 
             var hits = MDUX_gapTools_findIntersectingSegmentsAtPoint(activePaths, center, 8);
+            if (hits.length < 2) {
+                var hitsWide = MDUX_gapTools_findIntersectingSegmentsAtPoint(activePaths, center, 20);
+                if (hitsWide.length > hits.length) {
+                    hits = hitsWide;
+                    traceMsg("RECREATE hits widened=" + hits.length);
+                }
+            }
             var pairInfo = MDUX_gapTools_chooseBestPairByDirection(hits);
             var hitA = pairInfo ? pairInfo.a : (hits.length > 0 ? hits[0] : null);
             var hitB = pairInfo ? pairInfo.b : (hits.length > 1 ? hits[1] : null);
@@ -1879,8 +2379,118 @@ function MDUX_recreateGapsInSelection() {
 
             var gapHit = near;
             var wasFlip = false;
+            var restoreLayer = null;
+            var restoreCompound = null;
+            var restoredForTarget = null;
+            var didRestore = false;
 
-            if (existingSeg && hits.length > 0) {
+            // Updated condition to allow single hit (crossing line) when old segment is missing
+            if (!didRestore && target.type === "gap" && hits.length > 0 && info && info.dir && info.dir.length >= 2) {
+                var markerFlip = MDUX_gapTools_chooseFlipHits(hits, info.dir);
+                if (markerFlip && markerFlip.restore && markerFlip.gap) {
+                    var restoreHit0 = markerFlip.restore;
+                    gapHit = markerFlip.gap;
+                    try {
+                        restoreLayer = restoreHit0.path.layer;
+                        restoreCompound = MDUX_gapTools_getParentCompound(restoreHit0.path);
+                    } catch (e) {
+                        restoreLayer = null;
+                        restoreCompound = null;
+                    }
+                    // If single hit is perpendicular, prefer sourceLayer for restoration
+                    if (sourceLayer && (!restoreLayer || (hits.length === 1 && markerFlip.restoreDot < 0.5))) {
+                        try { 
+                            var sl = doc.layers.getByName(sourceLayer); 
+                            if (sl) restoreLayer = sl;
+                        } catch (e) { }
+                    }
+
+                    var restoreGapSize0 = info.gapSize;
+                    if (!restoreGapSize0 || restoreGapSize0 <= 0) {
+                        var restoreStrokeWidth0 = null;
+                        try { restoreStrokeWidth0 = restoreHit0.path.strokeWidth; } catch (e) { restoreStrokeWidth0 = null; }
+                        restoreGapSize0 = MDUX_gapTools_calculateAutoGapSize(restoreStrokeWidth0);
+                    }
+                    var restoreDir0 = info.dir;
+                    var restoreStart0 = [center[0] - restoreGapSize0 * restoreDir0[0], center[1] - restoreGapSize0 * restoreDir0[1]];
+                    var restoreEnd0 = [center[0] + restoreGapSize0 * restoreDir0[0], center[1] + restoreGapSize0 * restoreDir0[1]];
+
+                    var restored0 = null;
+                    if (existingSeg && restoreLayer) {
+                        restored0 = MDUX_gapTools_restoreDeletedSegment(existingSeg, restoreLayer, restoreCompound);
+                    } else if (restoreLayer) {
+                        restored0 = MDUX_gapTools_restoreSegmentFromPoints(restoreStart0, restoreEnd0, restoreLayer, restoreCompound, restoreHit0.path);
+                    }
+                    if (restored0) {
+                        restoredCount++;
+                        restoredSegments.push(restored0);
+                        restoredForTarget = restored0;
+                        ignoreRemoved += MDUX_gapTools_removeIgnoreAnchorsNear(doc, [restoreStart0, restoreEnd0], 12);
+                        flippedCount++;
+                        wasFlip = true;
+                        didRestore = true;
+                        traceMsg("RECREATE marker flip restored to layer=" + (restoreLayer ? restoreLayer.name : "") + " compound=" + (restoreCompound ? "yes" : "no"));
+                        processedCenters.push(center); // Mark this center as processed after restore
+
+                        // After restore, re-find crossing path with fresh hit data
+                        // The restored segment direction is restoreDir0, find path perpendicular to it
+                        pushUniquePath(activePaths, restored0);
+                        var freshHits0 = MDUX_gapTools_findIntersectingSegmentsAtPoint(activePaths, center, 25);
+                        traceMsg("RECREATE after restore freshHits=" + freshHits0.length);
+                        var bestCrossing0 = null;
+                        var bestCrossDot0 = 1.0;
+                        var bestCrossingEdge0 = null; // Fallback for edge cases
+                        var bestCrossDotEdge0 = 1.0;
+                        var minSegLen0 = restoreGapSize0 * 2.5; // Segment needs to be at least 2.5x gap size
+                        for (var fh0 = 0; fh0 < freshHits0.length; fh0++) {
+                            var fhit0 = freshHits0[fh0];
+                            // Calculate dot with restore direction - lower dot means more perpendicular
+                            var crossDot0 = Math.abs(restoreDir0[0] * fhit0.dir[0] + restoreDir0[1] * fhit0.dir[1]);
+                            traceMsg("RECREATE freshHit " + fh0 + " dot=" + crossDot0.toFixed(3) + " t=" + fhit0.t.toFixed(3) + " segLen=" + fhit0.segLen.toFixed(1));
+                            // Skip segments that are too short to hold a gap
+                            if (fhit0.segLen < minSegLen0) continue;
+                            // Check if t is good (not too close to ends)
+                            var ratio0 = restoreGapSize0 / fhit0.segLen;
+                            var tGood0 = (fhit0.t > ratio0 && fhit0.t < (1 - ratio0));
+                            if (tGood0) {
+                                if (crossDot0 < bestCrossDot0 - 0.01) {
+                                    bestCrossing0 = fhit0;
+                                    bestCrossDot0 = crossDot0;
+                                }
+                            } else {
+                                // Track edge cases as fallback
+                                if (crossDot0 < bestCrossDotEdge0 - 0.01) {
+                                    bestCrossingEdge0 = fhit0;
+                                    bestCrossDotEdge0 = crossDot0;
+                                }
+                            }
+                        }
+                        // Prefer hit with good t value, but use edge case as fallback
+                        if (bestCrossing0 && bestCrossDot0 < 0.9) {
+                            gapHit = bestCrossing0;
+                            traceMsg("RECREATE using fresh crossing hit dot=" + bestCrossDot0.toFixed(3) + " segLen=" + bestCrossing0.segLen.toFixed(1));
+                        } else if (bestCrossingEdge0 && bestCrossDotEdge0 < 0.9) {
+                            // Edge case: t is at segment endpoint, but we want gap at intersection
+                            var edgeRatio0 = restoreGapSize0 / bestCrossingEdge0.segLen;
+                            var adjustedT0 = bestCrossingEdge0.t;
+                            if (adjustedT0 <= edgeRatio0) {
+                                adjustedT0 = edgeRatio0 + 0.05;
+                            } else if (adjustedT0 >= (1 - edgeRatio0)) {
+                                adjustedT0 = (1 - edgeRatio0) - 0.05;
+                            }
+                            bestCrossingEdge0.t = adjustedT0;
+                            // Keep proj at the intersection center, not shifted along segment
+                            bestCrossingEdge0.proj = [center[0], center[1]];
+                            gapHit = bestCrossingEdge0;
+                            traceMsg("RECREATE using edge crossing (at center) dot=" + bestCrossDotEdge0.toFixed(3) + " segLen=" + bestCrossingEdge0.segLen.toFixed(1));
+                        } else {
+                            traceMsg("RECREATE no good crossing found, bestDot=" + bestCrossDot0.toFixed(3));
+                        }
+                    }
+                }
+            }
+
+            if (!didRestore && existingSeg && hits.length > 0) {
                 var segPts = null;
                 try { segPts = existingSeg.pathPoints; } catch (e) { segPts = null; }
                 if (!segPts || segPts.length < 2) { skippedExisting++; continue; }
@@ -1899,8 +2509,6 @@ function MDUX_recreateGapsInSelection() {
                 gapHit = flipHits.gap;
                 traceMsg("RECREATE flip restoreDot=" + flipHits.dot.toFixed(3));
 
-                var restoreLayer = null;
-                var restoreCompound = null;
                 try {
                     restoreLayer = restoreHit.path.layer;
                     restoreCompound = MDUX_gapTools_getParentCompound(restoreHit.path);
@@ -1920,11 +2528,70 @@ function MDUX_recreateGapsInSelection() {
 
                 restoredCount++;
                 restoredSegments.push(restored);
+                restoredForTarget = restored;
                 ignoreRemoved += MDUX_gapTools_removeIgnoreAnchorsNear(doc, [[segStart[0], segStart[1]], [segEnd[0], segEnd[1]]], 12);
                 flippedCount++;
                 wasFlip = true;
                 traceMsg("RECREATE flip restored to layer=" + (restoreLayer ? restoreLayer.name : "") + " compound=" + (restoreCompound ? "yes" : "no"));
-            } else if (existingSeg) {
+                processedCenters.push(center); // Mark this center as processed after restore
+
+                // After restore, re-find crossing path with fresh hit data
+                // dirDel is the restored segment direction, find path different from it
+                pushUniquePath(activePaths, restored);
+                var freshHits = MDUX_gapTools_findIntersectingSegmentsAtPoint(activePaths, center, 25);
+                traceMsg("RECREATE after restore freshHits=" + freshHits.length);
+                var bestCrossing = null;
+                var bestCrossDot = 1.0;
+                var bestCrossingEdge = null; // Fallback for edge cases (t near 0 or 1)
+                var bestCrossDotEdge = 1.0;
+                var restoreGapSize = dlen / 2; // Gap size is half the deleted segment length
+                var minSegLen = restoreGapSize * 2.5; // Segment needs to be at least 2.5x gap size
+                for (var fh = 0; fh < freshHits.length; fh++) {
+                    var fhit = freshHits[fh];
+                    // Calculate dot with restore direction - lower dot means more perpendicular/different
+                    var crossDot = Math.abs(dirDel[0] * fhit.dir[0] + dirDel[1] * fhit.dir[1]);
+                    traceMsg("RECREATE freshHit " + fh + " dot=" + crossDot.toFixed(3) + " t=" + fhit.t.toFixed(3) + " segLen=" + fhit.segLen.toFixed(1));
+                    // Skip segments that are too short to hold a gap
+                    if (fhit.segLen < minSegLen) continue;
+                    // Check if t is good (not too close to ends)
+                    var ratioF = restoreGapSize / fhit.segLen;
+                    var tGood = (fhit.t > ratioF && fhit.t < (1 - ratioF));
+                    if (tGood) {
+                        if (crossDot < bestCrossDot - 0.01) {
+                            bestCrossing = fhit;
+                            bestCrossDot = crossDot;
+                        }
+                    } else {
+                        // Track edge cases as fallback (t at endpoint but segment is long enough)
+                        if (crossDot < bestCrossDotEdge - 0.01) {
+                            bestCrossingEdge = fhit;
+                            bestCrossDotEdge = crossDot;
+                        }
+                    }
+                }
+                // Prefer hit with good t value, but use edge case as fallback
+                if (bestCrossing && bestCrossDot < 0.9) {
+                    gapHit = bestCrossing;
+                    traceMsg("RECREATE using fresh crossing hit dot=" + bestCrossDot.toFixed(3) + " segLen=" + bestCrossing.segLen.toFixed(1));
+                } else if (bestCrossingEdge && bestCrossDotEdge < 0.9) {
+                    // Edge case: t is at segment endpoint, but we want gap at intersection
+                    // Keep proj at the target center (intersection point), just use this segment for direction
+                    var edgeRatio = restoreGapSize / bestCrossingEdge.segLen;
+                    var adjustedT = bestCrossingEdge.t;
+                    if (adjustedT <= edgeRatio) {
+                        adjustedT = edgeRatio + 0.05; // Adjust t for later checks
+                    } else if (adjustedT >= (1 - edgeRatio)) {
+                        adjustedT = (1 - edgeRatio) - 0.05;
+                    }
+                    bestCrossingEdge.t = adjustedT;
+                    // Keep proj at the intersection center, not shifted along segment
+                    bestCrossingEdge.proj = [center[0], center[1]];
+                    gapHit = bestCrossingEdge;
+                    traceMsg("RECREATE using edge crossing (at center) dot=" + bestCrossDotEdge.toFixed(3) + " segLen=" + bestCrossingEdge.segLen.toFixed(1));
+                } else {
+                    traceMsg("RECREATE no good crossing found, bestDot=" + bestCrossDot.toFixed(3));
+                }
+            } else if (!didRestore && existingSeg) {
                 skippedExisting++;
                 continue;
             }
@@ -1961,7 +2628,11 @@ function MDUX_recreateGapsInSelection() {
             }
 
             var segLen = gapHit.segLen;
-            if (!segLen || segLen < 0.01) { skipped++; continue; }
+            if (!segLen || segLen < 0.01) {
+                traceMsg("RECREATE skip: segLen=" + (segLen || 0).toFixed(2) + " (too small)");
+                skipped++;
+                continue;
+            }
 
             var effectiveSourceLayer = sourceLayer;
             if (!effectiveSourceLayer || wasFlip || target.type === "intersection") {
@@ -1985,13 +2656,25 @@ function MDUX_recreateGapsInSelection() {
                 var dx = gapHit.segEnd[0] - gapHit.segStart[0];
                 var dy = gapHit.segEnd[1] - gapHit.segStart[1];
                 var len = Math.sqrt(dx * dx + dy * dy);
-                if (len < 0.01) { skipped++; continue; }
+                if (len < 0.01) {
+                    traceMsg("RECREATE skip: dir segment len=" + len.toFixed(4) + " (too small)");
+                    skipped++;
+                    continue;
+                }
                 dir = [dx / len, dy / len];
             }
 
             var ratio = gapSize / segLen;
-            if (ratio >= 0.49) { skipped++; continue; }
-            if (gapHit.t <= ratio || gapHit.t >= (1 - ratio)) { skipped++; continue; }
+            if (ratio >= 0.49) {
+                traceMsg("RECREATE skip: ratio=" + ratio.toFixed(3) + " gapSize=" + gapSize.toFixed(2) + " segLen=" + segLen.toFixed(1) + " (gap too big for segment)");
+                skipped++;
+                continue;
+            }
+            if (gapHit.t <= ratio || gapHit.t >= (1 - ratio)) {
+                traceMsg("RECREATE skip: t=" + gapHit.t.toFixed(3) + " ratio=" + ratio.toFixed(3) + " (hit too close to segment end)");
+                skipped++;
+                continue;
+            }
 
             var centerOnSeg = gapHit.proj;
             var cutBefore = [centerOnSeg[0] - gapSize * dir[0], centerOnSeg[1] - gapSize * dir[1]];
@@ -2011,7 +2694,11 @@ function MDUX_recreateGapsInSelection() {
 
             if (!wasFlip && deletedLayer) {
                 var existingSeg2 = MDUX_gapTools_findDeletedSegmentNear(deletedLayer, centerOnSeg, 15);
-                if (existingSeg2) { skippedExisting++; continue; }
+                if (existingSeg2) {
+                    traceMsg("RECREATE skip: found existing deleted segment near gap center (already has gap)");
+                    skippedExisting++;
+                    continue;
+                }
             }
 
             try {
@@ -2125,9 +2812,29 @@ function MDUX_recreateGapsInSelection() {
                 }
                 recreated++;
                 traceMsg("RECREATE split ok");
+                processedCenters.push(center); // Mark this center as processed
             } else {
                 skipped++;
                 traceMsg("RECREATE split failed");
+            }
+
+            traceMsg("RECREATE check restoredForTarget=" + (restoredForTarget ? "yes" : "null"));
+            if (restoredForTarget) {
+                try {
+                    var isValid = false;
+                    try { isValid = MDUX_gapTools_isValidPath(restoredForTarget); } catch(e){}
+                    traceMsg("RECREATE restoredForTarget valid=" + isValid);
+                    
+                    if (isValid) {
+                        var mergedAfter = mergeRestoredPathNow(restoredForTarget, restoreCompound);
+                        traceMsg("RECREATE flip mergedAfter count=" + mergedAfter.count);
+                    } else {
+                        traceMsg("RECREATE flip restoredForTarget invalid, skipping merge");
+                    }
+                } catch (eMerge) {
+                    traceMsg("RECREATE flip merge error: " + eMerge);
+                    MDUX_gapTools_traceError("RECREATE flip merge error", eMerge);
+                }
             }
         }
 
@@ -2145,37 +2852,39 @@ function MDUX_recreateGapsInSelection() {
             var mergedTotal = 0;
             for (var rs = 0; rs < restoredSegments.length; rs++) {
                 var restoredPath = restoredSegments[rs];
-                try { if (restoredPath.isValid === false) continue; } catch (e) { }
-                var candidates = [];
-                var compound = null;
-                try { compound = MDUX_gapTools_getParentCompound(restoredPath); } catch (e) { compound = null; }
-                if (compound) {
-                    candidates = MDUX_gapTools_collectOpenPathsFromCompound(compound);
-                } else {
-                    for (var sp = 0; sp < selectedPaths.length; sp++) {
-                        var p = selectedPaths[sp];
-                        if (!p) continue;
-                        var exists = false;
-                        for (var ci = 0; ci < candidates.length; ci++) {
-                            if (candidates[ci] === p) { exists = true; break; }
-                        }
-                        if (!exists) candidates.push(p);
-                    }
-                    for (var rp = 0; rp < restoredSegments.length; rp++) {
-                        var rpPath = restoredSegments[rp];
-                        if (!rpPath) continue;
-                        var exists2 = false;
-                        for (var ci2 = 0; ci2 < candidates.length; ci2++) {
-                            if (candidates[ci2] === rpPath) { exists2 = true; break; }
-                        }
-                        if (!exists2) candidates.push(rpPath);
-                    }
-                }
-                if (candidates.length > 0) {
-                    mergedTotal += MDUX_gapTools_mergePathWithNeighbors(restoredPath, candidates, 3.0, 0.985);
+                try {
+                    if (!restoredPath || !MDUX_gapTools_isValidPath(restoredPath)) continue;
+                    var compound = null;
+                    try { compound = MDUX_gapTools_getParentCompound(restoredPath); } catch (e) { compound = null; }
+                    mergedTotal += mergeRestoredPathNow(restoredPath, compound).count;
+                } catch (eMergePost) {
+                    MDUX_gapTools_traceError("RECREATE post-merge error for segment " + rs, eMergePost);
                 }
             }
             traceMsg("RECREATE merged=" + mergedTotal);
+
+            // Apply graphic styles to all paths involved in recreate to restore proper appearance
+            // Include activePaths because split paths are added there
+            var styledCount = 0;
+            try {
+                var allRecreatedPaths = MDUX_gapTools_filterValidPaths(selectedPaths.concat(restoredSegments).concat(activePaths));
+                for (var rp2 = 0; rp2 < allRecreatedPaths.length; rp2++) {
+                    var recreatedPath = allRecreatedPaths[rp2];
+                    if (!recreatedPath || !MDUX_gapTools_isValidPath(recreatedPath)) continue;
+                    try {
+                        if (MDUX_gapTools_applyGraphicStyle(recreatedPath)) {
+                            styledCount++;
+                        }
+                    } catch (eStyle) {
+                        // Skip styling errors silently
+                    }
+                }
+            } catch (eStyleAll) {
+                MDUX_gapTools_traceError("RECREATE style application error", eStyleAll);
+            }
+            if (styledCount > 0) {
+                traceMsg("RECREATE applied graphic styles to " + styledCount + " path(s)");
+            }
         }
 
         var traceFile = MDUX_gapTools_finalizeTrace(traceTag, trace);
@@ -2188,7 +2897,8 @@ function MDUX_recreateGapsInSelection() {
         if (ignoreRemoved > 0) msg += ", removed " + ignoreRemoved + " ignore anchor(s)";
         if (skippedExisting > 0) msg += ", skipped " + skippedExisting + " existing";
         if (skipped > 0) msg += ", skipped " + skipped;
-        return msg + " (trace " + traceId + ")" + (traceFile ? " file: " + traceFile : "");
+        return msg + " (trace " + traceId + ")" + (traceFile ? " file: " + traceFile : "") +
+            " build " + MDUX_gapTools_buildTag;
     } catch (e) {
         try { trace.push("ERROR: " + e); } catch (e2) { }
         var traceFile = "";
@@ -2196,6 +2906,7 @@ function MDUX_recreateGapsInSelection() {
             MDUX_gapTools_clearTraceTag();
             MDUX_gapTools_clearTraceBuffer();
         }
-        return "Error: " + e + " (trace " + traceId + ")" + (traceFile ? " file: " + traceFile : "");
+        return "Error: " + e + " (trace " + traceId + ")" + (traceFile ? " file: " + traceFile : "") +
+            " build " + MDUX_gapTools_buildTag;
     }
 }

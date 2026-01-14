@@ -88,8 +88,13 @@ if (typeof $.global.MDUX_LAST_YIELD_TIME === "undefined") {
 // ============================================================================
 // PYTHON GEOMETRY BRIDGE - High-performance geometry operations
 // ============================================================================
-$.global.MDUX_USE_PYTHON = true;
-$.global.MDUX_PYTHON_FALLBACK = false;  // Set to true to enable slow ExtendScript fallback
+// Only set defaults if not already set (allows COM testing to override)
+if (typeof $.global.MDUX_USE_PYTHON === 'undefined') {
+    $.global.MDUX_USE_PYTHON = true;
+}
+if (typeof $.global.MDUX_PYTHON_FALLBACK === 'undefined') {
+    $.global.MDUX_PYTHON_FALLBACK = false;  // Set to true to enable slow ExtendScript fallback
+}
 
 // Inline Python Bridge - File-based communication (Socket not available in CEP)
 var PythonBridge = (function() {
@@ -13067,10 +13072,6 @@ function isDuctworkLineLayer(name) {
 
         // --- ENHANCED ROBUST GRAPHIC STYLE APPLICATION ---
         function applyAllDuctworkStylesRobust(selectedItems) {
-            // TEMP DEBUG - remove after testing
-            $.writeln("[ROBUST-STYLES] FUNCTION CALLED");
-            addDebug("[ROBUST-STYLES] === applyAllDuctworkStylesRobust CALLED ===");
-            addDebug("[ROBUST-STYLES] selectedItems count: " + (selectedItems ? selectedItems.length : "null"));
             // Always use base graphic styles for ductwork lines; Emory rectangles keep their styles separately
             var styleEmoryAppend = "";
             var styleMappings = [
@@ -16892,20 +16893,7 @@ function isDuctworkLineLayer(name) {
                             firstPt.rightDirection = firstPt.anchor;
                         } catch (eHandle2) { }
 
-                        addDebug("[POST-ORTHO-SPLIT] Original now " + targetPath.pathPoints.length + " pts ending at [" + targetPath.pathPoints[targetPath.pathPoints.length - 1].anchor[0].toFixed(1) + "," + targetPath.pathPoints[targetPath.pathPoints.length - 1].anchor[1].toFixed(1) + "]");
-                        addDebug("[POST-ORTHO-SPLIT] New split has " + dupPath.pathPoints.length + " pts starting at [" + dupPath.pathPoints[0].anchor[0].toFixed(1) + "," + dupPath.pathPoints[0].anchor[1].toFixed(1) + "]");
-
-                        // *** LOG ALL POINT POSITIONS AFTER SPLIT FOR DEBUGGING ***
-                        addDebug("[POST-ORTHO-SPLIT] === LEFT HALF POINTS ===");
-                        for (var lpIdx = 0; lpIdx < targetPath.pathPoints.length; lpIdx++) {
-                            var lpt = targetPath.pathPoints[lpIdx].anchor;
-                            addDebug("[POST-ORTHO-SPLIT]   Point " + lpIdx + ": [" + lpt[0].toFixed(2) + ", " + lpt[1].toFixed(2) + "]");
-                        }
-                        addDebug("[POST-ORTHO-SPLIT] === RIGHT HALF POINTS ===");
-                        for (var rpIdx = 0; rpIdx < dupPath.pathPoints.length; rpIdx++) {
-                            var rpt = dupPath.pathPoints[rpIdx].anchor;
-                            addDebug("[POST-ORTHO-SPLIT]   Point " + rpIdx + ": [" + rpt[0].toFixed(2) + ", " + rpt[1].toFixed(2) + "]");
-                        }
+                        addDebug("[POST-ORTHO-SPLIT] Original now " + targetPath.pathPoints.length + " pts, new split has " + dupPath.pathPoints.length + " pts");
 
                         // *** DEFER COMPOUNDING TO LATER PHASE ***
                         // Don't compound here - store split pairs for COMPOUNDING CONNECTED PATHS phase
@@ -18684,6 +18672,7 @@ function isDuctworkLineLayer(name) {
         var autoIntersections = [];
         var autoPathsToRemove = [];
         var autoNewCompoundPaths = [];
+        var autoPendingCompounds = []; // Pairs to compound AFTER all carves are done (to avoid point order reversal)
         // Track path pairs that should NOT be connected via T-junction
         // (carved halves should not connect to the crossing path that caused the carve)
         var CARVE_BLOCKED_CONNECTIONS = [];
@@ -19056,35 +19045,8 @@ function isDuctworkLineLayer(name) {
 
             addDebug("[AUTO-CARVE] Found " + autoIntersections.length + " new intersection(s) to carve out");
 
-            // Identify paths that intersect only one other path (single-intersection branches)
-            var autoIntersectionNeighbors = {};
-            function recordAutoNeighbor(aIdx, bIdx) {
-                if (typeof aIdx !== "number" || typeof bIdx !== "number") return;
-                if (!autoIntersectionNeighbors[aIdx]) autoIntersectionNeighbors[aIdx] = {};
-                autoIntersectionNeighbors[aIdx][bIdx] = true;
-            }
-            for (var aiIdx = 0; aiIdx < autoIntersections.length; aiIdx++) {
-                var ai = autoIntersections[aiIdx];
-                if (!ai || ai.isSelfIntersection) continue;
-                recordAutoNeighbor(ai.pathToCarveIdx, ai.otherPathIdx);
-                recordAutoNeighbor(ai.otherPathIdx, ai.pathToCarveIdx);
-            }
-            var singleIntersectionPathIdx = {};
-            var singleCount = 0;
-            for (var ni in autoIntersectionNeighbors) {
-                if (!autoIntersectionNeighbors.hasOwnProperty(ni)) continue;
-                var count = 0;
-                for (var nk in autoIntersectionNeighbors[ni]) {
-                    if (autoIntersectionNeighbors[ni].hasOwnProperty(nk)) count++;
-                }
-                if (count === 1) {
-                    singleIntersectionPathIdx[ni] = true;
-                    singleCount++;
-                }
-            }
-            if (singleCount > 0) {
-                addDebug("[AUTO-CARVE] Single-intersection path(s): " + singleCount + " (will connect, not carve)");
-            }
+            // NOTE: Removed singleIntersectionPathIdx logic - it was incorrectly skipping crossings
+            // All crossings will now be carved; T-junction detection (if needed) should use t-values
 
             // Limit carve-outs to prevent runaway processing on complex selections
             var MAX_CARVE_OUTS = 100;
@@ -19108,24 +19070,9 @@ function isDuctworkLineLayer(name) {
                 var carveSegIdx = autoInt.carveSegIdx;
                 var intPt = autoInt.intPoint;
 
-                if (autoInt && !autoInt.isSelfIntersection) {
-                    var aIdx = autoInt.pathToCarveIdx;
-                    var bIdx = autoInt.otherPathIdx;
-                    var roleA = getDuctRoleForPath(autoInt.pathToCarve);
-                    var roleB = getDuctRoleForPath(autoInt.otherPath);
-                    var bothTrunk = (roleA === "trunk" && roleB === "trunk");
-                    if (!bothTrunk && (singleIntersectionPathIdx[aIdx] || singleIntersectionPathIdx[bIdx]) && autoInt.otherPath) {
-                        var keyA = (typeof aIdx === "number" && typeof bIdx === "number") ?
-                            (aIdx < bIdx ? (aIdx + "_" + bIdx) : (bIdx + "_" + aIdx)) :
-                            null;
-                        if (keyA && !singleIntersectionConnectionKeys[keyA]) {
-                            singleIntersectionConnectionKeys[keyA] = true;
-                            SINGLE_INTERSECTION_FORCED_CONNECTIONS.push({ pathA: autoInt.pathToCarve, pathB: autoInt.otherPath });
-                            addDebug("[AUTO-CARVE] Skipping carve at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] - single-intersection connection");
-                        }
-                        continue;
-                    }
-                }
+                // NOTE: Removed singleIntersectionPathIdx check - it was incorrectly skipping crossings
+                // T-junction detection should be based on t-values (endpoint touch), not total intersection count
+                // All mid-segment crossings should be carved regardless of how many intersections a path has
 
                 try {
                     // ROBUST validity check - test multiple properties
@@ -19192,7 +19139,7 @@ function isDuctworkLineLayer(name) {
                         } catch (eCheckCarve) { }
                     }
                     if (alreadyCarved) {
-                        addDebug("[AUTO-CARVE] Path already carved, skipping intersection at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "]");
+                        var skipPtc="?"; try { var sp0=carvePath.pathPoints[0].anchor; var spN=carvePath.pathPoints[carvePath.pathPoints.length-1].anchor; skipPtc="["+sp0[0].toFixed(1)+","+sp0[1].toFixed(1)+"] to ["+spN[0].toFixed(1)+","+spN[1].toFixed(1)+"]"; } catch(e){} addDebug("[AUTO-CARVE] Path already carved, skip at [" + intPt[0].toFixed(1) + "," + intPt[1].toFixed(1) + "] ptc=" + skipPtc);
                         continue;
                     }
                     var carvePts = carvePath.pathPoints;
@@ -19278,6 +19225,7 @@ function isDuctworkLineLayer(name) {
                     try {
                         var autoFirstPts = autoFirstHalf.pathPoints;
                         var firstPtCount = autoFirstPts.length;
+
                         // Remove points after the cut segment (backwards to preserve indices)
                         for (var afDelIdx = firstPtCount - 1; afDelIdx > carveSegIdx; afDelIdx--) {
                             try {
@@ -19286,6 +19234,7 @@ function isDuctworkLineLayer(name) {
                                 addDebug("[AUTO-CARVE] Warning: Could not remove point " + afDelIdx + " from first half");
                             }
                         }
+
                         // Add new endpoint at cut position
                         var autoNewEnd = autoFirstHalf.pathPoints.add();
                         autoNewEnd.anchor = cutBefore;
@@ -19409,7 +19358,100 @@ function isDuctworkLineLayer(name) {
                             pathB: autoSecondHalf
                         });
                         addDebug("[AUTO-CARVE] Tracked split pair for forced sibling connection");
+
+                        // CRITICAL: If carvePath was itself a split half from a previous carve,
+                        // update that previous pair to reference the new pieces
+                        for (var spIdx = 0; spIdx < AUTO_CARVE_SPLIT_PAIRS.length - 1; spIdx++) {
+                            var sp = AUTO_CARVE_SPLIT_PAIRS[spIdx];
+                            if (sp.pathA === carvePath) {
+                                sp.pathA = autoFirstHalf;
+                                addDebug("[AUTO-CARVE] Updated previous split pair pathA to new first half");
+                            }
+                            if (sp.pathB === carvePath) {
+                                sp.pathB = autoFirstHalf;
+                                addDebug("[AUTO-CARVE] Updated previous split pair pathB to new first half");
+                            }
+                        }
+                        
+                        // Also update CARVE_BLOCKED_CONNECTIONS when re-carving a split half
+                        for (var cbcIdx = 0; cbcIdx < CARVE_BLOCKED_CONNECTIONS.length; cbcIdx++) {
+                            var cbc = CARVE_BLOCKED_CONNECTIONS[cbcIdx];
+                            if (cbc.carvedPath === carvePath) {
+                                cbc.carvedPath = autoFirstHalf;
+                                // Also update the carvedEndpoints to match new first half
+                                try {
+                                    var fhPts = autoFirstHalf.pathPoints;
+                                    cbc.carvedEndpoints = {
+                                        start: [fhPts[0].anchor[0], fhPts[0].anchor[1]],
+                                        end: [fhPts[fhPts.length-1].anchor[0], fhPts[fhPts.length-1].anchor[1]]
+                                    };
+                                } catch(eCbcEp) {}
+                                addDebug("[AUTO-CARVE] Updated blocked connection carvedPath and endpoints to new first half");
+                            }
+                        }
                     } catch (eSplitPair) { }
+
+                    // CRITICAL: Update SINGLE_INTERSECTION_FORCED_CONNECTIONS if the carved path was stored there
+                    // When a path is split, any stored reference to it becomes invalid
+                    try {
+                        for (var sifcIdx = 0; sifcIdx < SINGLE_INTERSECTION_FORCED_CONNECTIONS.length; sifcIdx++) {
+                            var sifc = SINGLE_INTERSECTION_FORCED_CONNECTIONS[sifcIdx];
+                            if (sifc.pathA === carvePath) {
+                                sifc.pathA = autoFirstHalf;
+                                addDebug("[AUTO-CARVE] Updated SINGLE_INTERSECTION pathA to first half (original was carved)");
+                            }
+                            if (sifc.pathB === carvePath) {
+                                sifc.pathB = autoFirstHalf;
+                                addDebug("[AUTO-CARVE] Updated SINGLE_INTERSECTION pathB to first half (original was carved)");
+                            }
+                        }
+                    } catch (eSifcUpdate) {
+                        addDebug("[AUTO-CARVE] Warning: Failed to update SINGLE_INTERSECTION refs: " + eSifcUpdate);
+                    }
+
+                    // CRITICAL: Update ONLY FUTURE autoIntersections to reference split halves instead of original
+                    // This prevents "Path already carved" skipping for multi-intersection paths
+                    try {
+                        for (var aiUpdateIdx = acIdx - 1; aiUpdateIdx >= 0; aiUpdateIdx--) {
+                            var aiToUpdate = autoIntersections[aiUpdateIdx];
+                            if (!aiToUpdate) continue;
+                            
+                            // Debug: trace path comparisons
+                            // If pathToCarve was the carved path, determine which half contains this intersection
+                            if (aiToUpdate.pathToCarve === carvePath) {
+                                // Check which half the intersection point is on
+                                // Compare intersection point to the cut location
+                                var aiPt = aiToUpdate.intPoint;
+                                var aiSegIdx = aiToUpdate.carveSegIdx;
+
+                                // If intersection is before the cut point, use first half
+                                // If after, use second half
+                                if (aiSegIdx < carveSegIdx) {
+                                    aiToUpdate.pathToCarve = autoFirstHalf;
+                                    addDebug("[AUTO-CARVE] Updated future intersection " + aiUpdateIdx + " pathToCarve to first half");
+                                } else if (aiSegIdx > carveSegIdx) {
+                                    // Adjust segment index for second half (subtract carveSegIdx since those segments are now in first half)
+                                    aiToUpdate.pathToCarve = autoSecondHalf;
+                                    aiToUpdate.carveSegIdx = aiSegIdx - carveSegIdx;
+                                    addDebug("[AUTO-CARVE] Updated future intersection " + aiUpdateIdx + " pathToCarve to second half (segIdx " + aiSegIdx + " -> " + (aiSegIdx - carveSegIdx) + ")");
+                                } else {
+                                    // Same segment - compare t-values or point positions
+                                    // For now, use first half as default
+                                    aiToUpdate.pathToCarve = autoFirstHalf;
+                                    addDebug("[AUTO-CARVE] Updated future intersection " + aiUpdateIdx + " pathToCarve to first half (same segment)");
+                                }
+                            }
+                            
+                            // Also check otherPath
+                            if (aiToUpdate.otherPath === carvePath) {
+                                // For otherPath, we don't have segment info easily, so default to first half
+                                aiToUpdate.otherPath = autoFirstHalf;
+                                addDebug("[AUTO-CARVE] Updated future intersection " + aiUpdateIdx + " otherPath to first half");
+                            }
+                        }
+                    } catch (eAiUpdate) {
+                        addDebug("[AUTO-CARVE] Warning: Failed to update autoIntersections refs: " + eAiUpdate);
+                    }
 
                     // Create ignore anchors at cut points
                     try {
@@ -19541,42 +19583,36 @@ function isDuctworkLineLayer(name) {
                         canCompound = false;
                     }
 
-                    // Try to create compound path, fall back to separate paths on failure
-                    var compoundSuccess = false;
+                    // DELAYED COMPOUNDING: Don't compound immediately!
+                    // Compounding can reverse path point order, which breaks subsequent carves
+                    // on the same path. Instead, store the pairs and compound after ALL carves are done.
                     if (canCompound) {
                         try {
-                            // Validate both halves are still valid before attempting compound
+                            // Validate both halves are still valid
                             var halfAValid = false, halfBValid = false;
                             try { halfAValid = autoFirstHalf && autoFirstHalf.pathPoints && autoFirstHalf.pathPoints.length >= 2; } catch (eValA) { }
                             try { halfBValid = autoSecondHalf && autoSecondHalf.pathPoints && autoSecondHalf.pathPoints.length >= 2; } catch (eValB) { }
 
                             if (halfAValid && halfBValid) {
-                                // Deselect all, then select just the two halves
-                                doc.selection = null;
-                                autoFirstHalf.selected = true;
-                                autoSecondHalf.selected = true;
-
-                                if (doc.selection.length === 2) {
-                                    app.executeMenuCommand("compoundPath");
-
-                                    // Capture the new compound path
-                                    if (doc.selection.length === 1 && doc.selection[0].typename === "CompoundPathItem") {
-                                        var autoNewCompound = doc.selection[0];
-                                        autoNewCompoundPaths.push(autoNewCompound);
-                                        CARVE_OUT_COMPOUNDS.push(autoNewCompound);
-                                        SELECTED_PATHS.push(autoNewCompound);
-                                        compoundSuccess = true;
-                                        carveCount++;
-                                    }
-                                }
+                                // Store pair for later compounding (after all carves complete)
+                                autoPendingCompounds.push({
+                                    pathA: autoFirstHalf,
+                                    pathB: autoSecondHalf,
+                                    parentLayer: carveParent
+                                });
+                                carveCount++;
+                                addDebug("[AUTO-CARVE] Stored pending compound pair (will compound after all carves)");
+                            } else {
+                                // Fallback: add valid halves as separate paths
+                                if (halfAValid) SELECTED_PATHS.push(autoFirstHalf);
+                                if (halfBValid) SELECTED_PATHS.push(autoSecondHalf);
+                                if (halfAValid || halfBValid) carveCount++;
                             }
-                        } catch (eCompound) {
-                            // Compounding failed - will fall back below
+                        } catch (ePending) {
+                            addDebug("[AUTO-CARVE] Error storing pending compound: " + ePending);
                         }
-                    }
-
-                    // Fallback: if compounding failed, add the halves as separate paths
-                    if (!compoundSuccess) {
+                    } else {
+                        // Can't compound - add halves as separate paths
                         try {
                             var addedA = false, addedB = false;
                             try { if (autoFirstHalf && autoFirstHalf.pathPoints && autoFirstHalf.pathPoints.length >= 2) { SELECTED_PATHS.push(autoFirstHalf); addedA = true; } } catch (eA) { }
@@ -19602,6 +19638,49 @@ function isDuctworkLineLayer(name) {
             // Log if limit was reached
             if (carveCount >= MAX_CARVE_OUTS && autoIntersections.length > MAX_CARVE_OUTS) {
                 addDebug("[AUTO-CARVE] WARNING: Hit carve limit of " + MAX_CARVE_OUTS + " (had " + autoIntersections.length + " total intersections)");
+            }
+
+            // NOW compound all the pending pairs (after ALL carves are done)
+            // This prevents path point order reversal from affecting subsequent carves
+            addDebug("[AUTO-CARVE] Compounding " + autoPendingCompounds.length + " pending pairs...");
+            for (var apcIdx = 0; apcIdx < autoPendingCompounds.length; apcIdx++) {
+                try {
+                    var apc = autoPendingCompounds[apcIdx];
+                    var apcA = apc.pathA;
+                    var apcB = apc.pathB;
+
+                    // Validate both paths are still valid
+                    var apcAValid = false, apcBValid = false;
+                    try { apcAValid = apcA && apcA.pathPoints && apcA.pathPoints.length >= 2; } catch (eValA2) { }
+                    try { apcBValid = apcB && apcB.pathPoints && apcB.pathPoints.length >= 2; } catch (eValB2) { }
+
+                    if (apcAValid && apcBValid) {
+                        // Deselect all, then select just the two halves
+                        doc.selection = null;
+                        apcA.selected = true;
+                        apcB.selected = true;
+
+                        if (doc.selection.length === 2) {
+                            app.executeMenuCommand("compoundPath");
+
+                            // Capture the new compound path
+                            if (doc.selection.length === 1 && doc.selection[0].typename === "CompoundPathItem") {
+                                var autoNewCompound = doc.selection[0];
+                                autoNewCompoundPaths.push(autoNewCompound);
+                                CARVE_OUT_COMPOUNDS.push(autoNewCompound);
+                                SELECTED_PATHS.push(autoNewCompound);
+                                addDebug("[AUTO-CARVE] Created compound from pending pair " + apcIdx);
+                            }
+                        }
+                    } else {
+                        // Fallback: add valid halves as separate paths
+                        if (apcAValid) SELECTED_PATHS.push(apcA);
+                        if (apcBValid) SELECTED_PATHS.push(apcB);
+                        addDebug("[AUTO-CARVE] Added halves separately for pending pair " + apcIdx + " (validation failed)");
+                    }
+                } catch (eApcCompound) {
+                    addDebug("[AUTO-CARVE] Error compounding pending pair " + apcIdx + ": " + eApcCompound);
+                }
             }
 
             // Remove original paths that were carved
@@ -20666,8 +20745,6 @@ function isDuctworkLineLayer(name) {
                             // This blocks T-junction connections between carved halves and crossing paths
                             // Use stored endpoint coordinates for reliable comparison
                             if (!isCrossoverConnection && typeof CARVE_BLOCKED_CONNECTIONS !== 'undefined' && CARVE_BLOCKED_CONNECTIONS.length > 0) {
-                                addDebug("[CARVE-BLOCK-CHECK] Checking connection against " + CARVE_BLOCKED_CONNECTIONS.length + " blocked pairs");
-
                                 // Helper to compare path endpoints with stored coordinates
                                 function pathMatchesStoredEndpoints(path, storedEndpoints) {
                                     if (!path || !storedEndpoints) return false;
@@ -20689,32 +20766,15 @@ function isDuctworkLineLayer(name) {
                                     } catch (e) { return false; }
                                 }
 
-                                // Debug: log endpoints of connPathA and connPathB
-                                try {
-                                    var dbgPtsA = connPathA.pathPoints;
-                                    var dbgPtsB = connPathB.pathPoints;
-                                    addDebug("[CARVE-BLOCK-CHECK] connPathA endpoints: [" + dbgPtsA[0].anchor[0].toFixed(1) + "," + dbgPtsA[0].anchor[1].toFixed(1) + "] to [" + dbgPtsA[dbgPtsA.length-1].anchor[0].toFixed(1) + "," + dbgPtsA[dbgPtsA.length-1].anchor[1].toFixed(1) + "]");
-                                    addDebug("[CARVE-BLOCK-CHECK] connPathB endpoints: [" + dbgPtsB[0].anchor[0].toFixed(1) + "," + dbgPtsB[0].anchor[1].toFixed(1) + "] to [" + dbgPtsB[dbgPtsB.length-1].anchor[0].toFixed(1) + "," + dbgPtsB[dbgPtsB.length-1].anchor[1].toFixed(1) + "]");
-                                } catch (eDbg) {}
                                 for (var cbcIdx = 0; cbcIdx < CARVE_BLOCKED_CONNECTIONS.length; cbcIdx++) {
                                     try {
                                         var cbc = CARVE_BLOCKED_CONNECTIONS[cbcIdx];
                                         if (!cbc) continue;
-                                        // Debug: log stored endpoint coordinates
-                                        try {
-                                            if (cbc.carvedEndpoints) {
-                                                addDebug("[CARVE-BLOCK-CHECK] cbc[" + cbcIdx + "] stored carvedEndpoints: [" + cbc.carvedEndpoints.start[0].toFixed(1) + "," + cbc.carvedEndpoints.start[1].toFixed(1) + "] to [" + cbc.carvedEndpoints.end[0].toFixed(1) + "," + cbc.carvedEndpoints.end[1].toFixed(1) + "]");
-                                            }
-                                            if (cbc.crossEndpoints) {
-                                                addDebug("[CARVE-BLOCK-CHECK] cbc[" + cbcIdx + "] stored crossEndpoints: [" + cbc.crossEndpoints.start[0].toFixed(1) + "," + cbc.crossEndpoints.start[1].toFixed(1) + "] to [" + cbc.crossEndpoints.end[0].toFixed(1) + "," + cbc.crossEndpoints.end[1].toFixed(1) + "]");
-                                            }
-                                        } catch (eDbg2) { }
                                         // Use stored coordinates for comparison (more reliable than path references)
                                         var carvedMatchA = cbc.carvedEndpoints ? pathMatchesStoredEndpoints(connPathA, cbc.carvedEndpoints) : false;
                                         var carvedMatchB = cbc.carvedEndpoints ? pathMatchesStoredEndpoints(connPathB, cbc.carvedEndpoints) : false;
                                         var crossMatchA = cbc.crossEndpoints ? pathMatchesStoredEndpoints(connPathA, cbc.crossEndpoints) : false;
                                         var crossMatchB = cbc.crossEndpoints ? pathMatchesStoredEndpoints(connPathB, cbc.crossEndpoints) : false;
-                                        addDebug("[CARVE-BLOCK-CHECK] cbc[" + cbcIdx + "]: carvedMatchA=" + carvedMatchA + ", carvedMatchB=" + carvedMatchB + ", crossMatchA=" + crossMatchA + ", crossMatchB=" + crossMatchB);
                                         if ((carvedMatchA && crossMatchB) || (carvedMatchB && crossMatchA)) {
                                             isCrossoverConnection = true;
                                             addDebug("[XOVER-FILTER] Blocking carve-out crossover connection (coordinate match)");
@@ -20853,7 +20913,9 @@ function isDuctworkLineLayer(name) {
 
                 // Add forced connections for single-intersection branches (skipped carve-outs)
                 if (typeof SINGLE_INTERSECTION_FORCED_CONNECTIONS !== 'undefined' && SINGLE_INTERSECTION_FORCED_CONNECTIONS.length > 0) {
+                    addDebug("[SINGLE-INT] Processing " + SINGLE_INTERSECTION_FORCED_CONNECTIONS.length + " forced connections for layer " + layerName);
                     var addedSingleConnections = 0;
+                    var skippedNotInLayer = 0;
                     var singleConnKeys = {};
                     function indexOfPathInLayer(list, path) {
                         if (!list || !path) return -1;
@@ -20865,19 +20927,39 @@ function isDuctworkLineLayer(name) {
                     for (var scIdx = 0; scIdx < SINGLE_INTERSECTION_FORCED_CONNECTIONS.length; scIdx++) {
                         try {
                             var sc = SINGLE_INTERSECTION_FORCED_CONNECTIONS[scIdx];
-                            if (!sc || !sc.pathA || !sc.pathB) continue;
+                            if (!sc || !sc.pathA || !sc.pathB) {
+                                addDebug("[SINGLE-INT] Connection " + scIdx + " invalid (null path)");
+                                continue;
+                            }
                             var idxA = indexOfPathInLayer(layerPaths, sc.pathA);
                             var idxB = indexOfPathInLayer(layerPaths, sc.pathB);
-                            if (idxA === -1 || idxB === -1) continue;
+                            if (idxA === -1 || idxB === -1) {
+                                skippedNotInLayer++;
+                                // Debug: Check if paths are valid but in different layer
+                                try {
+                                    var pathALayer = sc.pathA.layer ? sc.pathA.layer.name : "unknown";
+                                    var pathBLayer = sc.pathB.layer ? sc.pathB.layer.name : "unknown";
+                                    addDebug("[SINGLE-INT] Connection " + scIdx + " skipped: pathA in " + pathALayer + " (idx=" + idxA + "), pathB in " + pathBLayer + " (idx=" + idxB + ")");
+                                } catch (eDbg) {
+                                    addDebug("[SINGLE-INT] Connection " + scIdx + " skipped: idxA=" + idxA + ", idxB=" + idxB + " (path layer check failed)");
+                                }
+                                continue;
+                            }
                             var key = idxA < idxB ? (idxA + "_" + idxB) : (idxB + "_" + idxA);
                             if (singleConnKeys[key]) continue;
                             singleConnKeys[key] = true;
                             connections.push([sc.pathA, sc.pathB]);
                             addedSingleConnections++;
-                        } catch (eSc) { }
+                            addDebug("[SINGLE-INT] Added connection " + scIdx + ": idxA=" + idxA + ", idxB=" + idxB);
+                        } catch (eSc) {
+                            addDebug("[SINGLE-INT] Connection " + scIdx + " error: " + eSc);
+                        }
                     }
                     if (addedSingleConnections > 0) {
                         addDebug("[COMPOUND] Added " + addedSingleConnections + " single-intersection forced connection(s)");
+                    }
+                    if (skippedNotInLayer > 0) {
+                        addDebug("[COMPOUND] Skipped " + skippedNotInLayer + " single-intersection connection(s) - paths not in current layer");
                     }
                 }
 
