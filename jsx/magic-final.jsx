@@ -13321,14 +13321,10 @@ function isDuctworkLineLayer(name) {
                     // Process each item individually - BUT ONLY IF IT WAS IN ORIGINAL SELECTION
                     var processedCount = 0;
                     var itemsToScale = []; // Collect items with their scale factors
-
-                    // *** PRE-NORMALIZE STROKES TO 3pt BEFORE STYLE APPLICATION ***
-                    // This ensures consistent baseline before graphic styles are applied
-                    var PRE_NORMALIZE_STROKE = 3; // Pre-normalization stroke width in points
-                    var TARGET_SCALE_PERCENT = 65; // Target scale percentage after style application
+                    var TARGET_SCALE_PERCENT = 100; // Apply styles at their default size
 
                     addDebug("[STYLE-APPLY] Processing " + allItems.length + " items on " + layerName);
-                    addDebug("[STYLE-APPLY] Pre-normalizing strokes to " + PRE_NORMALIZE_STROKE + "pt, then applying " + TARGET_SCALE_PERCENT + "% scale");
+                    addDebug("[STYLE-APPLY] Applying graphic styles at default size");
 
                     for (var j = 0; j < allItems.length; j++) {
                         try {
@@ -13339,36 +13335,7 @@ function isDuctworkLineLayer(name) {
                             addDebug("[STYLE-APPLY] Item " + j + " (" + item.typename + "): shouldProcess=" + shouldProcess);
                             if (!shouldProcess) continue;
 
-                            // *** PRE-NORMALIZE: Set stroke width to 3pt before style application ***
-                            try {
-                                if (item.typename === "PathItem") {
-                                    if (item.stroked) {
-                                        item.strokeWidth = PRE_NORMALIZE_STROKE;
-                                    }
-                                } else if (item.typename === "CompoundPathItem") {
-                                    // For compound paths, normalize child paths
-                                    try {
-                                        for (var preNormIdx = 0; preNormIdx < item.pathItems.length; preNormIdx++) {
-                                            var preNormChild = item.pathItems[preNormIdx];
-                                            if (preNormChild.stroked) {
-                                                preNormChild.strokeWidth = PRE_NORMALIZE_STROKE;
-                                            }
-                                        }
-                                    } catch (ePreNormChild) { }
-                                    // Also set on compound path itself if it has stroke
-                                    try {
-                                        if (item.stroked) {
-                                            item.strokeWidth = PRE_NORMALIZE_STROKE;
-                                        }
-                                    } catch (ePreNormComp) { }
-                                }
-                                addDebug("[PRE-NORMALIZE] Set stroke to " + PRE_NORMALIZE_STROKE + "pt on item " + j);
-                            } catch (ePreNorm) {
-                                addDebug("[PRE-NORMALIZE] Error on item " + j + ": " + ePreNorm);
-                            }
-
-                            // Use fixed target scale (65%) instead of detecting existing stroke
-                            // This ensures consistent results: pre-normalize to 3pt, apply style, then scale to 65%
+                            // Use fixed target scale (100%) to keep graphic style sizes intact
                             var itemScaleFactor = TARGET_SCALE_PERCENT;
                             addDebug("[SCALE-FIXED] Using fixed scale " + itemScaleFactor + "% for item " + j + " (" + item.typename + ")");
 
@@ -21782,8 +21749,8 @@ function isDuctworkLineLayer(name) {
                 }
 
                 function placeLinkedComponents_local(docParam, selectedPaths) {
-                    // *** DEFAULT SCALE FOR NEW DUCTWORK PARTS: 50% ***
-                    var DEFAULT_PLACEMENT_SCALE = 50;
+                    // *** DEFAULT SCALE FOR NEW DUCTWORK PARTS: 100% ***
+                    var DEFAULT_PLACEMENT_SCALE = 100;
 
                     var globalScale = getCurrentScaleFactor_local(docParam);
                     if (!isFinite(globalScale) || globalScale <= 0) globalScale = DEFAULT_PLACEMENT_SCALE;
@@ -21798,10 +21765,10 @@ function isDuctworkLineLayer(name) {
                         }
                     }
 
-                    // If globalScale is still at default 100% (from old documents), use new default of 50%
+                    // If globalScale is still at default 100% (from old documents), keep default
                     if (Math.abs(globalScale - 100) < 0.01) {
                         globalScale = DEFAULT_PLACEMENT_SCALE;
-                        addDebug("[SCALE] Overriding legacy 100% scale with new default: " + DEFAULT_PLACEMENT_SCALE + "%");
+                        addDebug("[SCALE] Using default placement scale: " + DEFAULT_PLACEMENT_SCALE + "%");
                     }
 
                     addDebug("");
