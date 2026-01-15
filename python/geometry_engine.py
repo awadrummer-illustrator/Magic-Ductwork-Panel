@@ -655,19 +655,19 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
                 elif angle_deg < -90:
                     angle_deg = angle_deg + 180
 
-                # Check if within 10° of ±45° - snap to exactly 45°
+                # Check if within 10ï¿½ of ï¿½45ï¿½ - snap to exactly 45ï¿½
                 if (35 <= angle_deg <= 55) or (-55 <= angle_deg <= -35):
-                    # Snap to 45° or -45°
+                    # Snap to 45ï¿½ or -45ï¿½
                     segment_length = np.sqrt(dx * dx + dy * dy)
                     diagonal_component = segment_length / np.sqrt(2)
 
                     # Preserve direction signs
                     if angle_deg > 0:
-                        # Positive 45° - snap to exactly 45°
+                        # Positive 45ï¿½ - snap to exactly 45ï¿½
                         new_dx = diagonal_component if dx > 0 else -diagonal_component
                         new_dy = diagonal_component if dy > 0 else -diagonal_component
                     else:
-                        # Negative 45° - snap to exactly -45°
+                        # Negative 45ï¿½ - snap to exactly -45ï¿½
                         new_dx = diagonal_component if dx > 0 else -diagonal_component
                         new_dy = -diagonal_component if dy < 0 else diagonal_component
 
@@ -719,6 +719,68 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
         'total_snaps': total_snaps,
         'total_ortho_changes': total_ortho,
         'time_ms': elapsed_ms
+    }
+
+
+def find_collinear_anchors(paths_data: List[Dict], collinear_tolerance: float = 0.005) -> Dict:
+    """
+    Find internal anchors suitable for register placement.
+    These are internal points (not endpoints) where the path continues straight through.
+
+    collinear_tolerance: dot product tolerance (0.005 = ~6 degrees deviation from straight)
+
+    Returns list of anchor positions with surrounding point info for rotation calculation.
+    """
+    start_time = time.time()
+
+    anchors = []
+
+    for path_idx, path in enumerate(paths_data):
+        points = path.get('points', [])
+        if len(points) < 3:
+            continue  # Need at least 3 points for internal anchors
+
+        # Check each internal anchor (not first or last point)
+        for pt_idx in range(1, len(points) - 1):
+            prev_pt = np.array([points[pt_idx - 1]['x'], points[pt_idx - 1]['y']])
+            curr_pt = np.array([points[pt_idx]['x'], points[pt_idx]['y']])
+            next_pt = np.array([points[pt_idx + 1]['x'], points[pt_idx + 1]['y']])
+
+            # Calculate vectors from prev->anchor and anchor->next
+            v1 = curr_pt - prev_pt
+            v2 = next_pt - curr_pt
+
+            # Normalize vectors
+            len1 = np.linalg.norm(v1)
+            len2 = np.linalg.norm(v2)
+
+            if len1 < 0.001 or len2 < 0.001:
+                continue
+
+            v1 = v1 / len1
+            v2 = v2 / len2
+
+            # Dot product - if close to 1, vectors are in same direction (collinear continuation)
+            dot = np.dot(v1, v2)
+
+            # Check if collinear (dot product > (1 - tolerance))
+            if dot > (1 - collinear_tolerance):
+                anchors.append({
+                    'path_idx': path_idx,
+                    'point_idx': pt_idx,
+                    'position': {'x': float(curr_pt[0]), 'y': float(curr_pt[1])},
+                    'prev_point': {'x': float(prev_pt[0]), 'y': float(prev_pt[1])},
+                    'next_point': {'x': float(next_pt[0]), 'y': float(next_pt[1])},
+                    'dot_product': float(dot)
+                })
+
+    elapsed_ms = (time.time() - start_time) * 1000
+    log(f"Found {len(anchors)} collinear anchors in {elapsed_ms:.1f}ms")
+
+    return {
+        'anchors': anchors,
+        'time_ms': elapsed_ms,
+        'path_count': len(paths_data)
     }
 
 
@@ -786,6 +848,8 @@ OPERATIONS = {
     'build_groups': build_connection_groups,
     'snap_anchors': snap_anchors,
     'orthogonalize': orthogonalize_paths,
+    'find_crossovers': find_crossovers,
+    'find_collinear_anchors': find_collinear_anchors,
 }
 
 

@@ -30,6 +30,7 @@ from geometry_engine import (
     build_connection_groups,
     snap_anchors,
     orthogonalize_paths,
+    find_collinear_anchors,
     log
 )
 
@@ -97,6 +98,8 @@ def process_request(request_data):
             result = find_crossovers(paths, **params)
         elif operation == 'snap_anchors':
             result = snap_anchors(paths, **params)
+        elif operation == 'find_collinear_anchors':
+            result = find_collinear_anchors(paths, **params)
         else:
             return {'error': f'Unknown operation: {operation}'}
 
@@ -173,8 +176,31 @@ def watch_and_process(folder, stop_event):
     log(f"[SERVER] Shutting down (processed {processed_count} requests)")
 
 
+def set_low_priority():
+    """Set this process to below-normal priority to avoid hogging CPU."""
+    try:
+        import sys
+        if sys.platform == 'win32':
+            import ctypes
+            # BELOW_NORMAL_PRIORITY_CLASS = 0x00004000
+            ctypes.windll.kernel32.SetPriorityClass(
+                ctypes.windll.kernel32.GetCurrentProcess(),
+                0x00004000
+            )
+            log("[SERVER] Set process priority to BELOW_NORMAL")
+        else:
+            # Unix-like: use nice
+            os.nice(10)
+            log("[SERVER] Set process niceness to 10")
+    except Exception as e:
+        log(f"[SERVER] Warning: Could not set low priority: {e}")
+
+
 def run_server(watch_folder=DEFAULT_WATCH_FOLDER):
     """Run the geometry server."""
+    # Set low priority so we don't hog CPU during heavy operations
+    set_low_priority()
+
     folder = ensure_watch_folder(watch_folder)
 
     log(f"[SERVER] ========================================")
