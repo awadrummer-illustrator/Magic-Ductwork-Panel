@@ -59,7 +59,7 @@ var MDUX_DEBUG_DEFAULTS = {
     INTERSECTIONS: true,        // Log intersection vertex detection
     COMPOUNDING: true,          // Log compounding operations
     COMPONENTS: true,           // Log component placement (units, registers, etc.)
-    OVERLAP_DETECTION: true     // Visual indicators for overlapping/collinear paths
+    OVERLAP_DETECTION: false    // Visual indicators for overlapping/collinear paths (DISABLED)
 };
 if (typeof $.global.MDUX_DEBUG === "undefined" || !$.global.MDUX_DEBUG) {
     $.global.MDUX_DEBUG = {};
@@ -102,16 +102,38 @@ var PythonBridge = (function() {
     var WATCH_FOLDER = Folder.temp.fsName + "/mdux_watch";
     var serverAvailable = null; // null = unknown, true/false = tested
 
-    // Safe debug function
+    // Safe debug function - writes to debug file even before addDebug is defined
     function pyDebug(msg) {
         try {
+            // Try global addDebug first
             if ($.global.addDebug && typeof $.global.addDebug === 'function') {
                 $.global.addDebug(msg);
-            } else if (typeof addDebug === 'function') {
-                addDebug(msg);
+                return;
             }
-        } catch (e) {
-            try { $.writeln("[PYBRIDGE] " + msg); } catch (e2) { }
+        } catch (e) { }
+
+        // Fallback: write directly to debug file in extension folder
+        try {
+            var debugFolder = new Folder("C:/Users/Chris/AppData/Roaming/Adobe/CEP/extensions/Magic-Ductwork-Panel/Debug");
+            if (!debugFolder.exists) debugFolder.create();
+
+            // Find or create today's debug file
+            var now = new Date();
+            var dateStr = now.getFullYear() + "-" +
+                ("0" + (now.getMonth() + 1)).slice(-2) + "-" +
+                ("0" + now.getDate()).slice(-2);
+            var timeStr = ("0" + now.getHours()).slice(-2) + "-" +
+                ("0" + now.getMinutes()).slice(-2) + "-" +
+                ("0" + now.getSeconds()).slice(-2);
+
+            // Use a pybridge-specific log file
+            var logFile = new File(debugFolder.fsName + "/pybridge-" + dateStr + ".log");
+            logFile.encoding = "UTF-8";
+            logFile.open("a");
+            logFile.writeln("[" + now.toString() + "] " + msg);
+            logFile.close();
+        } catch (e2) {
+            try { $.writeln("[PYBRIDGE] " + msg); } catch (e3) { }
         }
     }
 
@@ -123,6 +145,131 @@ var PythonBridge = (function() {
             if (new File(devPath).exists) return devPath;
             return null;
         } catch (e) { return null; }
+    }
+
+    function getServerScriptPath() {
+        try {
+            var deployedPath = "C:/Users/Chris/AppData/Roaming/Adobe/CEP/extensions/Magic-Ductwork-Panel/python/geometry_server.py";
+            if (new File(deployedPath).exists) return deployedPath;
+            var devPath = "e:/Work/Work/Custom Sketchup, Illustrator and Photoshop Scripts and Extensions/Illustrator/Extensions/Magic-Ductwork-Panel/python/geometry_server.py";
+            if (new File(devPath).exists) return devPath;
+            return null;
+        } catch (e) { return null; }
+    }
+
+    /**
+     * Try to start the Python geometry server via VBScript (completely hidden)
+     * Uses VBScript to launch Python invisibly without blocking
+     * Returns true if launch was initiated (not necessarily ready yet)
+     */
+    function startServer() {
+        pyDebug("[PYBRIDGE] Attempting to auto-start geometry server...");
+
+        var serverPath = getServerScriptPath();
+        if (!serverPath) {
+            pyDebug("[PYBRIDGE] ERROR: Could not find geometry_server.py");
+            return false;
+        }
+        pyDebug("[PYBRIDGE] Server script: " + serverPath);
+
+        // Ensure watch folder exists
+        ensureWatchFolder();
+
+        // Convert to Windows path format with backslashes
+        var serverPathWin = serverPath.replace(/\//g, "\\");
+
+        // Create a VBScript file to launch Python completely hidden
+        var tempFolder = Folder.temp;
+        var vbsFile = new File(tempFolder.fsName + "/mdux_start_server.vbs");
+
+        // Try pythonw first (no console), then python
+        var pythonCommands = ["pythonw", "python"];
+        var launched = false;
+
+        for (var i = 0; i < pythonCommands.length && !launched; i++) {
+            var pythonCmd = pythonCommands[i];
+
+            // VBScript to run Python completely hidden
+            // WshShell.Run command, 0 = hidden, False = don't wait
+            var vbsContent = 'Set WshShell = CreateObject("WScript.Shell")\r\n';
+            vbsContent += 'WshShell.Run "' + pythonCmd + ' ""' + serverPathWin + '""", 0, False\r\n';
+
+            pyDebug("[PYBRIDGE] Trying VBScript with: " + pythonCmd);
+
+            try {
+                vbsFile.encoding = "UTF-8";
+                vbsFile.open('w');
+                vbsFile.write(vbsContent);
+                vbsFile.close();
+
+                // Execute the VBScript - this returns immediately
+                var execResult = vbsFile.execute();
+                pyDebug("[PYBRIDGE] VBScript execute returned: " + execResult);
+
+                // IMPORTANT: Do NOT delete the VBS file immediately!
+                // Windows Script Host needs time to read it.
+                // The file will be overwritten on next call anyway.
+                launched = true;
+            } catch (e) {
+                pyDebug("[PYBRIDGE] Failed with " + pythonCmd + ": " + e);
+            }
+        }
+
+        if (launched) {
+            pyDebug("[PYBRIDGE] Server launch initiated - will check health when needed");
+            serverAvailable = true;
+        }
+
+        return launched;
+    }
+
+    /**
+     * Wait for server to be ready (with timeout), NON-BLOCKING version
+     * Uses short polling intervals and a reasonable timeout
+     * Returns true if server is ready, false if timeout
+     */
+    function waitForServerReady(timeoutMs) {
+        if (!timeoutMs) timeoutMs = 5000; // 5 second default
+        var startTime = new Date().getTime();
+        var checkInterval = 200; // Check every 200ms
+
+        while (new Date().getTime() - startTime < timeoutMs) {
+            if (checkServerHealth()) {
+                pyDebug("[PYBRIDGE] Server ready after " + (new Date().getTime() - startTime) + "ms");
+                return true;
+            }
+            // Brief sleep - just enough to not spin CPU
+            $.sleep(checkInterval);
+        }
+
+        pyDebug("[PYBRIDGE] Server not ready after " + timeoutMs + "ms timeout");
+        return false;
+    }
+
+    /**
+     * Ensure server is running, starting it if necessary
+     * Does NOT wait - the file polling in executePython handles the wait
+     */
+    function ensureServerRunning() {
+        // Quick check if already running (just reads a file - fast)
+        if (checkServerHealth()) {
+            serverAvailable = true;
+            return true;
+        }
+
+        pyDebug("[PYBRIDGE] Server not running, attempting auto-start...");
+
+        // Try to start the server (non-blocking - just launches VBScript)
+        if (!startServer()) {
+            pyDebug("[PYBRIDGE] Failed to launch server");
+            return false;
+        }
+
+        // Don't wait here! The $.sleep() blocks ALL of Windows.
+        // The file polling loop in executePython will naturally wait
+        // for the server to process our request.
+        pyDebug("[PYBRIDGE] Server launch initiated, proceeding without blocking wait");
+        return true;
     }
 
     function ensureWatchFolder() {
@@ -223,7 +370,7 @@ var PythonBridge = (function() {
         pyDebug("[PYBRIDGE] Wrote input file, waiting for response...");
 
         // Wait for output file (server will process and create it)
-        var maxWait = 10000; // 10 second timeout (reduced from 60s to prevent long freezes)
+        var maxWait = 30000; // 30 second timeout for geometry operations
         var pollInterval = 20; // Check every 20ms (faster polling)
         var waited = 0;
 
@@ -280,24 +427,32 @@ var PythonBridge = (function() {
     function executePython(operation, pathItems, params) {
         pyDebug("[PYBRIDGE] === Starting " + operation + " with " + pathItems.length + " paths ===");
 
-        // Check server availability
-        if (serverAvailable === null) {
-            serverAvailable = checkServerHealth();
-            pyDebug("[PYBRIDGE] Server check: " + (serverAvailable ? "RUNNING" : "NOT RUNNING"));
+        // Ensure server is running, starting it if necessary
+        if (!ensureServerRunning()) {
+            pyDebug("[PYBRIDGE] ERROR: Could not start geometry server");
+            pyDebug("[PYBRIDGE] Ensure Python is installed and in your system PATH");
+            return null;
         }
 
-        if (serverAvailable) {
-            var result = executeViaServer(operation, pathItems, params);
-            if (result) {
-                pyDebug("[PYBRIDGE] SUCCESS: " + (result.paths ? result.paths.length : 0) + " paths");
-                if (result.error) {
-                    pyDebug("[PYBRIDGE] Server error: " + result.error);
-                    return null;
-                }
+        var result = executeViaServer(operation, pathItems, params);
+        if (result) {
+            pyDebug("[PYBRIDGE] SUCCESS: " + (result.paths ? result.paths.length : 0) + " paths");
+            if (result.error) {
+                pyDebug("[PYBRIDGE] Server error: " + result.error);
+                return null;
+            }
+            return result;
+        }
+
+        // Request failed - maybe server crashed, try restarting once
+        pyDebug("[PYBRIDGE] Request failed, attempting server restart...");
+        serverAvailable = null;
+        if (ensureServerRunning()) {
+            result = executeViaServer(operation, pathItems, params);
+            if (result && !result.error) {
+                pyDebug("[PYBRIDGE] SUCCESS after restart: " + (result.paths ? result.paths.length : 0) + " paths");
                 return result;
             }
-            serverAvailable = null;
-            pyDebug("[PYBRIDGE] Request failed, server may be down");
         }
 
         pyDebug("[PYBRIDGE] Server not available - Python acceleration disabled");
@@ -309,17 +464,35 @@ var PythonBridge = (function() {
         detectIntersections: function(p) { return executePython('detect_intersections', p, {}); },
         buildGroups: function(p, d) { return executePython('build_groups', p, { max_dist: d || 10 }); },
         orthogonalize: function(p, t, lockedPts) { return executePython('orthogonalize', p, { snap_threshold: t || 5, steep_min: 17, steep_max: 70, locked_points: lockedPts || [] }); },
+        findCrossovers: function(p) { return executePython('find_crossovers', p, {}); },
+        snapAnchors: function(p, t) { return executePython('snap_anchors', p, { snap_threshold: t || 5 }); },
+        findCollinearAnchors: function(p, tol) { return executePython('find_collinear_anchors', p, { collinear_tolerance: tol || 0.005 }); },
         isAvailable: function() {
-            if (serverAvailable === null) {
-                serverAvailable = checkServerHealth();
-            }
-            if (serverAvailable) {
-                pyDebug("[PYBRIDGE] isAvailable: YES - server running");
+            // Quick check - if server is already running, return immediately
+            if (checkServerHealth()) {
+                pyDebug("[PYBRIDGE] isAvailable: YES - server already running");
                 return true;
             }
-            var ep = getEnginePath();
-            pyDebug("[PYBRIDGE] isAvailable: Server not running, engine=" + (ep ? "found" : "missing"));
+
+            // Server not running - try to auto-start and WAIT for it to be ready
+            pyDebug("[PYBRIDGE] isAvailable: Server not running, attempting auto-start with wait...");
+            if (!startServer()) {
+                var ep = getEnginePath();
+                pyDebug("[PYBRIDGE] isAvailable: Failed to start server, engine=" + (ep ? "found" : "missing"));
+                return false;
+            }
+
+            // Wait up to 10 seconds for server to become ready
+            if (waitForServerReady(10000)) {
+                pyDebug("[PYBRIDGE] isAvailable: YES - server started and ready");
+                return true;
+            }
+
+            pyDebug("[PYBRIDGE] isAvailable: NO - server failed to become ready within timeout");
             return false;
+        },
+        isServerRunning: function() {
+            return checkServerHealth();
         },
         checkServer: function() {
             serverAvailable = checkServerHealth();
@@ -331,10 +504,195 @@ var PythonBridge = (function() {
         getWatchFolder: function() {
             return WATCH_FOLDER;
         },
-        _getEnginePath: getEnginePath
+        startServer: startServer,
+        ensureServerRunning: ensureServerRunning,
+        _getEnginePath: getEnginePath,
+        _getServerScriptPath: getServerScriptPath
     };
 })();
 $.global.PythonBridge = PythonBridge;
+
+// ============================================================================
+// ASYNC BRIDGE: Functions for non-blocking JavaScript-driven Python communication
+// These allow JavaScript to handle the polling (async) instead of ExtendScript (blocking)
+// ============================================================================
+
+// Global storage for path references during async operations
+$.global._ASYNC_PATHS = null;
+
+/**
+ * Get selected paths as JSON and store references for later application
+ * Called from JavaScript to start async Python operation
+ * @returns {string} JSON string with path data, or error JSON
+ */
+function getSelectedPathsForAsync() {
+    try {
+        var doc = app.activeDocument;
+        var sel = doc.selection;
+
+        if (!sel || sel.length === 0) {
+            return JSON.stringify({ error: "No paths selected", paths: [] });
+        }
+
+        // Collect valid path items
+        var pathItems = [];
+        for (var i = 0; i < sel.length; i++) {
+            var item = sel[i];
+            if (item.typename === "PathItem") {
+                pathItems.push(item);
+            } else if (item.typename === "CompoundPathItem") {
+                var subPaths = item.pathItems;
+                for (var j = 0; j < subPaths.length; j++) {
+                    pathItems.push(subPaths[j]);
+                }
+            }
+        }
+
+        if (pathItems.length === 0) {
+            return JSON.stringify({ error: "No valid paths in selection", paths: [] });
+        }
+
+        // Store path references for later
+        $.global._ASYNC_PATHS = pathItems;
+
+        // Convert to JSON
+        var pathsJson = [];
+        for (var k = 0; k < pathItems.length; k++) {
+            var p = pathItems[k];
+            var points = [];
+            try {
+                var pts = p.pathPoints;
+                for (var m = 0; m < pts.length; m++) {
+                    points.push({
+                        x: pts[m].anchor[0],
+                        y: pts[m].anchor[1]
+                    });
+                }
+            } catch (e) {
+                continue;
+            }
+
+            pathsJson.push({
+                id: k,
+                points: points,
+                layerName: p.layer ? p.layer.name : null
+            });
+        }
+
+        // Note: Don't use addDebug here as it's defined in a local scope
+        return JSON.stringify({ paths: pathsJson, count: pathsJson.length });
+
+    } catch (e) {
+        return JSON.stringify({ error: "Error getting paths: " + e.message, paths: [] });
+    }
+}
+$.global.getSelectedPathsForAsync = getSelectedPathsForAsync;
+
+/**
+ * Apply orthogonalization result from Python to stored paths
+ * Called from JavaScript after async Python operation completes
+ * @param {string} resultJson - JSON string from Python with {paths: [{id, points: [{x,y}]}]}
+ * @returns {string} JSON string with result status
+ */
+function applyAsyncOrthoResult(resultJson) {
+    try {
+        var result = JSON.parse(resultJson);
+
+        if (!result || !result.paths) {
+            return JSON.stringify({ error: "Invalid result format", applied: 0 });
+        }
+
+        var storedPaths = $.global._ASYNC_PATHS;
+        if (!storedPaths || storedPaths.length === 0) {
+            return JSON.stringify({ error: "No stored paths to apply to", applied: 0 });
+        }
+
+        var appliedCount = 0;
+        var errorCount = 0;
+
+        for (var i = 0; i < result.paths.length; i++) {
+            var pyPath = result.paths[i];
+            var pathId = pyPath.id;
+
+            // Validate path ID
+            if (pathId < 0 || pathId >= storedPaths.length) {
+                errorCount++;
+                continue;
+            }
+
+            var targetPath = storedPaths[pathId];
+
+            // Check path is still valid
+            try {
+                var testPts = targetPath.pathPoints;
+                if (!testPts) {
+                    errorCount++;
+                    continue;
+                }
+            } catch (e) {
+                errorCount++;
+                continue;
+            }
+
+            try {
+                var pts = targetPath.pathPoints;
+                var pyPts = pyPath.points;
+
+                // Only apply if point counts match
+                if (pts.length === pyPts.length) {
+                    for (var ptIdx = 0; ptIdx < pts.length; ptIdx++) {
+                        var newX = pyPts[ptIdx].x;
+                        var newY = pyPts[ptIdx].y;
+                        var oldAnchor = pts[ptIdx].anchor;
+
+                        // Only update if position actually changed
+                        if (Math.abs(oldAnchor[0] - newX) > 0.01 || Math.abs(oldAnchor[1] - newY) > 0.01) {
+                            // Set anchor and reset handles to corner points
+                            pts[ptIdx].anchor = [newX, newY];
+                            pts[ptIdx].leftDirection = [newX, newY];
+                            pts[ptIdx].rightDirection = [newX, newY];
+                        }
+                    }
+                    appliedCount++;
+                } else {
+                    // Point count mismatch - skip this path
+                    errorCount++;
+                }
+            } catch (e) {
+                errorCount++;
+            }
+        }
+
+        // Clear stored paths
+        $.global._ASYNC_PATHS = null;
+
+        // Note: Don't use addDebug here as it's defined in a local scope
+        return JSON.stringify({
+            success: true,
+            applied: appliedCount,
+            errors: errorCount,
+            stats: {
+                iterations: result.iterations || 0,
+                snaps: result.total_snaps || 0,
+                orthoChanges: result.total_ortho_changes || 0
+            }
+        });
+
+    } catch (e) {
+        return JSON.stringify({ error: "Error applying result: " + e.message, applied: 0 });
+    }
+}
+$.global.applyAsyncOrthoResult = applyAsyncOrthoResult;
+
+/**
+ * Clear stored async paths (cleanup)
+ */
+function clearAsyncPaths() {
+    $.global._ASYNC_PATHS = null;
+    return "OK";
+}
+$.global.clearAsyncPaths = clearAsyncPaths;
+
 // ============================================================================
 
 // Yield to UI during long loops to keep Illustrator responsive.
@@ -9050,21 +9408,16 @@ function isDuctworkLineLayer(name) {
                     $.global.MDUX_debugBuffer = [];
                 }
                 $.global.MDUX_debugBuffer.push(logEntry);
-                // Keep only last 1000 entries
-                if ($.global.MDUX_debugBuffer.length > 1000) {
-                    $.global.MDUX_debugBuffer.shift();
+                // PERFORMANCE: Batch truncation instead of shift() on every call
+                // shift() is O(n) and calling it repeatedly is very slow
+                // Let buffer grow to 5500, then truncate to 5000 with slice() (single operation)
+                if ($.global.MDUX_debugBuffer.length > 5500) {
+                    $.global.MDUX_debugBuffer = $.global.MDUX_debugBuffer.slice(-5000);
                 }
             } catch (eGlobal) { }
 
-            // Also write to file
-            try {
-                var logFile = new File(getLogFilePath("debug.log"));
-                logFile.open("a");
-                logFile.writeln("[" + new Date().toISOString() + "] " + msg);
-                logFile.close();
-            } catch (e) {
-                // If file logging fails, at least we have in-memory log
-            }
+            // NOTE: Real-time file logging removed - was causing 5x slowdown due to file I/O per log entry
+            // The 5000-entry buffer should be sufficient to capture all important entries
         }
         // Expose addDebug to global scope for PythonBridge IIFE
         $.global.addDebug = addDebug;
@@ -10671,8 +11024,8 @@ function isDuctworkLineLayer(name) {
             tTolerance = tTolerance || 3; // Default T-junction tolerance if not provided
             allowIntersectionConnect = !!allowIntersectionConnect;
 
-            // Minimum paths threshold - lower to offload more geometry to Python when available
-            var MIN_PATHS_FOR_PYTHON = 8;
+            // Minimum paths threshold - set to 2 to use Python for ALL connection detection
+            var MIN_PATHS_FOR_PYTHON = 2;
             if (typeof $.global.MDUX_PYTHON_MIN_PATHS !== "undefined") {
                 var pyMin = parseInt($.global.MDUX_PYTHON_MIN_PATHS, 10);
                 if (!isNaN(pyMin) && pyMin >= 2) {
@@ -10978,6 +11331,10 @@ function isDuctworkLineLayer(name) {
             // Phase 2: Check only paths that share cells (spatial proximity)
             var checkedPairs = {};
             for (var i = 0; i < pathItems.length; i++) {
+                // Yield to UI every 20 paths to keep Illustrator responsive
+                if (i > 0 && i % 20 === 0) {
+                    try { yieldToUI(); } catch (e) { }
+                }
                 var pathA = pathItems[i];
                 var ptsA = pathA.pathPoints;
                 if (!ptsA || ptsA.length === 0) continue;
@@ -14955,86 +15312,13 @@ function isDuctworkLineLayer(name) {
             addDebug("[PATH-CLEANUP] Error: " + ePathCleanup);
         }
 
-        // PRE-STEP: Release any existing compound paths in ductwork layers
-        // This ensures we work with clean individual paths and avoids issues with
-        // persistent sibling detection incorrectly matching paths from different compounds
-        try {
-            addDebug("\n=== RELEASING EXISTING COMPOUND PATHS ===");
-            var ductworkLayerNamesForRelease = [
-                "Blue Ductwork", "Green Ductwork", "Orange Ductwork", "Light Orange Ductwork"
-            ];
-            var compoundsReleased = 0;
-
-            // Get selection bounds for filtering
-            var releaseBounds = computeItemsBounds(originalSelectionItems);
-
-            for (var relLayerIdx = 0; relLayerIdx < ductworkLayerNamesForRelease.length; relLayerIdx++) {
-                var relLayerName = ductworkLayerNamesForRelease[relLayerIdx];
-                var relLayer = null;
-                try { relLayer = findLayerByNameDeep(relLayerName); } catch (e) { continue; }
-                if (!relLayer) continue;
-
-                // Release compounds in this layer that overlap with selection
-                for (var relCpIdx = relLayer.compoundPathItems.length - 1; relCpIdx >= 0; relCpIdx--) {
-                    try {
-                        var relCompound = relLayer.compoundPathItems[relCpIdx];
-                        if (!relCompound) continue;
-
-                        var cpBounds = null;
-                        try { cpBounds = relCompound.geometricBounds; } catch (e) { continue; }
-                        if (!cpBounds || cpBounds.length < 4) continue;
-
-                        // Only release if it overlaps with selection (or if no bounds, release all)
-                        if (!releaseBounds || boundsOverlap(cpBounds, releaseBounds)) {
-                            relCompound.selected = true;
-                            app.executeMenuCommand("releasePath");
-                            compoundsReleased++;
-                        }
-                    } catch (eRelCp) { }
-                }
-            }
-
-            if (compoundsReleased > 0) {
-                addDebug("[COMPOUND-RELEASE] Released " + compoundsReleased + " compound path(s) before processing");
-                // Re-collect paths from ductwork layers after release since structure changed
-                var newAllPaths = [];
-                for (var relLayerIdx2 = 0; relLayerIdx2 < ductworkLayerNamesForRelease.length; relLayerIdx2++) {
-                    var relLayerName2 = ductworkLayerNamesForRelease[relLayerIdx2];
-                    var relLayer2 = null;
-                    try { relLayer2 = findLayerByNameDeep(relLayerName2); } catch (e) { continue; }
-                    if (!relLayer2) continue;
-
-                    // Collect all open paths from this layer that are within selection bounds
-                    for (var relPathIdx = 0; relPathIdx < relLayer2.pathItems.length; relPathIdx++) {
-                        try {
-                            var relPath = relLayer2.pathItems[relPathIdx];
-                            if (relPath && !relPath.closed) {
-                                var pathBounds = null;
-                                try { pathBounds = relPath.geometricBounds; } catch (e) { continue; }
-                                if (pathBounds && (!releaseBounds || boundsOverlap(pathBounds, releaseBounds))) {
-                                    newAllPaths.push(relPath);
-                                }
-                            }
-                        } catch (e) { }
-                    }
-                }
-                allPaths = newAllPaths;
-                addDebug("[COMPOUND-RELEASE] Re-collected " + allPaths.length + " path(s) after release");
-                // Ensure released paths are treated as selected for downstream processing
-                var addedSelected = 0;
-                for (var addIdx = 0; addIdx < newAllPaths.length; addIdx++) {
-                    if (!isPathInList(SELECTED_PATHS, newAllPaths[addIdx])) {
-                        SELECTED_PATHS.push(newAllPaths[addIdx]);
-                        addedSelected++;
-                    }
-                }
-                if (addedSelected > 0) {
-                    addDebug("[COMPOUND-RELEASE] Added " + addedSelected + " released path(s) to SELECTED_PATHS (now " + SELECTED_PATHS.length + ")");
-                }
-            }
-        } catch (ePreRelease) {
-            addDebug("[COMPOUND-RELEASE] Error: " + ePreRelease);
-        }
+        // PRE-STEP: DISABLED - No longer releasing existing compound paths
+        // The legacy script (01 - Magic Ductwork (Legacy).jsx) does NOT release compound paths.
+        // It simply walks INTO compound paths to get their child pathItems.
+        // Releasing compound paths was causing paths to be deleted when re-collection failed.
+        // The script now properly handles compound paths by iterating their pathItems collections.
+        addDebug("\n=== COMPOUND PATH HANDLING ===");
+        addDebug("[COMPOUND] Preserving existing compound paths - working with child paths directly");
 
         // STEP 0.5: Collect ignore markers and associate with endpoints BEFORE orthogonalization
         // This allows us to move them WITH their endpoints during ortho to maintain relative position
@@ -16190,51 +16474,73 @@ function isDuctworkLineLayer(name) {
             addDebug("[PYTHON-ORTHO] Attempting Python-accelerated orthogonalization for " + geometryPaths.length + " paths");
             var orthoStartTime = new Date().getTime();
 
-            // EXCLUDE paths with ignore markers from Python processing entirely
-            // Python's SNAP_THRESHOLD (3pt) will snap the marker and endpoint together (they're only 1.1pt apart)
-            // Instead, only send paths WITHOUT ignore markers to Python
+            // Build path list and locked points for Python
+            // Previously we EXCLUDED ignore marker paths - now we INCLUDE them but lock the ignore marker points
+            // This prevents the slow ExtendScript fallback loop (which was taking 50 iterations!)
             var pathsForPython = [];
             var excludedPaths = [];
-            var excludedIgnoreCount = 0;
             var excludedBranchCount = 0;
             var skipBranchOrthoInPython = SKIP_ALL_BRANCH_ORTHO;
+
+            // Build mapping from geometryPaths index to pathsForPython index
+            var pathIndexMap = {}; // geometryPaths index -> pathsForPython index
+
             for (var pyPathIdx = 0; pyPathIdx < geometryPaths.length; pyPathIdx++) {
-                var hasIgnoreMarker = false;
                 var isBranchSkip = false;
-                var exclusionReasons = [];
-                for (var checkIdx = 0; checkIdx < ORTHO_IGNORE_MARKER_PATHS.length; checkIdx++) {
-                    if (ORTHO_IGNORE_MARKER_PATHS[checkIdx].path === geometryPaths[pyPathIdx]) {
-                        hasIgnoreMarker = true;
-                        exclusionReasons.push("ignore marker");
-                        break;
-                    }
-                }
-                if (!hasIgnoreMarker && skipBranchOrthoInPython) {
+
+                // Only exclude branches if branch skip is enabled (ignore markers are now included!)
+                if (skipBranchOrthoInPython) {
                     var roleCheck = getDuctRoleForPath(geometryPaths[pyPathIdx]);
                     if (roleCheck === "branch") {
                         isBranchSkip = true;
-                        exclusionReasons.push("branch skip-ortho");
                     }
                 }
 
-                if (exclusionReasons.length > 0) {
+                if (isBranchSkip) {
                     excludedPaths.push(pyPathIdx);
-                    if (hasIgnoreMarker) excludedIgnoreCount++;
-                    if (isBranchSkip) excludedBranchCount++;
-                    addDebug("[PYTHON-ORTHO] EXCLUDING path " + pyPathIdx + " (" + exclusionReasons.join(", ") + ")");
+                    excludedBranchCount++;
+                    addDebug("[PYTHON-ORTHO] EXCLUDING path " + pyPathIdx + " (branch skip-ortho)");
                     try { geometryPaths[pyPathIdx].__pythonOrtho = false; } catch (ePythonFlag) { }
                     continue;
                 }
 
+                pathIndexMap[pyPathIdx] = pathsForPython.length;
                 try { geometryPaths[pyPathIdx].__pythonOrtho = true; } catch (ePythonFlag2) { }
                 pathsForPython.push(geometryPaths[pyPathIdx]);
             }
 
+            // Build locked points array - tell Python which points NOT to snap
+            // These are the ignore marker anchor points (tiny segments near endpoints)
             var lockedPointsForPython = [];
+            for (var imLockIdx = 0; imLockIdx < ORTHO_IGNORE_MARKER_PATHS.length; imLockIdx++) {
+                var imInfo = ORTHO_IGNORE_MARKER_PATHS[imLockIdx];
+                // Find this path in geometryPaths to get its index
+                for (var gpFindIdx = 0; gpFindIdx < geometryPaths.length; gpFindIdx++) {
+                    if (geometryPaths[gpFindIdx] === imInfo.path) {
+                        // Map to pathsForPython index
+                        var pyIdx = pathIndexMap[gpFindIdx];
+                        if (typeof pyIdx === 'number') {
+                            lockedPointsForPython.push({
+                                path_idx: pyIdx,
+                                point_idx: imInfo.ignoreMarkerIndex
+                            });
+                            // Also lock the endpoint next to the ignore marker
+                            var endpointIdx = (imInfo.endpoint === "start") ? 0 : (imInfo.path.pathPoints.length - 1);
+                            lockedPointsForPython.push({
+                                path_idx: pyIdx,
+                                point_idx: endpointIdx
+                            });
+                            addDebug("[PYTHON-ORTHO] Locked points on path " + pyIdx + ": ignore marker at " + imInfo.ignoreMarkerIndex + ", endpoint at " + endpointIdx);
+                        }
+                        break;
+                    }
+                }
+            }
+            addDebug("[PYTHON-ORTHO] Total locked points: " + lockedPointsForPython.length + " (from " + ORTHO_IGNORE_MARKER_PATHS.length + " ignore markers)");
 
             try {
                 updateProgress("Orthogonalizing paths (Python)...");
-                addDebug("[PYTHON-ORTHO] Sending " + pathsForPython.length + " paths to Python (excluded " + excludedPaths.length + " paths: " + excludedIgnoreCount + " ignore markers, " + excludedBranchCount + " branch skip)");
+                addDebug("[PYTHON-ORTHO] Sending " + pathsForPython.length + " paths to Python (excluded " + excludedPaths.length + " branch paths, locked " + lockedPointsForPython.length + " points)");
                 var pyOrthoResult = PythonBridge.orthogonalize(pathsForPython, SNAP_THRESHOLD, lockedPointsForPython);
 
                 if (pyOrthoResult && pyOrthoResult.paths && !pyOrthoResult.error) {
@@ -16284,41 +16590,23 @@ function isDuctworkLineLayer(name) {
                              pyOrthoResult.total_snaps + " snaps, " + pyOrthoResult.total_ortho_changes + " ortho changes");
                     pythonOrthoSuccess = true;
 
-                    // EXTENDSCRIPT-ORTHO for excluded paths: Paths with ignore markers were excluded from Python
-                    // to prevent SNAP_THRESHOLD from collapsing the tiny marker-to-endpoint segment.
-                    // However, the REST of the path still needs orthogonalization.
-                    // Run ExtendScript orthogonalization on excluded paths, then POST-PYTHON-ORTHO will adjust the tiny segment.
+                    // EXTENDSCRIPT-ORTHO for excluded branch paths (only branches are excluded now)
+                    // Ignore marker paths are now handled by Python with locked points
+                    // Just do a simple single-pass orthogonalization for any excluded branch paths
                     if (excludedPaths.length > 0) {
-                        addDebug("[EXTENDSCRIPT-ORTHO] Orthogonalizing " + excludedPaths.length + " excluded path(s) using ExtendScript");
-                        var excludedPathItems = [];
+                        addDebug("[EXTENDSCRIPT-ORTHO] Single-pass orthogonalization for " + excludedPaths.length + " excluded branch path(s)");
                         for (var exIdx = 0; exIdx < excludedPaths.length; exIdx++) {
                             var exPath = geometryPaths[excludedPaths[exIdx]];
-                            // Validity check - path may have been removed by gap restoration
                             try {
                                 var exValid = exPath.pathPoints;
-                                if (exValid) excludedPathItems.push(exPath);
+                                if (exValid) {
+                                    orthogonalizePath(exPath, preOrthoConnections.pairs);
+                                }
                             } catch (eExValid) {
                                 // Path was removed, skip it
                             }
                         }
-
-                        // Run ExtendScript orthogonalization
-                        var esIteration = 0;
-                        var esChanged = true;
-                        var ES_MAX_ITER = 50; // Limit iterations for excluded paths
-                        while (esChanged && esIteration < ES_MAX_ITER) {
-                            esIteration++;
-                            esChanged = false;
-                            addDebug("[EXTENDSCRIPT-ORTHO Iteration " + esIteration + "] Processing " + excludedPathItems.length + " excluded paths");
-                            var esSegments = buildSegmentsForPaths(excludedPathItems);
-                            if (snapAnchors(excludedPathItems, esSegments)) esChanged = true;
-
-                            for (var esPathIdx = 0; esPathIdx < excludedPathItems.length; esPathIdx++) {
-                                if (orthogonalizePath(excludedPathItems[esPathIdx], preOrthoConnections.pairs)) esChanged = true;
-                            }
-                            if (restoreEndpointConnections(preOrthoConnections)) esChanged = true;
-                        }
-                        addDebug("[EXTENDSCRIPT-ORTHO] Completed in " + esIteration + " iterations");
+                        addDebug("[EXTENDSCRIPT-ORTHO] Completed single-pass for " + excludedPaths.length + " paths");
                     }
 
                     // Restore branch final segments for Python-processed paths (skip-final-ortho)
@@ -19939,30 +20227,6 @@ function isDuctworkLineLayer(name) {
         updateProgress("Internal anchor registers...");
         addDebug("\n=== INTERNAL ANCHOR REGISTERS (NO DIRECTION CHANGE) ===");
 
-        // Helper: Check if three points are collinear (no direction change at middle point)
-        function isAnchorCollinear(prevPt, anchorPt, nextPt, tolerance) {
-            // Calculate vectors from prev->anchor and anchor->next
-            var v1x = anchorPt[0] - prevPt[0];
-            var v1y = anchorPt[1] - prevPt[1];
-            var v2x = nextPt[0] - anchorPt[0];
-            var v2y = nextPt[1] - anchorPt[1];
-
-            // Normalize vectors
-            var len1 = Math.sqrt(v1x * v1x + v1y * v1y);
-            var len2 = Math.sqrt(v2x * v2x + v2y * v2y);
-
-            if (len1 < 0.001 || len2 < 0.001) return false;
-
-            v1x /= len1; v1y /= len1;
-            v2x /= len2; v2y /= len2;
-
-            // Dot product - if close to 1, vectors are in same direction (collinear continuation)
-            var dot = v1x * v2x + v1y * v2y;
-
-            // dot product of ~1 means same direction (path continues straight through anchor)
-            return dot > (1 - tolerance);
-        }
-
         // Process internal anchors for all ductwork colors
         addDebug("[INTERNAL-REGISTERS] Processing all ductwork colors for internal anchor registers");
 
@@ -19977,25 +20241,45 @@ function isDuctworkLineLayer(name) {
             }
             addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Processing " + colorPathsForRegisters.length + " paths");
 
-        // Build set of crossover anchor indices per path (using path reference as key via index)
-        // EARLY_CROSSOVER_SEGMENTS contains: { path, pathIdx, segmentIdx, ... }
-        var crossoverAnchorsByPath = {};
+        // *** USE PYTHON FOR FAST COLLINEAR ANCHOR DETECTION ***
+        var collinearAnchors = [];
+        var crossoverPoints = [];
+        var usedPython = false;
+
+        if (MDUX_USE_PYTHON && typeof PythonBridge !== 'undefined' && PythonBridge.isServerRunning()) {
+            addDebug("[INTERNAL-REGISTERS] Using Python for collinear anchor and crossover detection");
+
+            // Call Python to find all collinear anchors in one fast batch
+            var collinearResult = PythonBridge.findCollinearAnchors(colorPathsForRegisters, 0.005);
+            if (collinearResult && collinearResult.anchors) {
+                collinearAnchors = collinearResult.anchors;
+                addDebug("[INTERNAL-REGISTERS] Python found " + collinearAnchors.length + " collinear anchors in " + (collinearResult.time_ms || "?") + "ms");
+                usedPython = true;
+            }
+
+            // Call Python to find all crossovers in one fast batch
+            var crossoverResult = PythonBridge.findCrossovers(colorPathsForRegisters);
+            if (crossoverResult && crossoverResult.crossovers) {
+                // Extract crossover midpoints for exclusion checking
+                for (var xoIdx = 0; xoIdx < crossoverResult.crossovers.length; xoIdx++) {
+                    var xo = crossoverResult.crossovers[xoIdx];
+                    if (xo.point) {
+                        crossoverPoints.push([xo.point.x, xo.point.y]);
+                    }
+                }
+                addDebug("[INTERNAL-REGISTERS] Python found " + crossoverPoints.length + " crossover points in " + (crossoverResult.time_ms || "?") + "ms");
+            }
+        }
+
+        // Fallback: Also include EARLY_CROSSOVER_SEGMENTS from earlier detection
         if (typeof EARLY_CROSSOVER_SEGMENTS !== 'undefined' && EARLY_CROSSOVER_SEGMENTS.length > 0) {
             for (var xoRegIdx = 0; xoRegIdx < EARLY_CROSSOVER_SEGMENTS.length; xoRegIdx++) {
                 var xoReg = EARLY_CROSSOVER_SEGMENTS[xoRegIdx];
-                // Mark both endpoints of the crossover segment as crossover anchors
-                // Store the crossover segment midpoint for checking distance
                 var xoMidX = (xoReg.segStart[0] + xoReg.segEnd[0]) / 2;
                 var xoMidY = (xoReg.segStart[1] + xoReg.segEnd[1]) / 2;
-                if (!crossoverAnchorsByPath[xoReg.pathIdx]) {
-                    crossoverAnchorsByPath[xoReg.pathIdx] = [];
-                }
-                crossoverAnchorsByPath[xoReg.pathIdx].push({
-                    segIdx: xoReg.segmentIdx,
-                    midpoint: [xoMidX, xoMidY]
-                });
+                crossoverPoints.push([xoMidX, xoMidY]);
             }
-            addDebug("[INTERNAL-REGISTERS] Found " + EARLY_CROSSOVER_SEGMENTS.length + " crossover segment(s) to exclude");
+            addDebug("[INTERNAL-REGISTERS] Added " + EARLY_CROSSOVER_SEGMENTS.length + " early crossover segment(s)");
         }
 
         // Refresh existing register points after endpoint registers were placed
@@ -20013,137 +20297,194 @@ function isDuctworkLineLayer(name) {
         var irComponentFileName = (irRegisterLayerName === "Square Registers") ? "Square Register.ai" : "Exhaust Register.ai";
         var irComponentFile = new File(INTERNAL_REG_PATH + irComponentFileName);
 
-        for (var irPathIdx = 0; irPathIdx < colorPathsForRegisters.length; irPathIdx++) {
-            var irPath = colorPathsForRegisters[irPathIdx];
-            try {
-                // Validity check - skip if path was removed during carve-out
-                if (!irPath || !irPath.typename) continue;
-                var irPts = null;
-                try { irPts = irPath.pathPoints; } catch (eGetPts) { continue; }
-                if (!irPts || irPts.length < 3) continue; // Need at least 3 points for internal anchors
+        // Helper function for checking distance to crossover points
+        function isNearAnyCrossover(pt, crossovers, threshold) {
+            for (var i = 0; i < crossovers.length; i++) {
+                var xoPt = crossovers[i];
+                var dist = Math.sqrt(Math.pow(pt[0] - xoPt[0], 2) + Math.pow(pt[1] - xoPt[1], 2));
+                if (dist <= threshold) return true;
+            }
+            return false;
+        }
 
-                // Get crossover info for this path (check by comparing anchor positions)
-                var pathCrossovers = [];
-                for (var pcKey in crossoverAnchorsByPath) {
-                    if (crossoverAnchorsByPath.hasOwnProperty(pcKey)) {
-                        var crossovers = crossoverAnchorsByPath[pcKey];
-                        for (var pcIdx = 0; pcIdx < crossovers.length; pcIdx++) {
-                            pathCrossovers.push(crossovers[pcIdx].midpoint);
-                        }
-                    }
+        // If Python provided collinear anchors, use them directly
+        if (usedPython && collinearAnchors.length > 0) {
+            addDebug("[INTERNAL-REGISTERS] Processing " + collinearAnchors.length + " Python-detected collinear anchors");
+
+            for (var caIdx = 0; caIdx < collinearAnchors.length; caIdx++) {
+                var ca = collinearAnchors[caIdx];
+                var anchorPt = [ca.position.x, ca.position.y];
+                var prevPt = [ca.prev_point.x, ca.prev_point.y];
+
+                // Check if this anchor is near a crossover point
+                if (isNearAnyCrossover(anchorPt, crossoverPoints, 15)) {
+                    addDebug("[INTERNAL-REGISTERS] Skipping anchor at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] - near crossover");
+                    internalRegistersSkipped++;
+                    continue;
                 }
 
-                // Check each internal anchor (not first or last point)
-                for (var iaIdx = 1; iaIdx < irPts.length - 1; iaIdx++) {
-                    var prevPt = irPts[iaIdx - 1].anchor;
-                    var anchorPt = irPts[iaIdx].anchor;
-                    var nextPt = irPts[iaIdx + 1].anchor;
-
-                    // Check if this anchor is near a crossover midpoint
-                    var isNearCrossover = false;
-                    for (var ncIdx = 0; ncIdx < pathCrossovers.length; ncIdx++) {
-                        var crossMid = pathCrossovers[ncIdx];
-                        var distToCrossover = Math.sqrt(
-                            Math.pow(anchorPt[0] - crossMid[0], 2) +
-                            Math.pow(anchorPt[1] - crossMid[1], 2)
-                        );
-                        if (distToCrossover <= 15) { // Within 15pt of crossover midpoint
-                            isNearCrossover = true;
-                            break;
-                        }
-                    }
-
-                    if (isNearCrossover) {
-                        addDebug("[INTERNAL-REGISTERS] Skipping anchor at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] - near crossover");
-                        internalRegistersSkipped++;
-                        continue;
-                    }
-
-                    // Check if collinear (no direction change) - use tighter tolerance of 0.005 (~6 degrees)
-                    if (!isAnchorCollinear(prevPt, anchorPt, nextPt, 0.005)) {
-                        continue; // Has direction change - don't place register
-                    }
-
-                    // Skip if this point is in ignored anchors
-                    if (isPointIgnored(anchorPt, ignoredAnchors)) {
-                        addDebug("[INTERNAL-REGISTERS] Skipping anchor at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] - ignored");
-                        internalRegistersSkipped++;
-                        continue;
-                    }
-
-                    // Skip if already has a register/unit nearby
-                    if (isPointAlreadyPlaced(anchorPt, updatedRegisterPoints)) {
-                        addDebug("[INTERNAL-REGISTERS] Skipping anchor at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] - already placed");
-                        internalRegistersSkipped++;
-                        continue;
-                    }
-
-                    // Place a register LINKED COMPONENT at this collinear internal anchor
-                    addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Placing " + irRegisterLayerName + " at internal anchor [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] (path " + irPathIdx + ", anchor " + iaIdx + ")");
-
-                    // Create anchor point for reference
-                    createAnchorPoint(irRegisterLayer, anchorPt, null);
-
-                    // Also directly place the linked register component
-                    try {
-                        if (irComponentFile.exists) {
-                            var placed = irRegisterLayer.placedItems.add();
-                            placed.file = irComponentFile;
-                            try { placed.relink(irComponentFile); } catch (eRelink) { }
-                            try { placed.update(); } catch (eUpdate) { }
-
-                            // Center on anchor position
-                            var bounds = placed.geometricBounds;
-                            var w = bounds[2] - bounds[0];
-                            var h = bounds[1] - bounds[3];
-                            placed.position = [anchorPt[0] - w / 2, anchorPt[1] + h / 2];
-                            placed.name = irRegisterLayerName.replace(" Registers", " Register") + " (Linked)";
-
-                            // Apply default 50% scale
-                            var DEFAULT_SCALE = 50;
-                            placed.resize(DEFAULT_SCALE, DEFAULT_SCALE, true, true, true, true, DEFAULT_SCALE, Transformation.CENTER);
-
-                            // Apply rotation to match ductwork angle (if not disabled)
-                            if (!SKIP_REGISTER_ROTATION) {
-                                var dxAngle = anchorPt[0] - prevPt[0];
-                                var dyAngle = anchorPt[1] - prevPt[1];
-                                var ductAngle = Math.atan2(dyAngle, dxAngle) * (180 / Math.PI);
-                                placed.rotate(ductAngle, true, true, true, true, Transformation.CENTER);
-                                // Store rotation metadata (same format as rotation slider)
-                                setPlacedRotation(placed, normalizeAngle(ductAngle));
-                                addDebug("[INTERNAL-REGISTERS] Applied rotation " + ductAngle.toFixed(1) + " deg to match ductwork");
-                            }
-
-                            // Re-center after scaling
-                            bounds = placed.geometricBounds;
-                            var cx = (bounds[0] + bounds[2]) / 2;
-                            var cy = (bounds[1] + bounds[3]) / 2;
-                            var dx = anchorPt[0] - cx;
-                            var dy = anchorPt[1] - cy;
-                            if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
-                                placed.translate(dx, dy, true, true, true, true);
-                            }
-
-                            addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Placed linked " + irRegisterLayerName + " component at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "]");
-                        } else {
-                            addDebug("[INTERNAL-REGISTERS] WARNING: Component file not found: " + irComponentFile.fsName);
-                        }
-                    } catch (ePlaceReg) {
-                        addDebug("[INTERNAL-REGISTERS] Error placing linked component: " + ePlaceReg);
-                    }
-
-                    internalRegistersPlaced++;
-
-                    // Add to updated points to prevent duplicates
-                    updatedRegisterPoints.push(anchorPt);
+                // Skip if this point is in ignored anchors
+                if (isPointIgnored(anchorPt, ignoredAnchors)) {
+                    addDebug("[INTERNAL-REGISTERS] Skipping anchor at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] - ignored");
+                    internalRegistersSkipped++;
+                    continue;
                 }
-            } catch (irErr) {
-                addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Error processing path " + irPathIdx + ": " + irErr);
+
+                // Skip if already has a register/unit nearby
+                if (isPointAlreadyPlaced(anchorPt, updatedRegisterPoints)) {
+                    addDebug("[INTERNAL-REGISTERS] Skipping anchor at [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] - already placed");
+                    internalRegistersSkipped++;
+                    continue;
+                }
+
+                // Place a register LINKED COMPONENT at this collinear internal anchor
+                addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Placing " + irRegisterLayerName + " at internal anchor [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] (Python path " + ca.path_idx + ", point " + ca.point_idx + ")");
+
+                // Create anchor point for reference
+                createAnchorPoint(irRegisterLayer, anchorPt, null);
+
+                // Place the linked register component
+                try {
+                    if (irComponentFile.exists) {
+                        var placed = irRegisterLayer.placedItems.add();
+                        placed.file = irComponentFile;
+                        try { placed.relink(irComponentFile); } catch (eRelink) { }
+                        try { placed.update(); } catch (eUpdate) { }
+
+                        // Center on anchor position
+                        var bounds = placed.geometricBounds;
+                        var w = bounds[2] - bounds[0];
+                        var h = bounds[1] - bounds[3];
+                        placed.position = [anchorPt[0] - w / 2, anchorPt[1] + h / 2];
+                        placed.name = irRegisterLayerName.replace(" Registers", " Register") + " (Linked)";
+
+                        // Apply default 50% scale
+                        var DEFAULT_SCALE = 50;
+                        placed.resize(DEFAULT_SCALE, DEFAULT_SCALE, true, true, true, true, DEFAULT_SCALE, Transformation.CENTER);
+
+                        // Apply rotation to match ductwork angle (if not disabled)
+                        if (!SKIP_REGISTER_ROTATION) {
+                            var dxAngle = anchorPt[0] - prevPt[0];
+                            var dyAngle = anchorPt[1] - prevPt[1];
+                            var ductAngle = Math.atan2(dyAngle, dxAngle) * (180 / Math.PI);
+                            placed.rotate(ductAngle, true, true, true, true, Transformation.CENTER);
+                            setPlacedRotation(placed, normalizeAngle(ductAngle));
+                            addDebug("[INTERNAL-REGISTERS] Applied rotation " + ductAngle.toFixed(1) + " deg to match ductwork");
+                        }
+
+                        // Re-center after scaling
+                        bounds = placed.geometricBounds;
+                        var cx = (bounds[0] + bounds[2]) / 2;
+                        var cy = (bounds[1] + bounds[3]) / 2;
+                        var dx = anchorPt[0] - cx;
+                        var dy = anchorPt[1] - cy;
+                        if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+                            placed.translate(dx, dy, true, true, true, true);
+                        }
+
+                        addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Placed linked " + irRegisterLayerName + " component");
+                    } else {
+                        addDebug("[INTERNAL-REGISTERS] WARNING: Component file not found: " + irComponentFile.fsName);
+                    }
+                } catch (ePlaceReg) {
+                    addDebug("[INTERNAL-REGISTERS] Error placing linked component: " + ePlaceReg);
+                }
+
+                internalRegistersPlaced++;
+                updatedRegisterPoints.push(anchorPt);
+            }
+        } else {
+            // ExtendScript fallback (slow) - only if Python failed
+            addDebug("[INTERNAL-REGISTERS] Using ExtendScript fallback for collinear detection (Python unavailable)");
+
+            // Helper: Check if three points are collinear (no direction change at middle point)
+            function isAnchorCollinear(prevPt, anchorPt, nextPt, tolerance) {
+                var v1x = anchorPt[0] - prevPt[0];
+                var v1y = anchorPt[1] - prevPt[1];
+                var v2x = nextPt[0] - anchorPt[0];
+                var v2y = nextPt[1] - anchorPt[1];
+                var len1 = Math.sqrt(v1x * v1x + v1y * v1y);
+                var len2 = Math.sqrt(v2x * v2x + v2y * v2y);
+                if (len1 < 0.001 || len2 < 0.001) return false;
+                v1x /= len1; v1y /= len1;
+                v2x /= len2; v2y /= len2;
+                var dot = v1x * v2x + v1y * v2y;
+                return dot > (1 - tolerance);
+            }
+
+            for (var irPathIdx = 0; irPathIdx < colorPathsForRegisters.length; irPathIdx++) {
+                var irPath = colorPathsForRegisters[irPathIdx];
+                try {
+                    if (!irPath || !irPath.typename) continue;
+                    var irPts = null;
+                    try { irPts = irPath.pathPoints; } catch (eGetPts) { continue; }
+                    if (!irPts || irPts.length < 3) continue;
+
+                    for (var iaIdx = 1; iaIdx < irPts.length - 1; iaIdx++) {
+                        var prevPt = irPts[iaIdx - 1].anchor;
+                        var anchorPt = irPts[iaIdx].anchor;
+                        var nextPt = irPts[iaIdx + 1].anchor;
+
+                        if (isNearAnyCrossover(anchorPt, crossoverPoints, 15)) {
+                            internalRegistersSkipped++;
+                            continue;
+                        }
+                        if (!isAnchorCollinear(prevPt, anchorPt, nextPt, 0.005)) continue;
+                        if (isPointIgnored(anchorPt, ignoredAnchors)) {
+                            internalRegistersSkipped++;
+                            continue;
+                        }
+                        if (isPointAlreadyPlaced(anchorPt, updatedRegisterPoints)) {
+                            internalRegistersSkipped++;
+                            continue;
+                        }
+
+                        createAnchorPoint(irRegisterLayer, anchorPt, null);
+
+                        try {
+                            if (irComponentFile.exists) {
+                                var placed = irRegisterLayer.placedItems.add();
+                                placed.file = irComponentFile;
+                                try { placed.relink(irComponentFile); } catch (eRelink) { }
+                                try { placed.update(); } catch (eUpdate) { }
+                                var bounds = placed.geometricBounds;
+                                var w = bounds[2] - bounds[0];
+                                var h = bounds[1] - bounds[3];
+                                placed.position = [anchorPt[0] - w / 2, anchorPt[1] + h / 2];
+                                placed.name = irRegisterLayerName.replace(" Registers", " Register") + " (Linked)";
+                                var DEFAULT_SCALE = 50;
+                                placed.resize(DEFAULT_SCALE, DEFAULT_SCALE, true, true, true, true, DEFAULT_SCALE, Transformation.CENTER);
+                                if (!SKIP_REGISTER_ROTATION) {
+                                    var dxAngle = anchorPt[0] - prevPt[0];
+                                    var dyAngle = anchorPt[1] - prevPt[1];
+                                    var ductAngle = Math.atan2(dyAngle, dxAngle) * (180 / Math.PI);
+                                    placed.rotate(ductAngle, true, true, true, true, Transformation.CENTER);
+                                    setPlacedRotation(placed, normalizeAngle(ductAngle));
+                                }
+                                bounds = placed.geometricBounds;
+                                var cx = (bounds[0] + bounds[2]) / 2;
+                                var cy = (bounds[1] + bounds[3]) / 2;
+                                var dx = anchorPt[0] - cx;
+                                var dy = anchorPt[1] - cy;
+                                if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+                                    placed.translate(dx, dy, true, true, true, true);
+                                }
+                            }
+                        } catch (ePlaceReg) {
+                            addDebug("[INTERNAL-REGISTERS] Error placing linked component: " + ePlaceReg);
+                        }
+                        internalRegistersPlaced++;
+                        updatedRegisterPoints.push(anchorPt);
+                    }
+                } catch (irErr) {
+                    addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Error processing path " + irPathIdx + ": " + irErr);
+                }
             }
         }
 
         addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Placed " + internalRegistersPlaced + " " + irRegisterLayerName + " at internal anchors with no direction change");
         addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Skipped " + internalRegistersSkipped + " internal anchor(s)");
+        addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Used Python: " + usedPython);
         } // End for loop over ductwork colors (irColorIdx) for internal registers
 
         // STEP 5: Create Thermostats from endpoints not near units, ignored points, or existing points
@@ -21022,7 +21363,7 @@ function isDuctworkLineLayer(name) {
                 }
 
                 for (var i = 0; i < components.length; i++) {
-                    // BATCH: Update progress between batches
+                    // BATCH: Update progress between batches and yield to UI
                     if (i > 0 && i % COMPOUND_BATCH_SIZE === 0) {
                         if (progressWin && progressLabel) {
                             try {
@@ -21030,6 +21371,8 @@ function isDuctworkLineLayer(name) {
                                 progressWin.update();
                             } catch (e) { }
                         }
+                        // Yield to UI to keep Illustrator responsive during compounding
+                        try { yieldToUI(); } catch (e) { }
                     }
                     var comp = components[i];
                     if (comp.length <= 1) continue;

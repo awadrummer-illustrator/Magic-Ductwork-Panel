@@ -85,12 +85,17 @@
     const docScaleToggle = document.getElementById('doc-scale-toggle');
     const docScaleSection = document.getElementById('doc-scale-section');
 
-    // Layer Protection Controls
-    const allowGapLayerEdit = document.getElementById('allow-gap-layer-edit');
+    // Gap Editor Overlay Controls
+    const gapEditorNormal = document.getElementById('gap-editor-normal');
+    const gapEditorActive = document.getElementById('gap-editor-active');
+    const editGapsBtn = document.getElementById('edit-gaps-btn');
+    const saveGapsBtn = document.getElementById('save-gaps-btn');
+    const cancelGapsBtn = document.getElementById('cancel-gaps-btn');
+    const addGapBtn = document.getElementById('add-gap-btn');
     const protectionStatus = document.getElementById('protection-status');
 
-    // Layer protection polling interval
-    let layerProtectionInterval = null;
+    // Gap editor state
+    let isInGapEditMode = false;
 
     let scaleDebounce = null;
     let bridgeReloaded = false;
@@ -111,6 +116,105 @@
             });
         });
     }
+
+    /**
+     * Run orthogonalization using async JavaScript-based Python communication
+     * This is NON-BLOCKING - the UI remains responsive during Python processing
+     */
+    async function runAsyncOrtho() {
+        console.log('[ASYNC-ORTHO] Starting async orthogonalization...');
+        setProcessStatus('Starting async ortho...');
+
+        // Check if PythonClient is available
+        if (typeof window.PythonClient === 'undefined') {
+            setProcessStatus('PythonClient not loaded - Node.js may not be enabled', true);
+            return { success: false, error: 'PythonClient not available' };
+        }
+
+        // Check if server is running
+        if (!window.PythonClient.isServerRunning()) {
+            setProcessStatus('Python server not running. Starting it...', false);
+            // Try to start via geometry bridge
+            if (window.GeometryBridge && window.GeometryBridge.startServer) {
+                const started = await window.GeometryBridge.startServer();
+                if (!started) {
+                    setProcessStatus('Failed to start Python server', true);
+                    return { success: false, error: 'Server failed to start' };
+                }
+            } else {
+                setProcessStatus('Cannot start Python server - run Start_Geometry_Server.bat', true);
+                return { success: false, error: 'No way to start server' };
+            }
+        }
+
+        try {
+            // Step 1: Get paths from ExtendScript (quick sync call)
+            setProcessStatus('Getting selected paths...');
+            const pathsJson = await evalScript('getSelectedPathsForAsync()');
+            const pathsData = JSON.parse(pathsJson);
+
+            if (pathsData.error) {
+                setProcessStatus('Error: ' + pathsData.error, true);
+                return { success: false, error: pathsData.error };
+            }
+
+            if (!pathsData.paths || pathsData.paths.length === 0) {
+                setProcessStatus('No paths to process', true);
+                return { success: false, error: 'No paths' };
+            }
+
+            console.log('[ASYNC-ORTHO] Got ' + pathsData.paths.length + ' paths from ExtendScript');
+            setProcessStatus('Processing ' + pathsData.paths.length + ' paths (async)...');
+
+            // Step 2: Send to Python ASYNCHRONOUSLY (non-blocking!)
+            const callbacks = {
+                onProgress: (elapsed, max) => {
+                    const pct = Math.round((elapsed / max) * 100);
+                    setProcessStatus('Python processing... ' + pct + '%');
+                },
+                onComplete: (result) => {
+                    console.log('[ASYNC-ORTHO] Python completed:', result);
+                },
+                onError: (err) => {
+                    console.error('[ASYNC-ORTHO] Python error:', err);
+                }
+            };
+
+            const result = await window.PythonClient.orthogonalizeAsync(
+                pathsData.paths,
+                5,  // snap threshold
+                callbacks
+            );
+
+            console.log('[ASYNC-ORTHO] Python result:', result);
+
+            // Step 3: Apply results back to Illustrator (quick sync call)
+            setProcessStatus('Applying results...');
+            const applyJson = await evalScript("applyAsyncOrthoResult('" +
+                JSON.stringify(result).replace(/\\/g, '\\\\').replace(/'/g, "\\'") + "')");
+            const applyResult = JSON.parse(applyJson);
+
+            if (applyResult.error) {
+                setProcessStatus('Error applying: ' + applyResult.error, true);
+                return { success: false, error: applyResult.error };
+            }
+
+            setProcessStatus('Async ortho complete! Applied ' + applyResult.applied + ' paths');
+            console.log('[ASYNC-ORTHO] Applied ' + applyResult.applied + ' paths, ' + applyResult.errors + ' errors');
+
+            return { success: true, applied: applyResult.applied, stats: applyResult.stats };
+
+        } catch (e) {
+            console.error('[ASYNC-ORTHO] Error:', e);
+            setProcessStatus('Async ortho failed: ' + e.message, true);
+            // Cleanup stored paths on error
+            await evalScript('clearAsyncPaths()');
+            return { success: false, error: e.message };
+        }
+    }
+
+    // Expose for testing from console
+    window.runAsyncOrtho = runAsyncOrtho;
 
     function setProcessStatus(message, isError) {
         if (!processStatus) return;
@@ -420,6 +524,10 @@
             return;
         }
 
+        // PYTHON MODE: Keep Python ENABLED - it's much faster than ExtendScript
+        // The $.sleep() blocking is minimal compared to slow ExtendScript operations
+        console.log('[PROCESS] Python mode: keeping Python enabled for fast geometry operations');
+
         // Wrap entire processing in try/finally to ensure buttons always get re-enabled
         try {
         let rotationValue = null;
@@ -464,8 +572,9 @@
             return;
         }
 
-        setProcessStatus('Running ductwork script…');
+        setProcessStatus('Running ductwork script (Python accelerated)…');
         const result = normaliseResult(await evalScript('MDUX_runMagicDuctwork()'));
+
         if (result.ok) {
             setProcessStatus('Magic Ductwork completed.');
             debugStatus.textContent = 'Process completed';
@@ -1689,24 +1798,122 @@
 
             csInterface.evalScript('MDUX_debugLog("[INIT] Debug buttons attached")', function() {});
 
-            // Layer protection toggle handler for Gap Definitions layer
-            if (allowGapLayerEdit) {
-                allowGapLayerEdit.addEventListener('change', function() {
-                    if (allowGapLayerEdit.checked) {
+            // Gap Editor Overlay button handlers
+            function updateGapEditorUI(inEditMode) {
+                isInGapEditMode = inEditMode;
+                if (gapEditorNormal) gapEditorNormal.style.display = inEditMode ? 'none' : 'block';
+                if (gapEditorActive) gapEditorActive.style.display = inEditMode ? 'block' : 'none';
+            }
+
+            if (editGapsBtn) {
+                editGapsBtn.addEventListener('click', async function() {
+                    try {
+                        await ensureBridgeLoaded();
                         if (protectionStatus) {
-                            protectionStatus.textContent = 'Gap Definitions layer unlocked for editing';
+                            protectionStatus.textContent = 'Entering gap edit mode...';
                             protectionStatus.style.color = '#f0f';
                         }
-                    } else {
+                        const resultStr = await evalScript('MDUX_enterGapEditMode()');
+                        const result = JSON.parse(resultStr);
+                        if (result.ok) {
+                            updateGapEditorUI(true);
+                            if (protectionStatus) {
+                                protectionStatus.textContent = result.message;
+                                protectionStatus.style.color = '#0f0';
+                            }
+                        } else {
+                            if (protectionStatus) {
+                                protectionStatus.textContent = result.message;
+                                protectionStatus.style.color = '#f00';
+                            }
+                        }
+                    } catch (e) {
                         if (protectionStatus) {
-                            protectionStatus.textContent = 'Gap Definitions layer protection enabled';
-                            protectionStatus.style.color = '#0f0';
+                            protectionStatus.textContent = 'Error: ' + e;
+                            protectionStatus.style.color = '#f00';
+                        }
+                    }
+                });
+            }
+
+            if (saveGapsBtn) {
+                saveGapsBtn.addEventListener('click', async function() {
+                    try {
+                        await ensureBridgeLoaded();
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Saving gaps...';
+                            protectionStatus.style.color = '#f0f';
+                        }
+                        const resultStr = await evalScript('MDUX_saveGapEditMode()');
+                        const result = JSON.parse(resultStr);
+                        updateGapEditorUI(false);
+                        if (protectionStatus) {
+                            protectionStatus.textContent = result.message;
+                            protectionStatus.style.color = result.ok ? '#0f0' : '#f00';
+                            setTimeout(function() {
+                                if (protectionStatus) protectionStatus.textContent = '';
+                            }, 3000);
+                        }
+                    } catch (e) {
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Error: ' + e;
+                            protectionStatus.style.color = '#f00';
+                        }
+                    }
+                });
+            }
+
+            if (cancelGapsBtn) {
+                cancelGapsBtn.addEventListener('click', async function() {
+                    try {
+                        await ensureBridgeLoaded();
+                        const resultStr = await evalScript('MDUX_cancelGapEditMode()');
+                        const result = JSON.parse(resultStr);
+                        updateGapEditorUI(false);
+                        if (protectionStatus) {
+                            protectionStatus.textContent = result.message;
+                            protectionStatus.style.color = result.ok ? '#ff0' : '#f00';
                             setTimeout(function() {
                                 if (protectionStatus) protectionStatus.textContent = '';
                             }, 2000);
                         }
+                    } catch (e) {
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Error: ' + e;
+                            protectionStatus.style.color = '#f00';
+                        }
                     }
                 });
+            }
+
+            if (addGapBtn) {
+                addGapBtn.addEventListener('click', async function() {
+                    try {
+                        await ensureBridgeLoaded();
+                        const resultStr = await evalScript('MDUX_addGapMarker()');
+                        const result = JSON.parse(resultStr);
+                        if (protectionStatus) {
+                            protectionStatus.textContent = result.message;
+                            protectionStatus.style.color = result.ok ? '#0f0' : '#f00';
+                            setTimeout(function() {
+                                if (protectionStatus) protectionStatus.textContent = '';
+                            }, 2000);
+                        }
+                    } catch (e) {
+                        if (protectionStatus) {
+                            protectionStatus.textContent = 'Error: ' + e;
+                            protectionStatus.style.color = '#f00';
+                        }
+                    }
+                });
+            }
+
+            // Check gap edit mode state on document switch
+            async function checkGapEditModeState() {
+                try {
+                    const result = await evalScript('MDUX_isInGapEditMode()');
+                    updateGapEditorUI(result === 'true');
+                } catch (e) { }
             }
 
             if (debugStatus) debugStatus.textContent = 'Remote debugging available at http://localhost:8088';
@@ -1777,6 +1984,16 @@
             let pollInProgress = false;
             let lastSelectionHash = '';
 
+            // Clean up stale state when switching documents to prevent lockups
+            csInterface.addEventListener('documentAfterActivate', () => {
+                // Reset the selection hash so we re-evaluate on the new document
+                lastSelectionHash = '';
+                // Run cleanup to clear stale debug buffer and other state
+                evalScript('MDUX_onDocumentChange()').then(result => {
+                    console.log('[JS] Document change cleanup:', result);
+                }).catch(() => {});
+            });
+
             const pollInterval = setInterval(function() {
                 // Don't poll if previous poll still running
                 if (pollInProgress) return;
@@ -1805,75 +2022,6 @@
                 });
             }, 1000); // 1 second - fast updates, but only does expensive work if selection changed
 
-            // Track gap marker count for detecting deletions in gap edit mode
-            var lastGapMarkerCount = -1;
-
-            // Layer protection polling - only runs when gap edit mode needs management
-            layerProtectionInterval = setInterval(function() {
-                var allowGapEdit = allowGapLayerEdit && allowGapLayerEdit.checked;
-
-                // Build ExtendScript for Gap Definitions layer management
-                // When gap edit mode is ON: unlock layer, track marker count, detect deletions
-                // When gap edit mode is OFF: lock everything, skip tracking
-                var script = '(function(){' +
-                    'try{' +
-                    'var doc=app.activeDocument;if(!doc)return"nodoc";' +
-                    'var result={locked:[],markerCount:0};' +
-                    // Gap Definitions layer
-                    'try{var gapLayer=doc.layers.getByName("Gap Definitions");' +
-                    'if(gapLayer){' +
-                    'if(!' + allowGapEdit + '){' +
-                    // Lock mode - lock layer and all objects
-                    'if(!gapLayer.locked){gapLayer.locked=true;result.locked.push("gap-layer");}' +
-                    'for(var i=0;i<gapLayer.pathItems.length;i++){' +
-                    'if(!gapLayer.pathItems[i].locked){gapLayer.pathItems[i].locked=true;}}' +
-                    '}else{' +
-                    // Edit mode - unlock and count markers (paths with MDUX_GAP in note)
-                    'if(gapLayer.locked){gapLayer.locked=false;}' +
-                    'for(var j=0;j<gapLayer.pathItems.length;j++){' +
-                    'var p=gapLayer.pathItems[j];' +
-                    'if(p.locked){p.locked=false;}' +
-                    'try{if(p.note&&p.note.indexOf("MDUX_GAP:")===0){result.markerCount++;}}catch(e){}' +
-                    '}' +
-                    '}}}catch(e){}' +
-                    'return JSON.stringify(result);' +
-                    '}catch(e){return"error:"+e;}' +
-                    '})()';
-
-                csInterface.evalScript(script, function(resultStr) {
-                    if (!resultStr || resultStr === 'nodoc' || resultStr.indexOf('error') === 0) return;
-
-                    try {
-                        var result = JSON.parse(resultStr);
-
-                        // Show lock notifications
-                        if (result.locked && result.locked.length > 0 && protectionStatus) {
-                            protectionStatus.textContent = 'Auto-locked: ' + result.locked.join(', ');
-                            protectionStatus.style.color = '#f0f';
-                            setTimeout(function() {
-                                if (protectionStatus) protectionStatus.textContent = '';
-                            }, 2000);
-                        }
-
-                        // In gap edit mode, track marker count and detect deletions
-                        if (allowGapEdit && result.markerCount !== undefined) {
-                            if (lastGapMarkerCount >= 0 && result.markerCount < lastGapMarkerCount) {
-                                // Marker count decreased - user deleted a marker!
-                                var deleted = lastGapMarkerCount - result.markerCount;
-                                if (protectionStatus) {
-                                    protectionStatus.textContent = deleted + ' gap marker(s) deleted - will patch on Process';
-                                    protectionStatus.style.color = '#0ff';
-                                }
-                            }
-                            lastGapMarkerCount = result.markerCount;
-                        } else {
-                            // Reset count when not in edit mode
-                            lastGapMarkerCount = -1;
-                        }
-                    } catch (e) { }
-                });
-            }, 500); // Poll every 500ms - does less work when not in edit mode
-
             // Also refresh when panel gets focus (removed blocking debug log)
             window.addEventListener('focus', function() {
                 refreshSelectionTransformState().catch(function() {});
@@ -1893,10 +2041,6 @@
         csInterface.removeEventListener('afterSelectionChanged', scheduleSkipOrthoRefresh);
         csInterface.removeEventListener('documentAfterActivate', scheduleSkipOrthoRefresh);
         csInterface.removeEventListener('documentChanged', scheduleSkipOrthoRefresh);
-        if (layerProtectionInterval) {
-            clearInterval(layerProtectionInterval);
-            layerProtectionInterval = null;
-        }
         evalScript('MDUX_cleanupBridge()');
     });
 

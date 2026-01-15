@@ -316,6 +316,411 @@ function MDUX_setDocumentScale(percent) {
     }
 }
 
+// ========================================
+// GAP DEFINITIONS - VISUAL EDITOR OVERLAY
+// Stores gap data in document tags, uses temporary layer for editing
+// ========================================
+
+var MDUX_GAP_DATA_TAG_NAME = "MDUX_GapDefinitions";
+var MDUX_GAP_EDITOR_LAYER_NAME = "__MDUX_GapEditor_Temp";
+
+/**
+ * Gets gap definitions from document tags.
+ * Returns array of gap objects or empty array.
+ */
+function MDUX_getGapDataTag(doc) {
+    try {
+        for (var i = 0; i < doc.tags.length; i++) {
+            if (doc.tags[i].name === MDUX_GAP_DATA_TAG_NAME) {
+                var val = doc.tags[i].value;
+                if (val && val.length > 0) {
+                    return JSON.parse(val);
+                }
+            }
+        }
+    } catch (e) { }
+    return [];
+}
+
+/**
+ * Sets gap definitions in document tags.
+ * Data is an array of gap objects: [{x, y, gapSize, dirX, dirY, sourceLayer}, ...]
+ */
+function MDUX_setGapDataTag(doc, data) {
+    try {
+        var jsonStr = JSON.stringify(data || []);
+        // Look for existing tag
+        for (var i = 0; i < doc.tags.length; i++) {
+            if (doc.tags[i].name === MDUX_GAP_DATA_TAG_NAME) {
+                doc.tags[i].value = jsonStr;
+                return true;
+            }
+        }
+        // Create new tag
+        var tag = doc.tags.add();
+        tag.name = MDUX_GAP_DATA_TAG_NAME;
+        tag.value = jsonStr;
+        return true;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * Migrates gap data from the old "Gap Definitions" layer to document tags.
+ * Called once when entering edit mode if no tag data exists.
+ */
+function MDUX_migrateGapLayerToTags(doc) {
+    var gaps = [];
+    try {
+        var oldLayer = doc.layers.getByName("Gap Definitions");
+        for (var i = 0; i < oldLayer.pathItems.length; i++) {
+            var item = oldLayer.pathItems[i];
+            if (!item.note) continue;
+
+            // Parse MDUX_GAP: format
+            if (item.note.indexOf("MDUX_GAP:") === 0) {
+                try {
+                    var meta = JSON.parse(item.note.substring(9));
+                    gaps.push({
+                        x: meta.x,
+                        y: meta.y,
+                        gapSize: meta.gapSize || 8.5,
+                        dirX: meta.dirX || 0,
+                        dirY: meta.dirY || 1,
+                        sourceLayer: meta.sourceLayer || ""
+                    });
+                } catch (e) { }
+            }
+            // Parse MDUX_PATCH format (simpler markers)
+            else if (item.note.indexOf("MDUX_PATCH") === 0) {
+                if (item.pathPoints && item.pathPoints.length > 0) {
+                    var pt = item.pathPoints[0].anchor;
+                    gaps.push({
+                        x: pt[0],
+                        y: pt[1],
+                        gapSize: 8.5,
+                        dirX: 0,
+                        dirY: 1,
+                        sourceLayer: ""
+                    });
+                }
+            }
+        }
+    } catch (e) { }
+    return gaps;
+}
+
+/**
+ * Enters gap editor mode:
+ * 1. Reads gap data from document tags (or migrates from old layer)
+ * 2. Creates temporary editor layer with visual markers
+ * 3. Returns status for UI
+ */
+function MDUX_enterGapEditMode() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open" });
+        }
+        var doc = app.activeDocument;
+
+        // Check if already in edit mode
+        var existingLayer = null;
+        try { existingLayer = doc.layers.getByName(MDUX_GAP_EDITOR_LAYER_NAME); } catch (e) { }
+        if (existingLayer) {
+            return JSON.stringify({ ok: false, message: "Already in gap edit mode. Save or cancel first." });
+        }
+
+        // Get gap data from tags, or migrate from old layer
+        var gaps = MDUX_getGapDataTag(doc);
+        if (gaps.length === 0) {
+            gaps = MDUX_migrateGapLayerToTags(doc);
+            if (gaps.length > 0) {
+                MDUX_setGapDataTag(doc, gaps);
+            }
+        }
+
+        // Create temporary editor layer
+        var editorLayer = doc.layers.add();
+        editorLayer.name = MDUX_GAP_EDITOR_LAYER_NAME;
+        editorLayer.visible = true;
+        editorLayer.locked = false;
+
+        // Set layer color to magenta for visibility
+        var layerColor = new RGBColor();
+        layerColor.red = 255;
+        layerColor.green = 0;
+        layerColor.blue = 255;
+        editorLayer.color = layerColor;
+
+        // Create visual markers for each gap
+        var markerColor = new RGBColor();
+        markerColor.red = 255;
+        markerColor.green = 0;
+        markerColor.blue = 255;
+
+        for (var i = 0; i < gaps.length; i++) {
+            var gap = gaps[i];
+            var marker = editorLayer.pathItems.add();
+            marker.stroked = true;
+            marker.filled = false;
+            marker.strokeColor = markerColor;
+            marker.strokeWidth = 2;
+
+            // Create a small cross or line at the gap position
+            var halfSize = gap.gapSize || 8.5;
+            var x = gap.x;
+            var y = gap.y;
+            var dirX = gap.dirX || 0;
+            var dirY = gap.dirY || 1;
+
+            // Draw line perpendicular to gap direction to show gap size
+            var p1 = [x - dirX * halfSize, y - dirY * halfSize];
+            var p2 = [x + dirX * halfSize, y + dirY * halfSize];
+            marker.setEntirePath([p1, p2]);
+
+            // Store gap metadata in note for retrieval on save
+            marker.note = "MDUX_GAP_EDIT:" + JSON.stringify({
+                x: x,
+                y: y,
+                gapSize: halfSize,
+                dirX: dirX,
+                dirY: dirY,
+                sourceLayer: gap.sourceLayer || ""
+            });
+        }
+
+        // Move layer to top for visibility
+        try { editorLayer.move(doc.layers[0], ElementPlacement.PLACEBEFORE); } catch (e) { }
+
+        app.redraw();
+
+        return JSON.stringify({
+            ok: true,
+            message: "Gap edit mode active. " + gaps.length + " gap(s) loaded.",
+            gapCount: gaps.length
+        });
+
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Error: " + e });
+    }
+}
+
+/**
+ * Saves gap editor changes and exits edit mode:
+ * 1. Reads marker positions from temp layer
+ * 2. Saves to document tags
+ * 3. Deletes temp layer
+ */
+function MDUX_saveGapEditMode() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open" });
+        }
+        var doc = app.activeDocument;
+
+        // Find editor layer
+        var editorLayer = null;
+        try { editorLayer = doc.layers.getByName(MDUX_GAP_EDITOR_LAYER_NAME); } catch (e) { }
+        if (!editorLayer) {
+            return JSON.stringify({ ok: false, message: "Not in gap edit mode." });
+        }
+
+        // Collect gap data from markers
+        var gaps = [];
+        for (var i = 0; i < editorLayer.pathItems.length; i++) {
+            var marker = editorLayer.pathItems[i];
+
+            // Try to read from note first (preserves original metadata)
+            if (marker.note && marker.note.indexOf("MDUX_GAP_EDIT:") === 0) {
+                try {
+                    var meta = JSON.parse(marker.note.substring(14));
+                    // Update position from current marker location
+                    if (marker.pathPoints && marker.pathPoints.length >= 2) {
+                        var p1 = marker.pathPoints[0].anchor;
+                        var p2 = marker.pathPoints[1].anchor;
+                        meta.x = (p1[0] + p2[0]) / 2;
+                        meta.y = (p1[1] + p2[1]) / 2;
+                        // Recalculate direction from marker orientation
+                        var dx = p2[0] - p1[0];
+                        var dy = p2[1] - p1[1];
+                        var len = Math.sqrt(dx * dx + dy * dy);
+                        if (len > 0) {
+                            meta.dirX = dx / len;
+                            meta.dirY = dy / len;
+                            meta.gapSize = len / 2;
+                        }
+                    }
+                    gaps.push(meta);
+                } catch (e) { }
+            }
+            // Fallback: read position from path geometry
+            else if (marker.pathPoints && marker.pathPoints.length >= 1) {
+                var pt = marker.pathPoints[0].anchor;
+                var gapSize = 8.5;
+                var dirX = 0, dirY = 1;
+
+                if (marker.pathPoints.length >= 2) {
+                    var p1 = marker.pathPoints[0].anchor;
+                    var p2 = marker.pathPoints[1].anchor;
+                    pt = [(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2];
+                    var dx = p2[0] - p1[0];
+                    var dy = p2[1] - p1[1];
+                    var len = Math.sqrt(dx * dx + dy * dy);
+                    if (len > 0) {
+                        dirX = dx / len;
+                        dirY = dy / len;
+                        gapSize = len / 2;
+                    }
+                }
+
+                gaps.push({
+                    x: pt[0],
+                    y: pt[1],
+                    gapSize: gapSize,
+                    dirX: dirX,
+                    dirY: dirY,
+                    sourceLayer: ""
+                });
+            }
+        }
+
+        // Save to document tags
+        MDUX_setGapDataTag(doc, gaps);
+
+        // Delete the editor layer
+        try {
+            editorLayer.locked = false;
+            editorLayer.remove();
+        } catch (e) { }
+
+        app.redraw();
+
+        return JSON.stringify({
+            ok: true,
+            message: "Saved " + gaps.length + " gap(s) and exited edit mode.",
+            gapCount: gaps.length
+        });
+
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Error: " + e });
+    }
+}
+
+/**
+ * Cancels gap editor mode without saving:
+ * Simply deletes the temp layer.
+ */
+function MDUX_cancelGapEditMode() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open" });
+        }
+        var doc = app.activeDocument;
+
+        // Find and delete editor layer
+        var editorLayer = null;
+        try { editorLayer = doc.layers.getByName(MDUX_GAP_EDITOR_LAYER_NAME); } catch (e) { }
+        if (!editorLayer) {
+            return JSON.stringify({ ok: false, message: "Not in gap edit mode." });
+        }
+
+        try {
+            editorLayer.locked = false;
+            editorLayer.remove();
+        } catch (e) { }
+
+        app.redraw();
+
+        return JSON.stringify({ ok: true, message: "Cancelled gap edit mode." });
+
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Error: " + e });
+    }
+}
+
+/**
+ * Checks if currently in gap edit mode.
+ */
+function MDUX_isInGapEditMode() {
+    try {
+        if (app.documents.length === 0) return "false";
+        var doc = app.activeDocument;
+        var editorLayer = null;
+        try { editorLayer = doc.layers.getByName(MDUX_GAP_EDITOR_LAYER_NAME); } catch (e) { }
+        return editorLayer ? "true" : "false";
+    } catch (e) {
+        return "false";
+    }
+}
+
+/**
+ * Adds a new gap at the specified position (or center of selection).
+ * Must be in gap edit mode.
+ */
+function MDUX_addGapMarker(x, y) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open" });
+        }
+        var doc = app.activeDocument;
+
+        var editorLayer = null;
+        try { editorLayer = doc.layers.getByName(MDUX_GAP_EDITOR_LAYER_NAME); } catch (e) { }
+        if (!editorLayer) {
+            return JSON.stringify({ ok: false, message: "Enter gap edit mode first." });
+        }
+
+        // If no position specified, use center of selection or document
+        if (typeof x !== "number" || typeof y !== "number") {
+            if (doc.selection && doc.selection.length > 0) {
+                var bounds = doc.selection[0].geometricBounds;
+                x = (bounds[0] + bounds[2]) / 2;
+                y = (bounds[1] + bounds[3]) / 2;
+            } else {
+                var ab = doc.artboards[doc.artboards.getActiveArtboardIndex()].artboardRect;
+                x = (ab[0] + ab[2]) / 2;
+                y = (ab[1] + ab[3]) / 2;
+            }
+        }
+
+        // Create marker
+        var markerColor = new RGBColor();
+        markerColor.red = 255;
+        markerColor.green = 0;
+        markerColor.blue = 255;
+
+        var marker = editorLayer.pathItems.add();
+        marker.stroked = true;
+        marker.filled = false;
+        marker.strokeColor = markerColor;
+        marker.strokeWidth = 2;
+
+        var halfSize = 8.5;
+        marker.setEntirePath([
+            [x, y - halfSize],
+            [x, y + halfSize]
+        ]);
+
+        marker.note = "MDUX_GAP_EDIT:" + JSON.stringify({
+            x: x,
+            y: y,
+            gapSize: halfSize,
+            dirX: 0,
+            dirY: 1,
+            sourceLayer: ""
+        });
+
+        marker.selected = true;
+        app.redraw();
+
+        return JSON.stringify({ ok: true, message: "Added gap marker at " + x.toFixed(1) + ", " + y.toFixed(1) });
+
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Error: " + e });
+    }
+}
+
 /**
  * LEGACY: Full document scaling disabled in UI to prevent desync issues.
  * Kept for reference - do not expose in panel UI.
@@ -523,6 +928,47 @@ function MDUX_resetSessionStateBridge() {
     return "Session reset: " + (cleared.length ? cleared.join(", ") : "nothing to clear");
 }
 
+// Document change cleanup - call this when switching between documents to prevent stale state
+// This is lighter than a full session reset and designed to be called frequently
+function MDUX_onDocumentChange() {
+    var actions = [];
+
+    try {
+        // Truncate debug buffer if it's grown too large from previous processing
+        // This prevents memory issues and potential slowdowns from large array operations
+        if (typeof $.global.MDUX_debugBuffer !== "undefined" && $.global.MDUX_debugBuffer.length > 500) {
+            var oldLen = $.global.MDUX_debugBuffer.length;
+            // Keep only the last 200 entries to maintain some context
+            $.global.MDUX_debugBuffer = $.global.MDUX_debugBuffer.slice(-200);
+            actions.push("truncated debug buffer from " + oldLen + " to " + $.global.MDUX_debugBuffer.length);
+        }
+
+        // Clear selection-related cached state that could be stale
+        if (typeof $.global.MDUX_SELECTION_BOUNDS !== "undefined") {
+            delete $.global.MDUX_SELECTION_BOUNDS;
+            actions.push("cleared MDUX_SELECTION_BOUNDS");
+        }
+
+        // Reset progress window state to prevent stale references
+        if ($.global.MDUX_PROGRESS_WIN !== undefined && $.global.MDUX_PROGRESS_WIN !== null) {
+            try {
+                if ($.global.MDUX_PROGRESS_WIN.close) {
+                    $.global.MDUX_PROGRESS_WIN.close();
+                }
+            } catch (eClose) { }
+            $.global.MDUX_PROGRESS_WIN = null;
+            actions.push("closed stale progress window");
+        }
+
+        $.global.MDUX_PROGRESS_CANCELLED = false;
+
+    } catch (e) {
+        actions.push("error: " + e);
+    }
+
+    return actions.length > 0 ? actions.join("; ") : "no cleanup needed";
+}
+
 // In-memory debug log buffer
 if (typeof $.global.MDUX_debugBuffer === "undefined") {
     $.global.MDUX_debugBuffer = [];
@@ -538,9 +984,11 @@ function MDUX_debugLog(message) {
         var logEntry = "[" + timestamp + "] " + message;
         $.global.MDUX_debugBuffer.push(logEntry);
 
-        // Keep only last 2000 entries to prevent memory issues
-        if ($.global.MDUX_debugBuffer.length > 2000) {
-            $.global.MDUX_debugBuffer.shift();
+        // PERFORMANCE: Batch truncation instead of shift() on every call
+        // shift() is O(n) and calling it repeatedly is very slow
+        // Let buffer grow to 2500, then truncate to 2000 with slice() (single operation)
+        if ($.global.MDUX_debugBuffer.length > 2500) {
+            $.global.MDUX_debugBuffer = $.global.MDUX_debugBuffer.slice(-2000);
         }
     } catch (e) {
         // Log the error to help debug
@@ -1062,29 +1510,61 @@ function MDUX_importGraphicStylesBridge() {
         try { pasted = destDoc.selection; } catch (selErr) { pasted = null; }
         if (pasted) {
             if (pasted.length === undefined) pasted = [pasted];
-            // Move items far away (-50000, -50000) instead of deleting
-            // They will be cleaned up during Process Ductwork
-            var FAR_AWAY_X = -50000;
-            var FAR_AWAY_Y = -50000;
+
+            // Position items at bottom-left of artboard, 200pt to the left of artboard edge
+            // Right edge of items should be 200pt left of artboard's left edge
+            var artboardIndex = destDoc.artboards.getActiveArtboardIndex();
+            var artboardRect = destDoc.artboards[artboardIndex].artboardRect;
+            // artboardRect = [left, top, right, bottom] (top > bottom in AI coordinates)
+            var abLeft = artboardRect[0];
+            var abTop = artboardRect[1];
+            var abRight = artboardRect[2];
+            var abBottom = artboardRect[3];
+
+            // Calculate bounding box of all pasted items
+            var allLeft = Infinity, allTop = -Infinity, allRight = -Infinity, allBottom = Infinity;
             for (var p = 0; p < pasted.length; p++) {
                 try {
-                    var item = pasted[p];
-                    var bounds = item.geometricBounds;
-                    var itemX = bounds[0];
-                    var itemY = bounds[1];
-                    // Translate to far away position
-                    item.translate(FAR_AWAY_X - itemX, FAR_AWAY_Y - itemY);
+                    var bounds = pasted[p].geometricBounds;
+                    if (bounds[0] < allLeft) allLeft = bounds[0];
+                    if (bounds[1] > allTop) allTop = bounds[1];
+                    if (bounds[2] > allRight) allRight = bounds[2];
+                    if (bounds[3] < allBottom) allBottom = bounds[3];
+                } catch (boundsErr) { }
+            }
+
+            var itemsWidth = allRight - allLeft;
+            var itemsHeight = allTop - allBottom;
+
+            // Target position: right edge of items at (artboard left - 200pt)
+            // So items left edge should be at: (artboard left - 200 - itemsWidth)
+            var targetX = abLeft - 200 - itemsWidth;
+            // Target Y: items bottom at artboard bottom
+            var targetY = abBottom;
+
+            // Calculate translation needed
+            var deltaX = targetX - allLeft;
+            var deltaY = targetY - allBottom;
+
+            for (var p = 0; p < pasted.length; p++) {
+                try {
+                    pasted[p].translate(deltaX, deltaY);
                 } catch (moveErr) {
                     try { $.writeln("[MDUX] Error moving template item: " + moveErr); } catch (logMove) { }
                 }
             }
-            try { $.writeln("[MDUX] Moved " + pasted.length + " template line(s) to holding area"); } catch (logMoved) { }
+            try { $.writeln("[MDUX] Positioned " + pasted.length + " template line(s) at bottom-left of artboard (200pt offset)"); } catch (logMoved) { }
         }
         destDoc.selection = null;
 
-        // Lock the template layer to prevent accidental editing
-        try { tempLayer.locked = true; } catch (lockErr) { }
-        try { tempLayer.visible = false; } catch (visErr) { }
+        // Delete the empty temp layer (items went to their respective layers)
+        try {
+            tempLayer.locked = false;
+            tempLayer.remove();
+            $.writeln("[MDUX] Removed empty temp layer __MDUX_STYLE_TEMPLATE_LINES__");
+        } catch (removeErr) {
+            try { $.writeln("[MDUX] Could not remove temp layer: " + removeErr); } catch (logRemove) { }
+        }
         try { app.redraw(); } catch (redErr) { }
         try { $.writeln("[MDUX] Import styles completed successfully"); } catch (logDone) { }
         return "Graphic styles imported.";
