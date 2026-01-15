@@ -9227,6 +9227,8 @@ function isDuctworkLineLayer(name) {
         var CREATED_ANCHOR_PATHS = [];
         var ACTIVE_CENTERLINES = [];
         var CARVE_OUT_COMPOUNDS = []; // Track compound paths created during carve-out for styling
+        var GAP_SELECTION_MAX_STROKE = 0;
+        var GAP_AUTO_HALF_WIDTH = 4.25;
 
 
         // Initialize trunk/branch naming counters (reset each run)
@@ -9279,6 +9281,30 @@ function isDuctworkLineLayer(name) {
             alert("No valid path items.");
             return;
         }
+
+        function getMaxStrokeWidth(paths) {
+            var maxWidth = 0;
+            if (!paths || paths.length < 1) return maxWidth;
+            for (var i = 0; i < paths.length; i++) {
+                var path = paths[i];
+                if (!path || path.typename !== "PathItem") continue;
+                try { if (path.stroked !== true) continue; } catch (e) { }
+                var w = null;
+                try { w = path.strokeWidth; } catch (e2) { w = null; }
+                if (typeof w === "number" && isFinite(w) && w > maxWidth) {
+                    maxWidth = w;
+                }
+            }
+            return maxWidth;
+        }
+
+        GAP_SELECTION_MAX_STROKE = getMaxStrokeWidth(allPaths);
+        if (GAP_SELECTION_MAX_STROKE > 0) {
+            GAP_AUTO_HALF_WIDTH = Math.max((GAP_SELECTION_MAX_STROKE + 6) / 2, 4);
+        }
+        addDebug("[GAP-AUTO] Max selected stroke=" +
+            (GAP_SELECTION_MAX_STROKE > 0 ? GAP_SELECTION_MAX_STROKE.toFixed(2) : "n/a") +
+            " auto half-gap=" + GAP_AUTO_HALF_WIDTH.toFixed(2));
 
         function pathMatchesPreOrthoGeometry(pathItem, geometry, tol) {
             if (!pathItem || !geometry || !geometry.points) return false;
@@ -11057,9 +11083,9 @@ function isDuctworkLineLayer(name) {
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist < bestTJDist) { bestTJDist = dist; bestTJt = res.t; }
                                 if (dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
-                                    // Skip T-junctions at exactly 4.25pt - this is the carve-out gap distance
+                                    // Skip T-junctions at the carve-out gap distance
                                     // and almost certainly indicates a false connection to a carved path endpoint
-                                    var CARVE_GAP_DIST = 4.25;
+                                    var CARVE_GAP_DIST = GAP_AUTO_HALF_WIDTH;
                                     var CARVE_GAP_TOL = 0.5;
                                     var hasConnectionMarker = (connectionMarkers.length > 0 &&
                                                                 (isNearIgnoredAnchor([ptsA[ai].anchor[0], ptsA[ai].anchor[1]], connectionMarkers) ||
@@ -11093,8 +11119,8 @@ function isDuctworkLineLayer(name) {
                                 var dist = Math.sqrt(dx * dx + dy * dy);
                                 if (dist < bestTJDist) { bestTJDist = dist; bestTJt = res.t; }
                                 if (dist <= T_JUNCTION_DIST && res.t > 0 && res.t < 1) {
-                                    // Skip T-junctions at exactly 4.25pt - this is the carve-out gap distance
-                                    var CARVE_GAP_DIST2 = 4.25;
+                                    // Skip T-junctions at the carve-out gap distance
+                                    var CARVE_GAP_DIST2 = GAP_AUTO_HALF_WIDTH;
                                     var CARVE_GAP_TOL2 = 0.5;
                                     var hasConnectionMarker2 = (connectionMarkers.length > 0 &&
                                                                  (isNearIgnoredAnchor([ptsB[bi].anchor[0], ptsB[bi].anchor[1]], connectionMarkers) ||
@@ -15842,7 +15868,7 @@ function isDuctworkLineLayer(name) {
         var EARLY_SPLIT_PAIRS = []; // Store split path pairs for compounding phase (to include branches)
         var SMALL_SEG_MIN = 5;
         var SMALL_SEG_MAX = 10;  // Changed from 17 to 10pt per user request
-        var CROSSOVER_NORMALIZE_DIST = 4.25;  // Distance from intersection to each anchor (4.25pt x 2 = 8.5pt apart)
+        var CROSSOVER_NORMALIZE_DIST = GAP_AUTO_HALF_WIDTH;  // Distance from intersection to each anchor (half-gap * 2 apart)
 
         // Find Blue Ductwork paths in geometryPaths
         var bluePaths = [];
@@ -17469,8 +17495,7 @@ function isDuctworkLineLayer(name) {
         GAP_MAGENTA_COLOR.red = 255;
         GAP_MAGENTA_COLOR.green = 0;
         GAP_MAGENTA_COLOR.blue = 255;
-        var GAP_DEFAULT_HALF_WIDTH = 4.25; // Default half-gap size (8.5pt total)
-        var GAP_STROKE_MULTIPLIER = 0.6; // Gap size = strokeWidth * multiplier (for auto-sizing)
+        var GAP_DEFAULT_HALF_WIDTH = GAP_AUTO_HALF_WIDTH; // Default half-gap size based on selection
         var GAP_MIN_SIZE = 4; // Minimum half-gap size
         var GAP_SEARCH_RADIUS = 50; // How far to search for nearby segments from a gap definition anchor
 
@@ -17588,6 +17613,7 @@ function isDuctworkLineLayer(name) {
                 }
 
                 var gapLayer = getOrCreateGapLayer();
+                var marker = null;
 
                 // Check for existing marker at this position to prevent duplicates
                 for (var chkIdx = 0; chkIdx < gapLayer.pathItems.length; chkIdx++) {
@@ -17601,8 +17627,12 @@ function isDuctworkLineLayer(name) {
                                     Math.pow(position[1] - chkMeta.y, 2)
                                 );
                                 if (chkDist < 10) {
-                                    addDebug("[GAP-DEFS] Marker already exists at [" + position[0].toFixed(1) + "," + position[1].toFixed(1) + "], skipping duplicate");
-                                    return chkItem; // Return existing marker
+                                    if (isAutoSized === false) {
+                                        addDebug("[GAP-DEFS] Marker already exists at [" + position[0].toFixed(1) + "," + position[1].toFixed(1) + "], keeping custom size");
+                                        return chkItem;
+                                    }
+                                    marker = chkItem;
+                                    break;
                                 }
                             }
                         }
@@ -17624,7 +17654,10 @@ function isDuctworkLineLayer(name) {
                 var startPt = [position[0] - halfLen * dx, position[1] - halfLen * dy];
                 var endPt = [position[0] + halfLen * dx, position[1] + halfLen * dy];
 
-                var marker = gapLayer.pathItems.add();
+                if (!marker) {
+                    marker = gapLayer.pathItems.add();
+                }
+                try { marker.locked = false; } catch (eLock) { }
                 marker.setEntirePath([startPt, endPt]);
                 marker.filled = false;
                 marker.stroked = true;
@@ -17675,6 +17708,9 @@ function isDuctworkLineLayer(name) {
                     var item = gapLayer.pathItems[i];
                     var metadata = parseGapMetadata(item);
                     if (metadata) {
+                        if (typeof metadata.isAutoSized !== "boolean") {
+                            metadata.isAutoSized = true;
+                        }
                         // Also read current marker length in case user manually resized it
                         var pts = item.pathPoints;
                         if (pts.length >= 2) {
@@ -17880,7 +17916,11 @@ function isDuctworkLineLayer(name) {
 
         // Calculate gap size based on stroke width (auto-sizing)
         function calculateAutoGapSize(strokeWidth) {
-            var size = Math.max(strokeWidth * GAP_STROKE_MULTIPLIER, GAP_MIN_SIZE);
+            var baseWidth = (typeof GAP_SELECTION_MAX_STROKE === "number" && GAP_SELECTION_MAX_STROKE > 0) ?
+                GAP_SELECTION_MAX_STROKE :
+                ((strokeWidth && strokeWidth > 0) ? strokeWidth : 0);
+            var size = (baseWidth + 6) / 2;
+            if (size < GAP_MIN_SIZE) size = GAP_MIN_SIZE;
             return size;
         }
 
@@ -17925,7 +17965,7 @@ function isDuctworkLineLayer(name) {
                 var gapSize = GAP_DEFAULT_HALF_WIDTH;
                 var isAutoSized = true;
 
-                if (existingMarker && !existingMarker.metadata.isAutoSized) {
+                if (existingMarker && existingMarker.metadata && existingMarker.metadata.isAutoSized === false) {
                     // Use the custom size from the existing marker
                     gapSize = existingMarker.metadata.gapSize;
                     isAutoSized = false;
@@ -18678,7 +18718,7 @@ function isDuctworkLineLayer(name) {
         addDebug("\n=== AUTOMATIC PATH INTERSECTION CARVE-OUT (ALL COLORS) ===");
 
         // Define variables outside conditional so they're always available
-        var AUTO_CARVE_HALF_WIDTH = 4.25; // 8.5pt total gap, same as small segment crossovers
+        var AUTO_CARVE_HALF_WIDTH = GAP_AUTO_HALF_WIDTH; // Auto-sized half-gap based on selection
         var autoIntersections = [];
         var autoPathsToRemove = [];
         var autoNewCompoundPaths = [];
@@ -19121,7 +19161,7 @@ function isDuctworkLineLayer(name) {
                     var autoGapHalfWidth = AUTO_CARVE_HALF_WIDTH;
                     var isAutoSizedGap = true;
                     if (existingGapMarker && existingGapMarker.metadata) {
-                        if (!existingGapMarker.metadata.isAutoSized) {
+                        if (existingGapMarker.metadata.isAutoSized === false) {
                             // User has a custom gap size - use it
                             autoGapHalfWidth = existingGapMarker.metadata.gapSize;
                             isAutoSizedGap = false;
@@ -20222,7 +20262,7 @@ function isDuctworkLineLayer(name) {
                         if (!gp1 || !gp2) {
                             var dirX = (typeof gm.metadata.dirX === "number") ? gm.metadata.dirX : 1;
                             var dirY = (typeof gm.metadata.dirY === "number") ? gm.metadata.dirY : 0;
-                            var halfGap = (typeof gm.metadata.gapSize === "number") ? gm.metadata.gapSize : 4.25;
+                            var halfGap = (typeof gm.metadata.gapSize === "number") ? gm.metadata.gapSize : GAP_DEFAULT_HALF_WIDTH;
                             gp1 = [gmX - halfGap * dirX, gmY - halfGap * dirY];
                             gp2 = [gmX + halfGap * dirX, gmY + halfGap * dirY];
                         }

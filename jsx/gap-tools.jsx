@@ -1561,8 +1561,25 @@ function MDUX_gapTools_removeIgnoreAnchorsNear(doc, points, tol) {
     return removed;
 }
 
+function MDUX_gapTools_getMaxStrokeWidth(paths) {
+    var maxWidth = 0;
+    if (!paths || paths.length < 1) return maxWidth;
+    for (var i = 0; i < paths.length; i++) {
+        var p = paths[i];
+        if (!MDUX_gapTools_isValidPath(p)) continue;
+        try { if (p.stroked !== true) continue; } catch (e) { }
+        var w = null;
+        try { w = p.strokeWidth; } catch (e2) { w = null; }
+        if (typeof w === "number" && isFinite(w) && w > maxWidth) {
+            maxWidth = w;
+        }
+    }
+    return maxWidth;
+}
+
 function MDUX_gapTools_calculateAutoGapSize(strokeWidth) {
-    var base = (strokeWidth && strokeWidth > 0) ? (strokeWidth * 0.6) : 4.25;
+    var width = (strokeWidth && strokeWidth > 0) ? strokeWidth : 0;
+    var base = (width + 6) / 2;
     if (base < 4) base = 4;
     return base;
 }
@@ -2187,6 +2204,10 @@ function MDUX_recreateGapsInSelection() {
         var activePaths = MDUX_gapTools_filterValidPaths(selectedPaths.slice());
         var mergeTol = 5.0;
         var mergeDot = 0.985;
+        var maxStrokeSelected = MDUX_gapTools_getMaxStrokeWidth(selectedPaths);
+        var selectionGapSize = MDUX_gapTools_calculateAutoGapSize(maxStrokeSelected);
+        traceMsg("RECREATE selectionMaxStroke=" + (maxStrokeSelected ? maxStrokeSelected.toFixed(2) : "0") +
+            " gapSize=" + (selectionGapSize ? selectionGapSize.toFixed(2) : "0"));
         function pushUniquePath(list, path) {
             if (!path) return;
             for (var i = 0; i < list.length; i++) {
@@ -2462,10 +2483,14 @@ function MDUX_recreateGapsInSelection() {
                     }
 
                     var restoreGapSize0 = info.gapSize;
-                    if (!restoreGapSize0 || restoreGapSize0 <= 0) {
-                        var restoreStrokeWidth0 = null;
-                        try { restoreStrokeWidth0 = restoreHit0.path.strokeWidth; } catch (e) { restoreStrokeWidth0 = null; }
-                        restoreGapSize0 = MDUX_gapTools_calculateAutoGapSize(restoreStrokeWidth0);
+                    if (!restoreGapSize0 || restoreGapSize0 <= 0 || info.isAutoSized !== false) {
+                        if (selectionGapSize && selectionGapSize > 0) {
+                            restoreGapSize0 = selectionGapSize;
+                        } else {
+                            var restoreStrokeWidth0 = null;
+                            try { restoreStrokeWidth0 = restoreHit0.path.strokeWidth; } catch (e) { restoreStrokeWidth0 = null; }
+                            restoreGapSize0 = MDUX_gapTools_calculateAutoGapSize(restoreStrokeWidth0);
+                        }
                     }
                     var restoreDir0 = info.dir;
                     var restoreStart0 = [center[0] - restoreGapSize0 * restoreDir0[0], center[1] - restoreGapSize0 * restoreDir0[1]];
@@ -2697,10 +2722,14 @@ function MDUX_recreateGapsInSelection() {
 
             var gapSize = info.gapSize;
             var isAutoSized = info.isAutoSized;
-            if (!gapSize || gapSize <= 0) {
-                var strokeWidth = null;
-                try { strokeWidth = gapHitPath.strokeWidth; } catch (e) { strokeWidth = null; }
-                gapSize = MDUX_gapTools_calculateAutoGapSize(strokeWidth);
+            if (!gapSize || gapSize <= 0 || isAutoSized !== false) {
+                if (selectionGapSize && selectionGapSize > 0) {
+                    gapSize = selectionGapSize;
+                } else {
+                    var strokeWidth = null;
+                    try { strokeWidth = gapHitPath.strokeWidth; } catch (e) { strokeWidth = null; }
+                    gapSize = MDUX_gapTools_calculateAutoGapSize(strokeWidth);
+                }
                 isAutoSized = true;
             }
 
