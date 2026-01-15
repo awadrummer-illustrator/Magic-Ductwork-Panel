@@ -29,7 +29,9 @@ var EXPORT_LAYERS_DUCTWORK = [
 ];
 
 var EXPORT_LAYERS_FLOORPLAN = [
-    "Render",
+    "Render",      // Also matches "Render 01", "Render 02", etc. via prefix matching
+    "Floorplan",   // Legacy layer name
+    "Layer 1",     // Default layer name (backwards compatibility)
     "Frame"
 ];
 
@@ -45,6 +47,61 @@ function MDUX_log(msg) {
 
 function MDUX_getLog() {
     return MDUX_logBuffer.join("\n");
+}
+
+function MDUX_getFrameBounds(doc) {
+    // Get the bounds of the Frame layer's content (the crop area)
+    try {
+        var frameLayer = doc.layers.getByName("Frame");
+        if (!frameLayer) {
+            MDUX_log("[getFrameBounds] Frame layer not found");
+            return null;
+        }
+
+        // Find the largest path item on the Frame layer (the frame rectangle)
+        var maxArea = 0;
+        var frameBounds = null;
+
+        for (var i = 0; i < frameLayer.pathItems.length; i++) {
+            var item = frameLayer.pathItems[i];
+            try {
+                var bounds = item.geometricBounds;
+                var area = (bounds[2] - bounds[0]) * (bounds[1] - bounds[3]);
+                if (area > maxArea) {
+                    maxArea = area;
+                    frameBounds = bounds;
+                }
+            } catch (e) { }
+        }
+
+        if (frameBounds) {
+            MDUX_log("[getFrameBounds] Found frame bounds: " + frameBounds.join(", "));
+            return frameBounds;
+        }
+
+        // Fallback: try pageItems if no pathItems found
+        for (var j = 0; j < frameLayer.pageItems.length; j++) {
+            var pageItem = frameLayer.pageItems[j];
+            try {
+                var bounds = pageItem.geometricBounds;
+                var area = (bounds[2] - bounds[0]) * (bounds[1] - bounds[3]);
+                if (area > maxArea) {
+                    maxArea = area;
+                    frameBounds = bounds;
+                }
+            } catch (e) { }
+        }
+
+        if (frameBounds) {
+            MDUX_log("[getFrameBounds] Found frame bounds from pageItems: " + frameBounds.join(", "));
+        } else {
+            MDUX_log("[getFrameBounds] No frame bounds found");
+        }
+        return frameBounds;
+    } catch (e) {
+        MDUX_log("[getFrameBounds] Error: " + e.message);
+        return null;
+    }
 }
 
 function MDUX_getFloorplanItem(doc) {
@@ -242,22 +299,34 @@ function MDUX_getFloorplanItem(doc) {
 
 function MDUX_setLayerVisibility(doc, layerNamesToKeepVisible) {
     var originalStates = {};
-    
-    // Store original states and hide all
+
+    // Build a lookup set for exact matches
+    var exactMatches = {};
+    for (var k = 0; k < layerNamesToKeepVisible.length; k++) {
+        exactMatches[layerNamesToKeepVisible[k]] = true;
+    }
+
+    // Check if "Render" is in the list (for prefix matching "Render 01", "Render 02", etc.)
+    var matchRenderPrefix = exactMatches["Render"] === true;
+
+    // Store original states and hide all, but show matching layers
     for (var i = 0; i < doc.layers.length; i++) {
         var layer = doc.layers[i];
         originalStates[layer.name] = layer.visible;
-        layer.visible = false;
-    }
 
-    // Show requested layers
-    for (var j = 0; j < layerNamesToKeepVisible.length; j++) {
-        try {
-            var layer = doc.layers.getByName(layerNamesToKeepVisible[j]);
-            layer.visible = true;
-        } catch (e) {
-            // Layer might not exist, ignore
+        // Check if this layer should be visible
+        var shouldShow = false;
+
+        // Exact match check
+        if (exactMatches[layer.name]) {
+            shouldShow = true;
         }
+        // Prefix match for "Render" variants (Render 01, Render 02, etc.)
+        else if (matchRenderPrefix && layer.name.indexOf("Render") === 0) {
+            shouldShow = true;
+        }
+
+        layer.visible = shouldShow;
     }
 
     return originalStates;
@@ -342,9 +411,10 @@ function MDUX_launchCaesiumWithFiles(files) {
         var tempFolder = Folder.temp;
         var batchFile = new File(tempFolder.fsName + "/caesium_compress.bat");
 
-        // Build batch file content
+        // Build batch file content - run minimized and detached (async)
         var batchContent = '@echo off\r\n';
-        batchContent += '"' + caesiumPath + '" -q 95 --output "' + validFiles[0].parent.fsName + '"';
+        // Use "start /min /b" to run minimized and detached from console
+        batchContent += 'start /min /b "" "' + caesiumPath + '" -q 95 --output "' + validFiles[0].parent.fsName + '"';
         for (var i = 0; i < validFiles.length; i++) {
             batchContent += ' "' + validFiles[i].fsName + '"';
         }
@@ -358,41 +428,15 @@ function MDUX_launchCaesiumWithFiles(files) {
         MDUX_log("Batch file created at: " + batchFile.fsName);
         MDUX_log("Batch content: " + batchContent);
 
-        // Delay to ensure files are fully released by Illustrator
-        $.sleep(1000);
-
-        // Execute the batch file using File.execute()
+        // Execute the batch file (fire-and-forget, no waiting)
         var result = batchFile.execute();
 
-        // Wait for execution to complete (10 seconds for larger files)
-        $.sleep(10000);
-
-        // Don't delete batch file - let Windows clean up temp folder
-
         if (!result) {
-            MDUX_log("Caesium batch file failed to execute");
+            MDUX_log("Caesium batch file failed to launch");
             return false;
         }
 
-        // Verify output files were created/compressed
-        var allCompressed = true;
-        for (var i = 0; i < validFiles.length; i++) {
-            var outputFile = new File(validFiles[i].fsName);
-            if (!outputFile.exists) {
-                MDUX_log("Compressed file not found: " + outputFile.fsName);
-                allCompressed = false;
-            } else {
-                MDUX_log("Compressed file verified: " + outputFile.fsName + " (" + Math.round(outputFile.length / 1024) + " KB)");
-            }
-        }
-
-        if (allCompressed) {
-            MDUX_log("Caesium compression completed successfully.");
-        } else {
-            MDUX_log("Some files were not compressed.");
-            return false;
-        }
-
+        MDUX_log("Caesium compression launched asynchronously (running in background)");
         return true;
     } catch (e) {
         MDUX_log("Error launching Caesium: " + e);
@@ -508,11 +552,18 @@ function MDUX_performExport(exportType, overwrite, versionSuffix) {
 
         var parentFolder = refFile.parent;
 
-        // Calculate Dimensions and Scale
-        var itemWidth = floorplanItem.width; // Points
-        var itemHeight = floorplanItem.height; // Points
-        
-        MDUX_log("Floorplan dimensions: " + itemWidth + "x" + itemHeight);
+        // Get Frame bounds early for dimension calculation
+        var earlyFrameBounds = MDUX_getFrameBounds(doc);
+        if (!earlyFrameBounds) {
+            MDUX_log("ERROR: Could not find Frame layer bounds.");
+            return JSON.stringify({ ok: false, message: "Could not find Frame layer bounds. Ensure a Frame layer exists with a rectangle.", log: MDUX_getLog() });
+        }
+
+        // Calculate Dimensions and Scale based on Frame bounds
+        var itemWidth = earlyFrameBounds[2] - earlyFrameBounds[0]; // right - left = width
+        var itemHeight = earlyFrameBounds[1] - earlyFrameBounds[3]; // top - bottom = height (AI coords)
+
+        MDUX_log("Frame dimensions: " + itemWidth + "x" + itemHeight);
 
         // Target dimensions
         // If Width > Height: Width = 4000px
@@ -537,11 +588,12 @@ function MDUX_performExport(exportType, overwrite, versionSuffix) {
         // Define Suffixes and Layers
         var typeSuffix = "";
         var layersToExport = [];
-        
-        if (exportType === "DUCTWORK") {
+        var exportTypeUpper = exportType.toUpperCase();
+
+        if (exportTypeUpper === "DUCTWORK") {
             typeSuffix = " Ductwork";
             layersToExport = EXPORT_LAYERS_DUCTWORK.slice(); // Copy array
-        } else if (exportType === "FLOORPLAN") {
+        } else if (exportTypeUpper === "FLOORPLAN") {
             typeSuffix = " Floorplan"; 
             layersToExport = EXPORT_LAYERS_FLOORPLAN.slice(); // Copy array
         }
@@ -591,16 +643,14 @@ function MDUX_performExport(exportType, overwrite, versionSuffix) {
         }
 
         // Prepare Artboard
-        // We want to export exactly the area of the floorplan item.
-        // Best way: Resize active artboard to match floorplan item, then restore.
+        // We want to export exactly the area of the Frame layer.
+        // Best way: Resize active artboard to match Frame bounds, then restore.
         var activeArtboardIndex = doc.artboards.getActiveArtboardIndex();
         var originalArtboardRect = doc.artboards[activeArtboardIndex].artboardRect;
-        
-        // Set artboard to floorplan bounds
+
+        // Set artboard to Frame bounds (already retrieved earlier)
         // Rect is [left, top, right, bottom]
-        // Item bounds: visibleBounds or geometricBounds? geometricBounds is safer for image.
-        var bounds = floorplanItem.geometricBounds; 
-        doc.artboards[activeArtboardIndex].artboardRect = bounds;
+        doc.artboards[activeArtboardIndex].artboardRect = earlyFrameBounds;
 
         // Set Visibility
         var originalVis = MDUX_setLayerVisibility(doc, layersToExport);

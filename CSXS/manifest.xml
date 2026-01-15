@@ -24,6 +24,8 @@
                     <CEFCommandLine>
                         <Parameter>--allow-file-access-from-files</Parameter>
                         <Parameter>--remote-debugging-port=8088</Parameter>
+                        <Parameter>--enable-nodejs</Parameter>
+                        <Parameter>--mixed-context</Parameter>
                     </CEFCommandLine>
                 </Resources>
                 <Lifecycle>
@@ -57,6 +59,8 @@
                     <CEFCommandLine>
                         <Parameter>--allow-file-access-from-files</Parameter>
                         <Parameter>--remote-debugging-port=8089</Parameter>
+                        <Parameter>--enable-nodejs</Parameter>
+                        <Parameter>--mixed-context</Parameter>
                     </CEFCommandLine>
                 </Resources>
                 <Lifecycle>

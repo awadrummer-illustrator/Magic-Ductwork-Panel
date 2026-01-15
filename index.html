@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="css/style.css">
     <script src="js/libs/CSInterface.js"></script>
     <script src="js/geometry-bridge.js"></script>
+    <script src="js/python-client.js"></script>
     <script src="js/panel.js" defer></script>
 </head>
 
@@ -182,9 +183,17 @@
             <!-- Layer Protection & Gap Tools -->
             <div class="section" style="border-color: #f0f; background: rgba(40, 0, 40, 0.3);">
                 <div class="section-title" style="color: #f0f;">Gap Tools</div>
-                <div class="toggle-row" style="margin: 6px 0; display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="allow-gap-layer-edit" style="width: 14px; height: 14px;">
-                    <label for="allow-gap-layer-edit" style="font-size: 10px; cursor: pointer; color: #f0f;">Allow Gap Definitions Edit</label>
+                <!-- Gap Editor Overlay Controls -->
+                <div id="gap-editor-normal" style="margin: 6px 0;">
+                    <button id="edit-gaps-btn" style="width: 100%; background: #606; border-color: #f0f;">Edit Gap Definitions</button>
+                </div>
+                <div id="gap-editor-active" style="margin: 6px 0; display: none;">
+                    <div style="display: flex; gap: 4px;">
+                        <button id="save-gaps-btn" style="flex: 1; background: #060; border-color: #0f0; color: #0f0;">Save Gaps</button>
+                        <button id="cancel-gaps-btn" style="flex: 1; background: #600; border-color: #f00; color: #f00;">Cancel</button>
+                    </div>
+                    <button id="add-gap-btn" style="width: 100%; margin-top: 4px; background: #606; border-color: #f0f;">+ Add Gap Marker</button>
+                    <p style="font-size: 9px; color: #f0f; margin: 4px 0 0 0; text-align: center;">Move/delete markers, then Save or Cancel</p>
                 </div>
                 <button id="heal-gaps-btn" style="width: 100%; margin-top: 6px; background: #606; border-color: #f0f;">Heal Gaps (Selection)</button>
                 <button id="recut-gaps-btn" style="width: 100%; margin-top: 4px; background: #606; border-color: #f0f;">Recreate Gaps (Selection)</button>
