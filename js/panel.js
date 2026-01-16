@@ -1214,27 +1214,13 @@
 
         if (isNaN(currentScale) || isNaN(currentRotate)) return;
 
-        // Calculate factor/delta relative to DRAG START
-        // If dragStartScale is 0 (safety), use 100
-        const startS = teDragStartScale || 100;
-
-        // Factor: If start was 100, current 110 -> factor 110/100*100 = 110.
-        // If start was 110, current 120 -> factor 120/110*100 = 109.09.
-        // This factor is what we send to JSX to apply to the object's state AT DRAG START.
-        // Wait, if we undo, we revert to state AT DRAG START (actually state before last transform).
-        // So yes, we want to apply the transform that takes us from START to CURRENT.
-
-        const factor = (currentScale / startS) * 100;
-        const deltaRot = currentRotate - teDragStartRotate;
-
-        // Determine if we should undo the previous step
-        // We undo if we have already applied a transform in this specific drag session
-        const undoPrevious = teTransformAppliedInDrag;
-
+        // Send ABSOLUTE values - the slider value IS the target scale/rotation
+        // MDUX_transformEach calculates the resize factor from current metadata
+        // No undo needed - debounce ensures only final value is applied
         teNextPayload = {
-            scale: factor,
-            rotate: deltaRot,
-            undoPrevious: undoPrevious
+            scale: currentScale,      // Absolute target scale (e.g., 120 means 120%)
+            rotate: currentRotate,    // Absolute target rotation (e.g., 45 means 45°)
+            undoPrevious: false       // Not needed with absolute values + debounce
         };
 
         // V3: Apply 500ms debounce - transform only takes effect after user stops dragging
@@ -1335,44 +1321,44 @@
             if (res.ok && res.count > 0) {
                 let statusMsg = [];
 
-                // Only update scale if user is not actively typing in the scale input
-                const scaleInputHasFocus = document.activeElement === teScaleInput;
-                if (!scaleInputHasFocus) {
-                    if (res.mixedScale) {
-                        console.log('[JS] Mixed scale detected');
-                        teScaleInput.value = '';
-                        teScaleInput.placeholder = 'Mixed';
-                        teScaleSlider.value = 100;
-                        statusMsg.push('Multiple different scales in selection');
-                    } else {
-                        console.log('[JS] Setting scale to:', res.scale);
-                        teScaleInput.value = res.scale;
-                        teScaleInput.placeholder = '';
-                        teScaleSlider.value = res.scale;
-                        console.log('[JS] Scale slider value now:', teScaleSlider.value);
-                    }
-                } else {
-                    console.log('[JS] Skipping scale update - input has focus');
+                // If either input has focus, blur it so we can update values
+                // This handles the case where user clicks a new object in Illustrator
+                // but the panel input still has focus (different windows)
+                if (document.activeElement === teScaleInput) {
+                    teScaleInput.blur();
+                }
+                if (document.activeElement === teRotateInput) {
+                    teRotateInput.blur();
                 }
 
-                // Only update rotation if user is not actively typing in the rotation input
-                const rotateInputHasFocus = document.activeElement === teRotateInput;
-                if (!rotateInputHasFocus) {
-                    if (res.mixedRotation) {
-                        console.log('[JS] Mixed rotation detected');
-                        teRotateInput.value = '';
-                        teRotateInput.placeholder = 'Mixed';
-                        teRotateSlider.value = 0;
-                        statusMsg.push('Multiple different rotations in selection');
-                    } else {
-                        console.log('[JS] Setting rotation to:', res.rotation);
-                        teRotateInput.value = res.rotation;
-                        teRotateInput.placeholder = '';
-                        teRotateSlider.value = res.rotation;
-                        console.log('[JS] Rotation slider value now:', teRotateSlider.value);
-                    }
+                // Update scale
+                if (res.mixedScale) {
+                    console.log('[JS] Mixed scale detected');
+                    teScaleInput.value = '';
+                    teScaleInput.placeholder = 'Mixed';
+                    teScaleSlider.value = 100;
+                    statusMsg.push('Multiple different scales in selection');
                 } else {
-                    console.log('[JS] Skipping rotation update - input has focus');
+                    console.log('[JS] Setting scale to:', res.scale);
+                    teScaleInput.value = res.scale;
+                    teScaleInput.placeholder = '';
+                    teScaleSlider.value = res.scale;
+                    console.log('[JS] Scale slider value now:', teScaleSlider.value);
+                }
+
+                // Update rotation
+                if (res.mixedRotation) {
+                    console.log('[JS] Mixed rotation detected');
+                    teRotateInput.value = '';
+                    teRotateInput.placeholder = 'Mixed';
+                    teRotateSlider.value = 0;
+                    statusMsg.push('Multiple different rotations in selection');
+                } else {
+                    console.log('[JS] Setting rotation to:', res.rotation);
+                    teRotateInput.value = res.rotation;
+                    teRotateInput.placeholder = '';
+                    teRotateSlider.value = res.rotation;
+                    console.log('[JS] Rotation slider value now:', teRotateSlider.value);
                 }
 
                 if (statusEl && statusMsg.length > 0) {
@@ -1742,39 +1728,40 @@
             handleLiveTransform();
         });
 
+        // Track if Enter was just pressed to skip change event
+        let scaleEnterPressed = false;
+
         teScaleInput.addEventListener('change', () => {
+            // Skip if Enter was pressed (we handle that separately)
+            if (scaleEnterPressed) {
+                scaleEnterPressed = false;
+                return;
+            }
+
             let val = parseFloat(teScaleInput.value);
             if (isNaN(val)) return;
 
-            // For text input, we treat it as a mini-session
-            // We need a start value. Use current slider value as start?
-            // Or assume start was 100 relative to current state?
-            // If user types 150, they mean 150% of current state? Or 150% absolute?
-            // Usually absolute.
-            // But our logic is relative.
-            // Let's assume they mean "Apply 150% scale".
-            // So start=100, current=150. Factor=150.
-
             teDragStartScale = 100;
-            teDragStartRotate = 0; // Assume rotation didn't change
-
+            teDragStartRotate = 0;
             teScaleSlider.value = val;
 
             teDragActive = true;
             teTransformAppliedInDrag = false;
             handleLiveTransform();
 
-            // End session immediately
             teDragActive = false;
             teTransformAppliedInDrag = false;
         });
 
         // Handle Enter key to apply scale immediately
-        teScaleInput.addEventListener('keydown', (e) => {
+        teScaleInput.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
+                e.stopPropagation();
+                scaleEnterPressed = true;
+                teScaleInput.blur();
                 console.log('[TRANSFORM] Enter pressed on scale, triggering Apply Transform');
-                handleTransformEach();
+                await handleTransformEach();
             }
         });
     }
@@ -1786,30 +1773,42 @@
             teRotateInput.value = teRotateSlider.value;
             handleLiveTransform();
         });
+
+        // Track if Enter was just pressed to skip change event
+        let rotateEnterPressed = false;
+
         teRotateInput.addEventListener('change', () => {
+            // Skip if Enter was pressed (we handle that separately)
+            if (rotateEnterPressed) {
+                rotateEnterPressed = false;
+                return;
+            }
+
             let val = parseFloat(teRotateInput.value);
             if (isNaN(val)) return;
 
             // When user types a value in the rotation field, they want ABSOLUTE rotation
-            // (e.g., typing 0 should reset to 0°, not "rotate by 0°")
-            // Use rotateSelection which calls rotateSelectionAbsolute
             console.log('[TRANSFORM] Rotation input changed to ' + val + '°, applying absolute rotation');
             rotateSelection(val);
 
-            // Update slider to match
             teRotateSlider.value = val;
-
-            // Reset transform state
             teDragStartRotate = val;
             teTransformAppliedInDrag = false;
         });
 
-        // Handle Enter key to apply rotation immediately
-        teRotateInput.addEventListener('keydown', (e) => {
+        // Handle Enter key to apply rotation immediately - use ABSOLUTE rotation
+        teRotateInput.addEventListener('keydown', async (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
-                console.log('[TRANSFORM] Enter pressed on rotation, triggering Apply Transform');
-                handleTransformEach();
+                e.stopPropagation();
+                let val = parseFloat(teRotateInput.value);
+                if (isNaN(val)) return;
+
+                rotateEnterPressed = true;
+                teRotateInput.blur();
+                console.log('[TRANSFORM] Enter pressed on rotation, applying absolute rotation: ' + val + '°');
+                await rotateSelection(val);
+                teRotateSlider.value = val;
             }
         });
     }
@@ -2283,9 +2282,9 @@
 
                 pollInProgress = true;
 
-                // FAST CHECK: Get simple selection signature (count + first item)
-                // This is MUCH faster than full metadata read
-                evalScript('(function(){try{var s=app.activeDocument.selection;if(!s||s.length===0)return"empty";return s.length+"|"+(s[0].typename||"");}catch(e){return"nodoc";}})()').then(function(hash) {
+                // FAST CHECK: Get selection signature (count + first item type + position)
+                // This is MUCH faster than full metadata read but still detects different items
+                evalScript('(function(){try{var s=app.activeDocument.selection;if(!s||s.length===0)return"empty";var pos=s[0].position||[0,0];return s.length+"|"+(s[0].typename||"")+"|"+Math.round(pos[0])+","+Math.round(pos[1]);}catch(e){return"nodoc";}})()').then(function(hash) {
                     if (hash === lastSelectionHash) {
                         // Selection unchanged, skip expensive refresh
                         pollInProgress = false;

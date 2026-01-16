@@ -3171,12 +3171,12 @@ function MDUX_transformEach(scale, rotation, undoPrevious) {
         if (!sel || sel.length === 0) return JSON.stringify({ ok: false, message: "Nothing selected." });
 
         var len = sel.length;
-        var s = Number(scale);
-        var r = Number(rotation);
+        var targetScale = Number(scale);        // ABSOLUTE target scale (e.g., 120 = 120%)
+        var targetRotation = Number(rotation);  // ABSOLUTE target rotation (e.g., 45 = 45°)
         var anchor = Number(MDUX_getDocumentScale()) || 100;
-        var targetPercent = s * (anchor / 100);
+        var targetPercent = targetScale * (anchor / 100);
 
-        // Handle Undo
+        // Handle Undo (legacy, not used with absolute values)
         if (undoPrevious === true || undoPrevious === "true") {
             app.executeMenuCommand('undo');
             sel = app.selection;
@@ -3206,18 +3206,25 @@ function MDUX_transformEach(scale, rotation, undoPrevious) {
                     meta.MDUX_OriginalRotation = "0";
                     meta.MDUX_CumulativeRotation = "0";
                     meta.MDUX_CurrentScale = "100";
+                    meta.MDUX_RotationOverride = 0;
                 }
 
                 var currentScale = parseFloat(meta.MDUX_CurrentScale || "100");
                 var currentRotation = parseFloat(meta.MDUX_CumulativeRotation || "0");
 
-                // --- ROTATION ---
-                if (r !== 0 && isDuctPart) {
-                    item.rotate(r, true, true, true, true, Transformation.CENTER);
-                    meta.MDUX_CumulativeRotation = String(currentRotation + r);
+                // --- ROTATION (ABSOLUTE) ---
+                // Calculate delta to reach target rotation from current rotation
+                if (isDuctPart) {
+                    var rotationDelta = targetRotation - currentRotation;
+                    if (Math.abs(rotationDelta) > 0.001) {
+                        item.rotate(rotationDelta, true, true, true, true, Transformation.CENTER);
+                        meta.MDUX_CumulativeRotation = String(targetRotation);
+                        // Also sync MDUX_RotationOverride so rotation text box reads correct value
+                        meta.MDUX_RotationOverride = targetRotation;
+                    }
                 }
 
-                // --- SCALING ---
+                // --- SCALING (ABSOLUTE) ---
                 if (Math.abs(currentScale - targetPercent) > 0.001) {
                     var resizeFactor = (targetPercent / currentScale) * 100;
 
