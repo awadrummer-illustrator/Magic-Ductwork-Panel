@@ -3247,26 +3247,29 @@ function MDUX_setMetadata(item, metadata) {
             MDUX_debugLog("[META SET] Item typename=" + item.typename + ", metadata=" + jsonStr.substring(0, 200));
         }
 
-        // Preserve existing pipe-separated tokens (MD:PLACED_ROT=, MD:PLACED_BASE_ROT=, etc.)
+        // Preserve ONLY MD: tags, discard any existing MDUX_META: entries
         var existingNote = "";
         try { existingNote = item.note || ""; } catch (e) { existingNote = ""; }
-        var pipeSuffix = "";
+        var mdTags = [];
         if (existingNote) {
-            if (existingNote.indexOf("MDUX_META:") === 0) {
-                var pipeIdx = existingNote.indexOf("|");
-                if (pipeIdx !== -1) {
-                    pipeSuffix = existingNote.substring(pipeIdx); // Keep everything from first | onwards
+            var parts = existingNote.split("|");
+            for (var i = 0; i < parts.length; i++) {
+                var part = parts[i];
+                // Only keep MD: tags, skip MDUX_META: entries
+                if (part.indexOf("MD:") === 0) {
+                    mdTags.push(part);
                     if (typeof MDUX_debugLog === 'function') {
-                        MDUX_debugLog("[META SET] Preserving pipe tokens: " + pipeSuffix.substring(0, 100));
+                        MDUX_debugLog("[META SET] Preserving MD tag: " + part);
                     }
                 }
-            } else {
-                // Preserve non-MDUX_META tokens by appending them after new metadata
-                pipeSuffix = "|" + existingNote;
             }
         }
 
-        item.note = "MDUX_META:" + jsonStr + pipeSuffix;
+        var newNote = "MDUX_META:" + jsonStr;
+        if (mdTags.length > 0) {
+            newNote += "|" + mdTags.join("|");
+        }
+        item.note = newNote;
         if (typeof MDUX_debugLog === 'function') {
             MDUX_debugLog("[META SET] Written. Item note is now: " + (item.note || "(empty)").substring(0, 200));
         }
@@ -3590,23 +3593,26 @@ function setStaticTextColor(control, rgbArray) {
                 }
                 var jsonStr = JSON.stringify(metadata);
 
-                // Preserve existing pipe-separated tokens (MD:PLACED_ROT=, MD:PLACED_BASE_ROT=, etc.)
+                // Preserve ONLY MD: tags, discard any existing MDUX_META: entries
                 var existingNote = "";
                 try { existingNote = item.note || ""; } catch (e) { existingNote = ""; }
-                var pipeSuffix = "";
+                var mdTags = [];
                 if (existingNote) {
-                    if (existingNote.indexOf("MDUX_META:") === 0) {
-                        var pipeIdx = existingNote.indexOf("|");
-                        if (pipeIdx !== -1) {
-                            pipeSuffix = existingNote.substring(pipeIdx); // Keep everything from first | onwards
+                    var parts = existingNote.split("|");
+                    for (var i = 0; i < parts.length; i++) {
+                        var part = parts[i];
+                        // Only keep MD: tags, skip MDUX_META: entries
+                        if (part.indexOf("MD:") === 0) {
+                            mdTags.push(part);
                         }
-                    } else {
-                        // Preserve non-MDUX_META tokens by appending them after new metadata
-                        pipeSuffix = "|" + existingNote;
                     }
                 }
 
-                item.note = "MDUX_META:" + jsonStr + pipeSuffix;
+                var newNote = "MDUX_META:" + jsonStr;
+                if (mdTags.length > 0) {
+                    newNote += "|" + mdTags.join("|");
+                }
+                item.note = newNote;
             } catch (e) {
                 // Silent fail
             }

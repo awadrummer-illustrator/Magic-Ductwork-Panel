@@ -869,28 +869,68 @@ function MDUX_resetTransforms(targetPercent) {
             var isDuctPart = MDUX_isDuctworkPart(item);
 
             // 1. Restore Rotation (around center) - only for ductwork parts
+            // Uses same comprehensive logic as MDUX_resetDuctworkPartsRotation
             if (isDuctPart) {
-                var cumRot = MDUX_getTag(item, "MDUX_CumulativeRotation");
-                if (cumRot !== null) {
-                    var r = parseFloat(cumRot);
-                    if (!isNaN(r) && r !== 0) {
-                        // Capture center position before rotation
-                        var bounds = item.geometricBounds;
-                        var centerX = (bounds[0] + bounds[2]) / 2;
-                        var centerY = (bounds[1] + bounds[3]) / 2;
+                var meta = MDUX_getMetadata(item);
 
-                        // Rotate around item's center
-                        item.rotate(-r, true, true, true, true, Transformation.CENTER);
+                // Check for MD:PLACED_ROT tag in the note (used by Quick Rotate)
+                var placedRot = 0;
+                var note = "";
+                try { note = item.note || ""; } catch (e) {}
+                var placedRotMatch = note.match(/MD:PLACED_ROT=([0-9.\-]+)/);
+                if (placedRotMatch) {
+                    placedRot = parseFloat(placedRotMatch[1]) || 0;
+                }
 
-                        // Verify center stayed in place, translate back if needed
-                        var newBounds = item.geometricBounds;
-                        var newCenterX = (newBounds[0] + newBounds[2]) / 2;
-                        var newCenterY = (newBounds[1] + newBounds[3]) / 2;
-                        if (Math.abs(newCenterX - centerX) > 0.1 || Math.abs(newCenterY - centerY) > 0.1) {
-                            item.translate(centerX - newCenterX, centerY - newCenterY);
-                        }
+                // Get cumulative rotation from metadata - check ALL possible sources
+                var r = 0;
+                if (meta && meta.MDUX_CumulativeRotation !== undefined) {
+                    r = parseFloat(meta.MDUX_CumulativeRotation) || 0;
+                } else if (meta && meta.MDUX_RotationOverride !== undefined) {
+                    r = parseFloat(meta.MDUX_RotationOverride) || 0;
+                } else if (meta && typeof meta.rotation === "number") {
+                    r = meta.rotation;
+                } else if (meta && meta.tagRotation !== undefined) {
+                    r = parseFloat(meta.tagRotation) || 0;
+                } else if (placedRot !== 0) {
+                    // Fall back to MD:PLACED_ROT from magic-final.jsx
+                    r = placedRot;
+                }
+
+                if (Math.abs(r) > 0.001) {
+                    // Capture center position before rotation
+                    var bounds = item.geometricBounds;
+                    var centerX = (bounds[0] + bounds[2]) / 2;
+                    var centerY = (bounds[1] + bounds[3]) / 2;
+
+                    // Rotate back to 0 around center
+                    item.rotate(-r, true, true, true, true, Transformation.CENTER);
+
+                    // Verify center stayed in place, translate back if needed
+                    var newBounds = item.geometricBounds;
+                    var newCenterX = (newBounds[0] + newBounds[2]) / 2;
+                    var newCenterY = (newBounds[1] + newBounds[3]) / 2;
+                    if (Math.abs(newCenterX - centerX) > 0.1 || Math.abs(newCenterY - centerY) > 0.1) {
+                        item.translate(centerX - newCenterX, centerY - newCenterY);
                     }
-                    MDUX_removeTag(item, "MDUX_CumulativeRotation");
+                }
+
+                // Clear ALL rotation-related fields in metadata
+                if (!meta) meta = {};
+                meta.MDUX_CumulativeRotation = "0";
+                meta.MDUX_RotationOverride = 0;
+                meta.tagRotation = 0;
+                if (typeof meta.rotation === "number") {
+                    meta.rotation = 0;
+                }
+                MDUX_setMetadata(item, meta);
+
+                // Also clear MD:PLACED_ROT from note if present
+                if (placedRot !== 0 && note) {
+                    try {
+                        var newNote = note.replace(/MD:PLACED_ROT=[0-9.\-]+;?/g, "");
+                        item.note = newNote;
+                    } catch (eNote) {}
                 }
             }
 
@@ -920,13 +960,28 @@ function MDUX_resetTransforms(targetPercent) {
                 }
             }
 
-            // 3. Restore Stroke Width - for both lines and parts
-            var origStroke = MDUX_getTag(item, "MDUX_OriginalStrokeWidth");
-            if (origStroke !== null) {
+            // 3. Restore appearance - different behavior for parts vs lines
+            if (isDuctPart) {
+                // For ductwork parts: restore stroke width
+                var origStroke = MDUX_getTag(item, "MDUX_OriginalStrokeWidth");
+                if (origStroke !== null) {
+                    try {
+                        item.strokeWidth = parseFloat(origStroke);
+                    } catch (e) {}
+                    MDUX_removeTag(item, "MDUX_OriginalStrokeWidth");
+                }
+            } else if (isDuctLine) {
+                // For ductwork lines: reapply the default graphic style based on layer
                 try {
-                    item.strokeWidth = parseFloat(origStroke);
-                } catch (e) {}
-                MDUX_removeTag(item, "MDUX_OriginalStrokeWidth");
+                    var layerName = item.layer.name;
+                    // Graphic style names match layer names for ductwork
+                    var graphicStyle = app.activeDocument.graphicStyles.getByName(layerName);
+                    if (graphicStyle) {
+                        graphicStyle.applyTo(item);
+                    }
+                } catch (eStyle) {
+                    // Style not found or failed to apply - ignore
+                }
             }
 
             // 4. Restore Selection Transform Tag

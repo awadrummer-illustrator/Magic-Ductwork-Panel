@@ -1281,7 +1281,8 @@
             try {
                 await evalScript(`MDUX_transformEach(${s}, ${r}, false)`);
                 setSelectionStatus("Transformation applied.", false);
-                resetTransformControls(true);
+                // Reset internal state but NOT input values - let refresh update them from metadata
+                resetTransformControls(false);
                 // Refresh selection state to load the metadata we just saved
                 await refreshSelectionTransformState();
             } catch (e) {
@@ -1767,6 +1768,15 @@
             teDragActive = false;
             teTransformAppliedInDrag = false;
         });
+
+        // Handle Enter key to apply scale immediately
+        teScaleInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                console.log('[TRANSFORM] Enter pressed on scale, triggering Apply Transform');
+                handleTransformEach();
+            }
+        });
     }
     if (teRotateSlider && teRotateInput) {
         teRotateSlider.addEventListener('mousedown', handleDragStart);
@@ -1792,6 +1802,15 @@
             // Reset transform state
             teDragStartRotate = val;
             teTransformAppliedInDrag = false;
+        });
+
+        // Handle Enter key to apply rotation immediately
+        teRotateInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                console.log('[TRANSFORM] Enter pressed on rotation, triggering Apply Transform');
+                handleTransformEach();
+            }
         });
     }
 
