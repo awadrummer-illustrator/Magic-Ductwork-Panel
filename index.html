@@ -26,220 +26,300 @@
     <div class="content-scroll">
         <main class="main-frame">
 
-            <!-- Top Toggles -->
-            <div class="toggle-grid" id="ortho-toggle-grid">
-                <div class="toggle-btn-wrapper">
-                    <input type="checkbox" id="skip-ortho-option" class="ortho-toggle">
-                    <label for="skip-ortho-option" class="toggle-btn">
-                        <img src="button_images/No Ortho.png" alt="No Ortho" class="toggle-img">
-                    </label>
+            <!-- ============================================ -->
+            <!-- PANEL 1: PROCESS DUCTWORK -->
+            <!-- ============================================ -->
+            <div class="accordion-section expanded" id="section-process-ductwork">
+                <div class="accordion-header" data-section="section-process-ductwork">
+                    <span class="accordion-icon">▼</span>
+                    <span class="accordion-title">Process Ductwork</span>
                 </div>
-                <div class="toggle-btn-wrapper">
-                    <input type="checkbox" id="skip-all-branches-option" class="ortho-toggle">
-                    <label for="skip-all-branches-option" class="toggle-btn">
-                        <img src="button_images/No Ortho Branches.png" alt="No Ortho Branches" class="toggle-img">
-                    </label>
-                </div>
-                <div class="toggle-btn-wrapper">
-                    <input type="checkbox" id="skip-final-option" class="ortho-toggle" checked>
-                    <label for="skip-final-option" class="toggle-btn">
-                        <img src="button_images/No Ortho Final.png" alt="No Ortho Final" class="toggle-img">
-                    </label>
-                </div>
-            </div>
+                <div class="accordion-content">
+                    <!-- Process Ductwork Button (100% width) -->
+                    <button id="process-btn" class="btn-primary-glow">Process Ductwork</button>
 
-            <!-- Register Rotation Toggle -->
-            <div class="toggle-row" style="margin: 8px 0; display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="skip-register-rotation-option" style="width: 16px; height: 16px;">
-                <label for="skip-register-rotation-option" style="font-size: 11px; cursor: pointer;">Rotate Registers</label>
-            </div>
-
-            <!-- Carve-Out Options -->
-            <div class="toggle-row" style="margin: 8px 0; display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="enable-register-carve-option" style="width: 16px; height: 16px;">
-                <label for="enable-register-carve-option" style="font-size: 11px; cursor: pointer;">Carve for Registers</label>
-            </div>
-            <div class="toggle-row" style="margin: 8px 0; display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="enable-overlap-carve-option" style="width: 16px; height: 16px;" checked>
-                <label for="enable-overlap-carve-option" style="font-size: 11px; cursor: pointer;">Carve Overlaps</label>
-            </div>
-
-            <!-- Rotation Override -->
-            <div class="rotation-override">
-                <label for="rotation-input">Rotation override (°):</label>
-                <div class="rotation-input-group">
-                    <input type="text" id="rotation-input" class="rotation-input" placeholder="Auto"
-                        inputmode="decimal">
-                    <button type="button" id="get-angle-btn">Get Angle</button>
-                    <button type="button" id="clear-rotation-btn">Clear</button>
-                </div>
-            </div>
-
-            <!-- Process Button -->
-            <button id="process-btn" class="btn-primary-glow">Process Ductwork</button>
-            <!-- Hidden Emory Button -->
-            <button id="process-emory-btn" style="display:none;">Process Ductwork Emory</button>
-            <!-- Hidden Register Wires Option -->
-            <input type="checkbox" id="create-register-wires-option" style="display:none;">
-
-            <!-- Revert / Clear Metadata -->
-            <div class="btn-row">
-                <button id="revert-ortho-btn">Revert Pre-Ortho</button>
-                <button id="clear-rotation-metadata-btn">Clear Rotation Metadata</button>
-            </div>
-
-            <!-- Document Scale (Read-only anchor display) - Collapsible -->
-            <div class="section collapsible collapsed" style="border-color: var(--primary-color);" id="doc-scale-section">
-                <div class="section-title section-toggle" id="doc-scale-toggle" style="cursor: pointer;">
-                    <span>▶ Document Scale Anchor</span>
-                </div>
-                <div class="control-group collapsible-content" style="display: none;">
-                    <div class="slider-row">
-                        <span class="slider-label" style="width: 70px;">Anchor (%):</span>
-                        <input type="number" id="doc-scale-input" value="100" step="0.1" style="width: 60px;" readonly disabled>
-                        <button id="get-doc-scale-btn" style="padding: 2px 5px; font-size: 10px;">Refresh</button>
+                    <!-- Secondary buttons row -->
+                    <div class="btn-row-thirds">
+                        <button id="rotate-registers-btn" title="Rotate registers to match ductwork angles">Rotate Registers</button>
+                        <button id="carve-registers-btn" title="Carve ductwork lines for register placement">Carve for Registers</button>
+                        <button id="carve-overlaps-btn" title="Carve overlapping ductwork lines">Carve Overlaps</button>
                     </div>
-                    <!-- Legacy: Document scaling controls removed to prevent desync issues
+
+                    <!-- Rotation Override -->
+                    <div class="rotation-override">
+                        <label for="rotation-input">Rotation override (°):</label>
+                        <div class="rotation-input-group">
+                            <input type="text" id="rotation-input" class="rotation-input" placeholder="Auto" inputmode="decimal">
+                            <button type="button" id="get-angle-btn">Get Angle</button>
+                            <button type="button" id="clear-rotation-btn">Clear</button>
+                        </div>
+                    </div>
+
+                    <!-- Revert / Clear Metadata -->
                     <div class="btn-row">
-                        <button id="set-doc-scale-100-btn">Make Current 100%</button>
-                        <button id="apply-doc-scale-btn" class="btn-primary-glow"
-                            style="margin-bottom: 0; font-size: 8px;">Scale Entire Document</button>
+                        <button id="revert-ortho-btn">Revert Pre-Ortho</button>
+                        <button id="clear-rotation-metadata-btn">Clear Rotation Metadata</button>
                     </div>
-                    -->
+
+                    <!-- Status Messages -->
+                    <p id="process-status" class="status"></p>
+                    <p id="revert-status" class="status"></p>
+                    <p id="clear-rotation-metadata-status" class="status"></p>
+
+                    <!-- Hidden elements for backwards compatibility -->
+                    <button id="process-emory-btn" style="display:none;">Process Ductwork Emory</button>
+                    <input type="checkbox" id="create-register-wires-option" style="display:none;">
+                    <input type="checkbox" id="skip-register-rotation-option" style="display:none;">
+                    <input type="checkbox" id="enable-register-carve-option" style="display:none;">
+                    <input type="checkbox" id="enable-overlap-carve-option" style="display:none;" checked>
                 </div>
             </div>
 
-            <!-- Status Messages -->
-            <p id="process-status" class="status"></p>
-            <p id="revert-status" class="status"></p>
-            <p id="clear-rotation-metadata-status" class="status"></p>
+            <!-- ============================================ -->
+            <!-- PANEL 2: ORTHOGONALIZE -->
+            <!-- ============================================ -->
+            <div class="accordion-section" id="section-orthogonalize">
+                <div class="accordion-header" data-section="section-orthogonalize">
+                    <span class="accordion-icon">▶</span>
+                    <span class="accordion-title">Orthogonalize</span>
+                </div>
+                <div class="accordion-content" style="display: none;">
+                    <!-- Top Toggle Buttons (legacy ortho options) -->
+                    <div class="toggle-grid" id="ortho-toggle-grid">
+                        <div class="toggle-btn-wrapper">
+                            <input type="checkbox" id="skip-ortho-option" class="ortho-toggle">
+                            <label for="skip-ortho-option" class="toggle-btn">
+                                <img src="button_images/No Ortho.png" alt="No Ortho" class="toggle-img">
+                            </label>
+                        </div>
+                        <div class="toggle-btn-wrapper">
+                            <input type="checkbox" id="skip-all-branches-option" class="ortho-toggle">
+                            <label for="skip-all-branches-option" class="toggle-btn">
+                                <img src="button_images/No Ortho Branches.png" alt="No Ortho Branches" class="toggle-img">
+                            </label>
+                        </div>
+                        <div class="toggle-btn-wrapper">
+                            <input type="checkbox" id="skip-final-option" class="ortho-toggle" checked>
+                            <label for="skip-final-option" class="toggle-btn">
+                                <img src="button_images/No Ortho Final.png" alt="No Ortho Final" class="toggle-img">
+                            </label>
+                        </div>
+                    </div>
 
-            <!-- Selection Transform -->
-            <div class="section">
-                <div class="section-title">Selection Transform</div>
+                    <!-- Ortho Buttons -->
+                    <div class="btn-row">
+                        <button id="ortho-trunk-btn">Ortho Trunk</button>
+                        <button id="ortho-branches-btn">Ortho Branches</button>
+                    </div>
+                    <div class="btn-row">
+                        <button id="ortho-final-btn">Ortho Final Segment</button>
+                        <button id="ortho-all-btn" class="btn-accent">Ortho All</button>
+                    </div>
 
-                <div class="control-group">
-                    <!-- Reset/Normalize buttons -->
+                    <p id="ortho-status" class="status"></p>
+                </div>
+            </div>
+
+            <!-- ============================================ -->
+            <!-- PANEL 3: CREATE/UPDATE DUCTWORK PARTS -->
+            <!-- ============================================ -->
+            <div class="accordion-section" id="section-ductwork-parts">
+                <div class="accordion-header" data-section="section-ductwork-parts">
+                    <span class="accordion-icon">▶</span>
+                    <span class="accordion-title">Create/Update Ductwork Parts</span>
+                </div>
+                <div class="accordion-content" style="display: none;">
+                    <!-- Primary actions -->
+                    <button id="create-update-parts-btn" class="btn-primary-glow" style="margin-bottom: 4px;">Create/Update Ductwork Parts</button>
+                    <button id="create-anchors-btn" style="width: 100%; margin-bottom: 4px;">Create Part Anchors Only</button>
+
+                    <!-- Selection tools -->
+                    <div class="btn-row">
+                        <button id="select-parts-btn">Select Parts</button>
+                        <button id="select-anchors-btn">Select Anchors</button>
+                    </div>
+                    <div class="btn-row">
+                        <button id="delete-anchors-btn" style="border-color: var(--accent-color); color: var(--accent-color);">Delete Anchors</button>
+                        <button id="place-graphics-btn">Place Graphics</button>
+                    </div>
+
+                    <p id="parts-status" class="status"></p>
+                </div>
+            </div>
+
+            <!-- ============================================ -->
+            <!-- PANEL 4: TRANSFORM -->
+            <!-- ============================================ -->
+            <div class="accordion-section" id="section-transform">
+                <div class="accordion-header" data-section="section-transform">
+                    <span class="accordion-icon">▶</span>
+                    <span class="accordion-title">Transform</span>
+                </div>
+                <div class="accordion-content" style="display: none;">
+                    <!-- Reset buttons -->
                     <div class="btn-row" style="margin-bottom: 8px;">
                         <button id="reset-strokes-btn">Reset Strokes</button>
-                        <button id="reset-parts-scale-btn">Reset Ductwork Parts Scale</button>
+                        <button id="reset-parts-scale-btn">Reset Scale</button>
+                        <button id="reset-parts-rotation-btn">Reset Rotation</button>
                     </div>
+
+                    <!-- Scale slider -->
                     <div class="slider-row">
                         <span class="slider-label">Scale (%):</span>
                         <input type="range" id="te-scale-slider" min="10" max="400" value="100">
-                        <input type="number" id="te-scale" value="100" step="1" style="width: 40px;">
+                        <input type="number" id="te-scale" value="100" step="1" style="width: 45px;">
                     </div>
+
+                    <!-- Rotate slider -->
                     <div class="slider-row">
                         <span class="slider-label">Rotate (°):</span>
                         <input type="range" id="te-rotate-slider" min="-180" max="180" value="0">
-                        <input type="number" id="te-rotate" value="0" step="1" style="width: 40px;">
+                        <input type="number" id="te-rotate" value="0" step="1" style="width: 45px;">
                     </div>
+
+                    <!-- Live Preview checkbox (OFF by default per spec) -->
                     <div class="checkbox-row">
-                        <input type="checkbox" id="te-live-option" checked>
+                        <input type="checkbox" id="te-live-option">
                         <label for="te-live-option">Live Preview</label>
                     </div>
+
+                    <!-- Apply button -->
                     <div class="btn-row">
-                        <button id="transform-each-btn">Apply / Reset</button>
+                        <button id="transform-each-btn" class="btn-primary-glow" style="margin-bottom: 0;">Apply Transform</button>
                         <button id="te-reset-original-btn">Reset to Original</button>
                     </div>
+
+                    <p id="selection-status" class="status" style="margin-top: 5px; color: var(--accent-color); font-weight: bold;"></p>
                 </div>
-                <p id="selection-status" class="status"
-                    style="margin-top: 5px; color: var(--accent-color); font-weight: bold;"></p>
             </div>
 
-            <!-- Quick Rotate -->
-            <div class="section">
-                <div class="section-title">Quick Rotate</div>
-                <div class="quick-rotate-grid">
-                    <button id="rotate-90-btn">Rotate 90°</button>
-                    <button id="rotate-45-btn">Rotate 45°</button>
-                    <button id="rotate-180-btn">Rotate 180°</button>
+            <!-- ============================================ -->
+            <!-- PANEL 5: QUICK ROTATE -->
+            <!-- ============================================ -->
+            <div class="accordion-section" id="section-quick-rotate">
+                <div class="accordion-header" data-section="section-quick-rotate">
+                    <span class="accordion-icon">▶</span>
+                    <span class="accordion-title">Quick Rotate</span>
                 </div>
-                <p id="selection-status" class="status"></p>
-            </div>
-
-            <!-- Layer Management -->
-            <div class="section">
-                <div class="section-title-row">
-                    <div class="section-title">Layer Management</div>
-                    <button id="unlock-ductwork-btn" class="unlock-btn-small">
-                        <img src="button_images/Unlock All Ductwork Layers.png" alt="Unlock">
-                    </button>
-                </div>
-                <div class="layer-buttons-grid">
-                    <button id="isolate-parts-btn">Isolate Ductwork Parts</button>
-                    <button id="isolate-lines-btn">Isolate Ductwork Lines</button>
-                    <button id="create-layers-btn"
-                        style="color: var(--success-color); border-color: var(--success-color);">Create Standard
-                        Layers</button>
-                    <button id="import-styles-btn"
-                        style="color: var(--success-color); border-color: var(--success-color);">Import Graphic
-                        Styles</button>
-                </div>
-                <p id="layer-status" class="status"></p>
-                <p id="import-status" class="status"></p>
-            </div>
-
-            <!-- Layer Protection & Gap Tools -->
-            <div class="section" style="border-color: #f0f; background: rgba(40, 0, 40, 0.3);">
-                <div class="section-title" style="color: #f0f;">Gap Tools</div>
-                <!-- Gap Editor Overlay Controls -->
-                <div id="gap-editor-normal" style="margin: 6px 0;">
-                    <button id="edit-gaps-btn" style="width: 100%; background: #606; border-color: #f0f;">Edit Gap Definitions</button>
-                </div>
-                <div id="gap-editor-active" style="margin: 6px 0; display: none;">
-                    <div style="display: flex; gap: 4px;">
-                        <button id="save-gaps-btn" style="flex: 1; background: #060; border-color: #0f0; color: #0f0;">Save Gaps</button>
-                        <button id="cancel-gaps-btn" style="flex: 1; background: #600; border-color: #f00; color: #f00;">Cancel</button>
+                <div class="accordion-content" style="display: none;">
+                    <div class="quick-rotate-grid">
+                        <button id="rotate-45-btn">45°</button>
+                        <button id="rotate-90-btn">90°</button>
+                        <button id="rotate-180-btn">180°</button>
                     </div>
-                    <button id="add-gap-btn" style="width: 100%; margin-top: 4px; background: #606; border-color: #f0f;">+ Add Gap Marker</button>
-                    <p style="font-size: 9px; color: #f0f; margin: 4px 0 0 0; text-align: center;">Move/delete markers, then Save or Cancel</p>
+                    <div class="quick-rotate-grid" style="margin-top: 4px;">
+                        <button id="rotate-neg45-btn">-45°</button>
+                        <button id="rotate-neg90-btn">-90°</button>
+                        <button id="rotate-custom-btn">Custom...</button>
+                    </div>
+                    <p id="quick-rotate-status" class="status"></p>
                 </div>
-                <button id="heal-gaps-btn" style="width: 100%; margin-top: 6px; background: #606; border-color: #f0f;">Heal Gaps (Selection)</button>
-                <button id="recut-gaps-btn" style="width: 100%; margin-top: 4px; background: #606; border-color: #f0f;">Recreate Gaps (Selection)</button>
-                <button id="merge-paths-btn" style="width: 100%; margin-top: 4px; background: #606; border-color: #f0f;">Merge Paths at Endpoints</button>
-                <p id="protection-status" class="status" style="font-size: 9px; margin-top: 4px;"></p>
             </div>
 
-            <!-- Export Tools -->
-            <div class="section">
-                <div class="section-title">Export Tools</div>
-                <div class="export-grid">
-                    <button id="export-ductwork-btn">Export Ductwork</button>
-                    <button id="reexport-floorplan-btn">Re-Export Floorplan</button>
+            <!-- ============================================ -->
+            <!-- PANEL 6: LAYER MANAGEMENT -->
+            <!-- ============================================ -->
+            <div class="accordion-section" id="section-layer-management">
+                <div class="accordion-header" data-section="section-layer-management">
+                    <span class="accordion-icon">▶</span>
+                    <span class="accordion-title">Layer Management</span>
                 </div>
-                <p id="export-status" class="status"></p>
+                <div class="accordion-content" style="display: none;">
+                    <div class="layer-buttons-grid">
+                        <button id="isolate-parts-btn">Isolate Ductwork Parts</button>
+                        <button id="isolate-lines-btn">Isolate Ductwork Lines</button>
+                        <button id="create-layers-btn" style="color: var(--success-color); border-color: var(--success-color);">Create Standard Layers</button>
+                        <button id="import-styles-btn" style="color: var(--success-color); border-color: var(--success-color);">Import Graphic Styles</button>
+                    </div>
+                    <button id="unlock-ductwork-btn" style="width: 100%; margin-top: 4px; border-color: var(--success-color); color: var(--success-color);">
+                        Unlock All Ductwork Layers
+                    </button>
+                    <p id="layer-status" class="status"></p>
+                    <p id="import-status" class="status"></p>
+                </div>
             </div>
 
-            <!-- Debug Tools -->
-            <div class="section" style="border-color: #ff0; background: rgba(40, 40, 0, 0.3);">
-                <div class="section-title" style="color: #ff0;">Debug Tools</div>
-                <div class="toggle-row" style="margin: 6px 0; display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="dev-mode-option" style="width: 14px; height: 14px;">
-                    <label for="dev-mode-option" style="font-size: 10px; cursor: pointer; color: #0ff;">DEV MODE: Auto-reload JSX on every call</label>
+            <!-- ============================================ -->
+            <!-- PANEL 7: GAP TOOLS -->
+            <!-- ============================================ -->
+            <div class="accordion-section" id="section-gap-tools" style="border-color: #f0f;">
+                <div class="accordion-header" data-section="section-gap-tools" style="color: #f0f;">
+                    <span class="accordion-icon">▶</span>
+                    <span class="accordion-title">Gap Tools</span>
                 </div>
-                <div class="toggle-row" style="margin: 6px 0; display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="debug-logging-option" style="width: 14px; height: 14px;">
-                    <label for="debug-logging-option" style="font-size: 10px; cursor: pointer; color: #ff0;">Enable Debug Logging</label>
+                <div class="accordion-content" style="display: none; background: rgba(40, 0, 40, 0.3);">
+                    <!-- Gap Editor Overlay Controls -->
+                    <div id="gap-editor-normal" style="margin: 6px 0;">
+                        <button id="edit-gaps-btn" style="width: 100%; background: #606; border-color: #f0f;">Edit Gap Definitions</button>
+                    </div>
+                    <div id="gap-editor-active" style="margin: 6px 0; display: none;">
+                        <div style="display: flex; gap: 4px;">
+                            <button id="save-gaps-btn" style="flex: 1; background: #060; border-color: #0f0; color: #0f0;">Save Gaps</button>
+                            <button id="cancel-gaps-btn" style="flex: 1; background: #600; border-color: #f00; color: #f00;">Cancel</button>
+                        </div>
+                        <button id="add-gap-btn" style="width: 100%; margin-top: 4px; background: #606; border-color: #f0f;">+ Add Gap Marker</button>
+                        <p style="font-size: 9px; color: #f0f; margin: 4px 0 0 0; text-align: center;">Move/delete markers, then Save or Cancel</p>
+                    </div>
+                    <button id="heal-gaps-btn" style="width: 100%; margin-top: 6px; background: #606; border-color: #f0f;">Heal Gaps (Selection)</button>
+                    <button id="recut-gaps-btn" style="width: 100%; margin-top: 4px; background: #606; border-color: #f0f;">Recreate Gaps (Selection)</button>
+                    <button id="merge-paths-btn" style="width: 100%; margin-top: 4px; background: #606; border-color: #f0f;">Merge Paths at Endpoints</button>
+                    <p id="protection-status" class="status" style="font-size: 9px; margin-top: 4px;"></p>
                 </div>
-                <div class="toggle-row" style="margin: 6px 0; display: flex; align-items: center; gap: 8px;">
-                    <input type="checkbox" id="yield-to-ui-option" style="width: 14px; height: 14px;">
-                    <label for="yield-to-ui-option" style="font-size: 10px; cursor: pointer; color: #ff0;">Yield to UI during processing</label>
+            </div>
+
+            <!-- ============================================ -->
+            <!-- PANEL 8: EXPORT TOOLS -->
+            <!-- ============================================ -->
+            <div class="accordion-section" id="section-export-tools">
+                <div class="accordion-header" data-section="section-export-tools">
+                    <span class="accordion-icon">▶</span>
+                    <span class="accordion-title">Export Tools</span>
                 </div>
-                <div class="export-grid">
-                    <button id="test-note-btn">Test Note Property</button>
-                    <button id="view-log-btn">View Debug Log</button>
-                    <button id="clear-log-btn">Clear Log</button>
-                    <button id="reset-session-btn">Reset Session State</button>
-                    <button id="reload-jsx-btn">Reload JSX</button>
+                <div class="accordion-content" style="display: none;">
+                    <div class="export-grid">
+                        <button id="export-floorplan-btn">Export Floorplan</button>
+                        <button id="export-ductwork-btn">Export Ductwork</button>
+                    </div>
+                    <button id="reexport-floorplan-btn" style="width: 100%; margin-top: 4px;">Re-Export Floorplan</button>
+                    <p id="export-status" class="status"></p>
+                </div>
+            </div>
+
+            <!-- ============================================ -->
+            <!-- PANEL 9: DEBUG TOOLS -->
+            <!-- ============================================ -->
+            <div class="accordion-section" id="section-debug-tools" style="border-color: #ff0;">
+                <div class="accordion-header" data-section="section-debug-tools" style="color: #ff0;">
+                    <span class="accordion-icon">▶</span>
+                    <span class="accordion-title">Debug Tools</span>
+                </div>
+                <div class="accordion-content" style="display: none; background: rgba(40, 40, 0, 0.3);">
+                    <div class="toggle-row" style="margin: 6px 0; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="dev-mode-option" style="width: 14px; height: 14px;">
+                        <label for="dev-mode-option" style="font-size: 10px; cursor: pointer; color: #0ff;">DEV MODE: Auto-reload JSX</label>
+                    </div>
+                    <div class="toggle-row" style="margin: 6px 0; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="debug-logging-option" style="width: 14px; height: 14px;">
+                        <label for="debug-logging-option" style="font-size: 10px; cursor: pointer; color: #ff0;">Enable Debug Logging</label>
+                    </div>
+                    <div class="toggle-row" style="margin: 6px 0; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="yield-to-ui-option" style="width: 14px; height: 14px;">
+                        <label for="yield-to-ui-option" style="font-size: 10px; cursor: pointer; color: #ff0;">Yield to UI during processing</label>
+                    </div>
+                    <div class="export-grid">
+                        <button id="test-note-btn">Test Note Property</button>
+                        <button id="view-log-btn">View Debug Log</button>
+                        <button id="clear-log-btn">Clear Log</button>
+                        <button id="reset-session-btn">Reset Session State</button>
+                        <button id="reload-jsx-btn">Reload JSX</button>
+                    </div>
                 </div>
             </div>
 
         </main>
 
         <footer>
-            <button id="reload-btn" style="background:none; border:none; color:#555; font-size:7px;">Reload Extension
-                (F5)</button>
+            <button id="reload-btn" style="background:none; border:none; color:#555; font-size:7px;">Reload Extension (F5)</button>
             <span id="debug-status" style="display:none;"></span>
         </footer>
 
@@ -254,6 +334,83 @@
             </div>
         </div>
     </div>
+
+    <!-- Accordion persistence script -->
+    <script>
+        // Accordion state persistence using localStorage
+        (function() {
+            const STORAGE_KEY = 'mdux_accordion_state';
+
+            // Save accordion state
+            function saveAccordionState() {
+                const state = {};
+                document.querySelectorAll('.accordion-section').forEach(section => {
+                    state[section.id] = section.classList.contains('expanded');
+                });
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            }
+
+            // Restore accordion state
+            function restoreAccordionState() {
+                try {
+                    const saved = localStorage.getItem(STORAGE_KEY);
+                    if (saved) {
+                        const state = JSON.parse(saved);
+                        document.querySelectorAll('.accordion-section').forEach(section => {
+                            if (state.hasOwnProperty(section.id)) {
+                                const isExpanded = state[section.id];
+                                const content = section.querySelector('.accordion-content');
+                                const icon = section.querySelector('.accordion-icon');
+
+                                if (isExpanded) {
+                                    section.classList.add('expanded');
+                                    if (content) content.style.display = 'block';
+                                    if (icon) icon.textContent = '▼';
+                                } else {
+                                    section.classList.remove('expanded');
+                                    if (content) content.style.display = 'none';
+                                    if (icon) icon.textContent = '▶';
+                                }
+                            }
+                        });
+                    }
+                } catch (e) {
+                    console.error('Error restoring accordion state:', e);
+                }
+            }
+
+            // Toggle accordion section
+            function toggleAccordion(header) {
+                const section = header.closest('.accordion-section');
+                const content = section.querySelector('.accordion-content');
+                const icon = section.querySelector('.accordion-icon');
+
+                const isExpanded = section.classList.toggle('expanded');
+
+                if (content) {
+                    content.style.display = isExpanded ? 'block' : 'none';
+                }
+                if (icon) {
+                    icon.textContent = isExpanded ? '▼' : '▶';
+                }
+
+                saveAccordionState();
+            }
+
+            // Initialize on DOM ready
+            document.addEventListener('DOMContentLoaded', function() {
+                // Restore saved state
+                restoreAccordionState();
+
+                // Add click handlers to accordion headers
+                document.querySelectorAll('.accordion-header').forEach(header => {
+                    header.addEventListener('click', function() {
+                        toggleAccordion(this);
+                    });
+                });
+            });
+        })();
+    </script>
 </body>
 
 </html>

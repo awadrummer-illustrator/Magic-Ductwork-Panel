@@ -80,6 +80,36 @@
     // Reset/Normalize Controls
     const resetStrokesBtn = document.getElementById('reset-strokes-btn');
     const resetPartsScaleBtn = document.getElementById('reset-parts-scale-btn');
+    const resetPartsRotationBtn = document.getElementById('reset-parts-rotation-btn');
+
+    // New V3 Process Ductwork Panel Controls
+    const rotateRegistersBtn = document.getElementById('rotate-registers-btn');
+    const carveRegistersBtn = document.getElementById('carve-registers-btn');
+    const carveOverlapsBtn = document.getElementById('carve-overlaps-btn');
+
+    // New V3 Orthogonalize Panel Controls
+    const orthoTrunkBtn = document.getElementById('ortho-trunk-btn');
+    const orthoBranchesBtn = document.getElementById('ortho-branches-btn');
+    const orthoFinalBtn = document.getElementById('ortho-final-btn');
+    const orthoAllBtn = document.getElementById('ortho-all-btn');
+    const orthoStatus = document.getElementById('ortho-status');
+
+    // New V3 Ductwork Parts Panel Controls
+    const createUpdatePartsBtn = document.getElementById('create-update-parts-btn');
+    const createAnchorsBtn = document.getElementById('create-anchors-btn');
+    const selectPartsBtn = document.getElementById('select-parts-btn');
+    const selectAnchorsBtn = document.getElementById('select-anchors-btn');
+    const deleteAnchorsBtn = document.getElementById('delete-anchors-btn');
+    const placeGraphicsBtn = document.getElementById('place-graphics-btn');
+    const partsStatus = document.getElementById('parts-status');
+
+    // New V3 Quick Rotate Controls
+    const rotateNeg45Btn = document.getElementById('rotate-neg45-btn');
+    const rotateNeg90Btn = document.getElementById('rotate-neg90-btn');
+    const quickRotateStatus = document.getElementById('quick-rotate-status');
+
+    // New V3 Export Controls
+    const exportFloorplanBtn = document.getElementById('export-floorplan-btn');
 
     // Collapsible Section Controls
     const docScaleToggle = document.getElementById('doc-scale-toggle');
@@ -971,6 +1001,7 @@
 
     async function refreshDocScale() {
         try {
+            if (!docScaleInput) return; // Element was removed from UI
             await ensureBridgeLoaded();
             const scale = await evalScript('MDUX_getDocumentScale()');
             if (scale && isFinite(parseFloat(scale))) {
@@ -1024,9 +1055,12 @@
         setExportStatus('Exporting...', false);
         console.log("Starting export for type: " + type);
 
+        // Convert to uppercase to match export-utils.jsx expectations
+        const exportType = type.toUpperCase();
+
         try {
             // Initial attempt (overwrite=false, version=null)
-            let resultStr = await evalScript(`MDUX_performExport("${type}", false, null)`);
+            let resultStr = await evalScript(`MDUX_performExport("${exportType}", false, null)`);
             console.log("Export result string: ", resultStr);
 
             if (!resultStr) {
@@ -1054,7 +1088,7 @@
 
                 if (shouldOverwrite) {
                     // Retry with overwrite=true
-                    resultStr = await evalScript(`MDUX_performExport("${type}", true, null)`);
+                    resultStr = await evalScript(`MDUX_performExport("${exportType}", true, null)`);
                     console.log("Overwrite result string: ", resultStr);
                     result = JSON.parse(resultStr);
                 } else {
@@ -1062,7 +1096,7 @@
                     const version = prompt("Enter version suffix (e.g. '1' for V1):");
                     if (version) {
                         // Retry with version
-                        resultStr = await evalScript(`MDUX_performExport("${type}", false, "${version}")`);
+                        resultStr = await evalScript(`MDUX_performExport("${exportType}", false, "${version}")`);
                         console.log("Version result string: ", resultStr);
                         result = JSON.parse(resultStr);
                     } else {
@@ -1164,6 +1198,10 @@
         }
     }
 
+    // Debounce timer for transform (500ms as per V3 spec)
+    let transformDebounceTimer = null;
+    const TRANSFORM_DEBOUNCE_MS = 500;
+
     function handleLiveTransform() {
         // Check if Live is enabled
         if (teLiveOption && !teLiveOption.checked) return;
@@ -1199,7 +1237,14 @@
             undoPrevious: undoPrevious
         };
 
-        processTransformQueue();
+        // V3: Apply 500ms debounce - transform only takes effect after user stops dragging
+        if (transformDebounceTimer) {
+            clearTimeout(transformDebounceTimer);
+        }
+        transformDebounceTimer = setTimeout(() => {
+            processTransformQueue();
+            transformDebounceTimer = null;
+        }, TRANSFORM_DEBOUNCE_MS);
     }
 
     function resetTransformControls(resetValues = true) {
@@ -1465,6 +1510,225 @@
         if (rotate90Btn) rotate90Btn.addEventListener('click', () => rotateSelection(90));
         if (rotate45Btn) rotate45Btn.addEventListener('click', () => rotateSelection(45));
         if (rotate180Btn) rotate180Btn.addEventListener('click', () => rotateSelection(180));
+
+        // V3 Quick Rotate - negative rotations
+        if (rotateNeg45Btn) rotateNeg45Btn.addEventListener('click', () => rotateSelection(-45));
+        if (rotateNeg90Btn) rotateNeg90Btn.addEventListener('click', () => rotateSelection(-90));
+        if (rotateCustomBtn) {
+            rotateCustomBtn.addEventListener('click', () => {
+                const angle = prompt('Enter rotation angle in degrees:', '0');
+                if (angle !== null && !isNaN(parseFloat(angle))) {
+                    rotateSelection(parseFloat(angle));
+                }
+            });
+        }
+    }
+
+    // V3 Process Ductwork Panel - Secondary Buttons
+    if (rotateRegistersBtn) {
+        rotateRegistersBtn.addEventListener('click', async () => {
+            setProcessStatus('Rotating registers...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_rotateRegistersOnly()');
+                setProcessStatus(result || 'Registers rotated');
+            } catch (e) {
+                setProcessStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    if (carveRegistersBtn) {
+        carveRegistersBtn.addEventListener('click', async () => {
+            setProcessStatus('Carving for registers...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_carveForRegistersOnly()');
+                setProcessStatus(result || 'Carved for registers');
+            } catch (e) {
+                setProcessStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    if (carveOverlapsBtn) {
+        carveOverlapsBtn.addEventListener('click', async () => {
+            setProcessStatus('Carving overlaps...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_carveOverlapsOnly()');
+                setProcessStatus(result || 'Overlaps carved');
+            } catch (e) {
+                setProcessStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    // V3 Orthogonalize Panel Buttons
+    function setOrthoStatus(msg, isError) {
+        if (orthoStatus) {
+            orthoStatus.textContent = msg || '';
+            orthoStatus.className = isError ? 'status error' : 'status';
+        }
+    }
+
+    if (orthoTrunkBtn) {
+        orthoTrunkBtn.addEventListener('click', async () => {
+            setOrthoStatus('Orthogonalizing trunks...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_orthoTrunkOnly()');
+                setOrthoStatus(result || 'Trunks orthogonalized');
+            } catch (e) {
+                setOrthoStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    if (orthoBranchesBtn) {
+        orthoBranchesBtn.addEventListener('click', async () => {
+            setOrthoStatus('Orthogonalizing branches...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_orthoBranchesOnly()');
+                setOrthoStatus(result || 'Branches orthogonalized');
+            } catch (e) {
+                setOrthoStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    if (orthoFinalBtn) {
+        orthoFinalBtn.addEventListener('click', async () => {
+            setOrthoStatus('Orthogonalizing final segments...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_orthoFinalOnly()');
+                setOrthoStatus(result || 'Final segments orthogonalized');
+            } catch (e) {
+                setOrthoStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    if (orthoAllBtn) {
+        orthoAllBtn.addEventListener('click', async () => {
+            setOrthoStatus('Orthogonalizing all...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_orthoAll()');
+                setOrthoStatus(result || 'All orthogonalized');
+            } catch (e) {
+                setOrthoStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    // V3 Ductwork Parts Panel Buttons
+    function setPartsStatus(msg, isError) {
+        if (partsStatus) {
+            partsStatus.textContent = msg || '';
+            partsStatus.className = isError ? 'status error' : 'status';
+        }
+    }
+
+    if (createUpdatePartsBtn) {
+        createUpdatePartsBtn.addEventListener('click', async () => {
+            setPartsStatus('Creating/updating ductwork parts...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_createUpdateDuctworkParts()');
+                setPartsStatus(result || 'Ductwork parts created/updated');
+            } catch (e) {
+                setPartsStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    if (createAnchorsBtn) {
+        createAnchorsBtn.addEventListener('click', async () => {
+            setPartsStatus('Creating part anchors...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_createPartAnchorsOnly()');
+                setPartsStatus(result || 'Part anchors created');
+            } catch (e) {
+                setPartsStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    if (selectPartsBtn) {
+        selectPartsBtn.addEventListener('click', async () => {
+            setPartsStatus('Selecting ductwork parts...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_selectDuctworkParts()');
+                setPartsStatus(result || 'Parts selected');
+            } catch (e) {
+                setPartsStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    if (selectAnchorsBtn) {
+        selectAnchorsBtn.addEventListener('click', async () => {
+            setPartsStatus('Selecting anchors...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_selectDuctworkAnchors()');
+                setPartsStatus(result || 'Anchors selected');
+            } catch (e) {
+                setPartsStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    if (deleteAnchorsBtn) {
+        deleteAnchorsBtn.addEventListener('click', async () => {
+            if (!confirm('Delete all selected ductwork part anchors?')) return;
+            setPartsStatus('Deleting anchors...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_deleteSelectedAnchors()');
+                setPartsStatus(result || 'Anchors deleted');
+            } catch (e) {
+                setPartsStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    if (placeGraphicsBtn) {
+        placeGraphicsBtn.addEventListener('click', async () => {
+            setPartsStatus('Placing ductwork part graphics...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_placeDuctworkPartGraphics()');
+                setPartsStatus(result || 'Graphics placed');
+            } catch (e) {
+                setPartsStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    // V3 Transform Panel - Reset Parts Rotation button
+    if (resetPartsRotationBtn) {
+        resetPartsRotationBtn.addEventListener('click', async () => {
+            setSelectionStatus('Resetting ductwork parts rotation...');
+            try {
+                await ensureBridgeLoaded();
+                const result = await evalScript('MDUX_resetDuctworkPartsRotation()');
+                setSelectionStatus(result || 'Parts rotation reset');
+                resetTransformControls(true);
+            } catch (e) {
+                setSelectionStatus('Error: ' + e.message, true);
+            }
+        });
+    }
+
+    // V3 Export Floorplan button
+    if (exportFloorplanBtn) {
+        exportFloorplanBtn.addEventListener('click', () => handleExport('floorplan'));
     }
 
     if (teScaleSlider && teScaleInput) {

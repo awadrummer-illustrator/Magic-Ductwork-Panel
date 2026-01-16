@@ -158,15 +158,34 @@ function MDUX_isDuctworkPart(item) {
 function MDUX_getMetadata(item) {
     try {
         var note = item.note || "";
-        if (!note || note.indexOf("MDUX_META:") !== 0) return null;
-        var jsonStr = note.substring(10); // Remove "MDUX_META:" prefix
+        if (!note) return null;
 
-        // Fix corrupted metadata: strip any trailing chars after the closing brace
-        var lastBrace = jsonStr.lastIndexOf("}");
-        if (lastBrace !== -1 && lastBrace < jsonStr.length - 1) {
-            jsonStr = jsonStr.substring(0, lastBrace + 1);
+        // Find MDUX_META: anywhere in the note (may have other prefixes before it)
+        var metaStart = note.indexOf("MDUX_META:");
+        if (metaStart === -1) return null;
+
+        // Extract from after "MDUX_META:" prefix
+        var jsonStart = metaStart + 10;
+        var remaining = note.substring(jsonStart);
+
+        // Find the FIRST complete JSON object - match braces
+        var braceCount = 0;
+        var jsonEnd = -1;
+        for (var i = 0; i < remaining.length; i++) {
+            var ch = remaining.charAt(i);
+            if (ch === "{") braceCount++;
+            else if (ch === "}") {
+                braceCount--;
+                if (braceCount === 0) {
+                    jsonEnd = i;
+                    break;
+                }
+            }
         }
 
+        if (jsonEnd === -1) return null;
+
+        var jsonStr = remaining.substring(0, jsonEnd + 1);
         return JSON.parse(jsonStr);
     } catch (e) {
         return null;
@@ -176,7 +195,26 @@ function MDUX_getMetadata(item) {
 function MDUX_setMetadata(item, metadata) {
     try {
         var jsonStr = JSON.stringify(metadata);
-        item.note = "MDUX_META:" + jsonStr;
+        var note = item.note || "";
+
+        // Preserve any MD: tags from magic-final.jsx (they use | separator)
+        var mdTags = [];
+        var parts = note.split("|");
+        for (var i = 0; i < parts.length; i++) {
+            var part = parts[i];
+            // Keep MD: tags but not MDUX_META: entries
+            if (part.indexOf("MD:") === 0) {
+                mdTags.push(part);
+            }
+        }
+
+        // Build new note: MDUX_META first, then preserved MD: tags
+        var newNote = "MDUX_META:" + jsonStr;
+        if (mdTags.length > 0) {
+            newNote += "|" + mdTags.join("|");
+        }
+
+        item.note = newNote;
     } catch (e) {
         // Silent fail - logging here would be expensive
     }
@@ -826,30 +864,68 @@ function MDUX_resetTransforms(targetPercent) {
         for (var i = 0; i < sel.length; i++) {
             var item = sel[i];
 
-            // 1. Restore Rotation
-            var cumRot = MDUX_getTag(item, "MDUX_CumulativeRotation");
-            if (cumRot !== null) {
-                var r = parseFloat(cumRot);
-                if (!isNaN(r) && r !== 0) {
-                    item.rotate(-r, true, true, true, true, Transformation.CENTER);
+            // Determine item type - ductwork lines should NOT have geometry resized
+            var isDuctLine = MDUX_isDuctworkLine(item);
+            var isDuctPart = MDUX_isDuctworkPart(item);
+
+            // 1. Restore Rotation (around center) - only for ductwork parts
+            if (isDuctPart) {
+                var cumRot = MDUX_getTag(item, "MDUX_CumulativeRotation");
+                if (cumRot !== null) {
+                    var r = parseFloat(cumRot);
+                    if (!isNaN(r) && r !== 0) {
+                        // Capture center position before rotation
+                        var bounds = item.geometricBounds;
+                        var centerX = (bounds[0] + bounds[2]) / 2;
+                        var centerY = (bounds[1] + bounds[3]) / 2;
+
+                        // Rotate around item's center
+                        item.rotate(-r, true, true, true, true, Transformation.CENTER);
+
+                        // Verify center stayed in place, translate back if needed
+                        var newBounds = item.geometricBounds;
+                        var newCenterX = (newBounds[0] + newBounds[2]) / 2;
+                        var newCenterY = (newBounds[1] + newBounds[3]) / 2;
+                        if (Math.abs(newCenterX - centerX) > 0.1 || Math.abs(newCenterY - centerY) > 0.1) {
+                            item.translate(centerX - newCenterX, centerY - newCenterY);
+                        }
+                    }
+                    MDUX_removeTag(item, "MDUX_CumulativeRotation");
                 }
-                MDUX_removeTag(item, "MDUX_CumulativeRotation");
             }
 
-            // 2. Restore Dimensions (Width/Height)
-            var origW = MDUX_getTag(item, "MDUX_OriginalWidth");
-            var origH = MDUX_getTag(item, "MDUX_OriginalHeight");
-            if (origW !== null && origH !== null) {
-                item.width = parseFloat(origW);
-                item.height = parseFloat(origH);
-                MDUX_removeTag(item, "MDUX_OriginalWidth");
-                MDUX_removeTag(item, "MDUX_OriginalHeight");
+            // 2. Restore Scale (around center) - only for ductwork PARTS, not lines
+            if (isDuctPart) {
+                var origW = MDUX_getTag(item, "MDUX_OriginalWidth");
+                var origH = MDUX_getTag(item, "MDUX_OriginalHeight");
+                if (origW !== null && origH !== null) {
+                    var targetW = parseFloat(origW);
+                    var targetH = parseFloat(origH);
+                    var currentW = item.width;
+                    var currentH = item.height;
+
+                    // Only resize if dimensions actually changed
+                    if (Math.abs(currentW - targetW) > 0.01 || Math.abs(currentH - targetH) > 0.01) {
+                        // Calculate scale percentages
+                        var scaleX = (targetW / currentW) * 100;
+                        var scaleY = (targetH / currentH) * 100;
+
+                        // Use resize with Transformation.CENTER to scale around center point
+                        // Keep stroke at 100% since we restore it separately
+                        item.resize(scaleX, scaleY, true, true, true, true, 100, Transformation.CENTER);
+                    }
+
+                    MDUX_removeTag(item, "MDUX_OriginalWidth");
+                    MDUX_removeTag(item, "MDUX_OriginalHeight");
+                }
             }
 
-            // 3. Restore Stroke Width
+            // 3. Restore Stroke Width - for both lines and parts
             var origStroke = MDUX_getTag(item, "MDUX_OriginalStrokeWidth");
             if (origStroke !== null) {
-                item.strokeWidth = parseFloat(origStroke);
+                try {
+                    item.strokeWidth = parseFloat(origStroke);
+                } catch (e) {}
                 MDUX_removeTag(item, "MDUX_OriginalStrokeWidth");
             }
 
@@ -1572,6 +1648,155 @@ function MDUX_importGraphicStylesBridge() {
         try { $.writeln("[MDUX] Import styles exception: " + e); } catch (logFinal) { }
         return "ERROR:Import styles (exception): " + e;
     }
+}
+
+// ============================================
+// V3 LAYER MANAGEMENT FUNCTIONS
+// ============================================
+
+/**
+ * Migrate legacy "Scale Factor Container Layer" to document tags
+ * This is a one-time migration for old documents
+ */
+function MDUX_migrateLegacyScaleFactor() {
+    MDUX_debugLog("[V3] MDUX_migrateLegacyScaleFactor called");
+    try {
+        var doc = app.activeDocument;
+
+        // Check if legacy layer exists
+        var legacyLayer = null;
+        try {
+            legacyLayer = doc.layers.getByName("Scale Factor Container Layer");
+        } catch (e) {
+            return "No legacy Scale Factor Container Layer found";
+        }
+
+        if (!legacyLayer) {
+            return "No legacy Scale Factor Container Layer found";
+        }
+
+        // Try to extract scale factor from the layer
+        var scaleValue = null;
+
+        // Check layer name for embedded scale info
+        if (legacyLayer.name.indexOf("=") !== -1) {
+            var parts = legacyLayer.name.split("=");
+            if (parts.length > 1) {
+                var parsed = parseFloat(parts[1]);
+                if (!isNaN(parsed) && parsed > 0) {
+                    scaleValue = parsed;
+                }
+            }
+        }
+
+        // Check for text items with scale value
+        if (!scaleValue && legacyLayer.textFrames && legacyLayer.textFrames.length > 0) {
+            for (var i = 0; i < legacyLayer.textFrames.length; i++) {
+                var text = legacyLayer.textFrames[i].contents || "";
+                var parsed = parseFloat(text);
+                if (!isNaN(parsed) && parsed > 0 && parsed < 1000) {
+                    scaleValue = parsed;
+                    break;
+                }
+            }
+        }
+
+        // Default to 100 if no scale found
+        if (!scaleValue) scaleValue = 100;
+
+        // Save to document tags (new system)
+        MDUX_setScaleFactorTag(doc, scaleValue);
+
+        // Optionally remove or hide the legacy layer
+        try {
+            legacyLayer.visible = false;
+            legacyLayer.locked = true;
+        } catch (e) {}
+
+        MDUX_debugLog("[LEGACY-MIGRATION] Migrated scale factor " + scaleValue + " to document tags");
+        return "Migrated scale factor (" + scaleValue + "%) to document tags";
+
+    } catch (e) {
+        MDUX_debugLog("[LEGACY-MIGRATION] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+/**
+ * Rename "Floorplan" or "Layer 1" to "Render" (with increment on conflict)
+ */
+function MDUX_renameFloorplanToRender() {
+    MDUX_debugLog("[V3] MDUX_renameFloorplanToRender called");
+    try {
+        var doc = app.activeDocument;
+
+        // Find the layer to rename
+        var sourceLayer = null;
+        var sourceNames = ["Floorplan", "Layer 1", "Layer1"];
+
+        for (var i = 0; i < sourceNames.length; i++) {
+            try {
+                sourceLayer = doc.layers.getByName(sourceNames[i]);
+                if (sourceLayer) break;
+            } catch (e) {}
+        }
+
+        if (!sourceLayer) {
+            return "No Floorplan or Layer 1 found to rename";
+        }
+
+        // Determine target name (Render, Render 2, Render 3, etc.)
+        var targetName = "Render";
+        var suffix = 1;
+
+        while (true) {
+            var testName = suffix === 1 ? "Render" : "Render " + suffix;
+            var exists = false;
+
+            try {
+                var existing = doc.layers.getByName(testName);
+                if (existing && existing !== sourceLayer) {
+                    exists = true;
+                }
+            } catch (e) {
+                // Layer doesn't exist, we can use this name
+            }
+
+            if (!exists) {
+                targetName = testName;
+                break;
+            }
+
+            suffix++;
+            if (suffix > 100) {
+                return "Too many Render layers exist";
+            }
+        }
+
+        // Rename the layer
+        var oldName = sourceLayer.name;
+        sourceLayer.name = targetName;
+
+        MDUX_debugLog("[RENAME-LAYER] Renamed '" + oldName + "' to '" + targetName + "'");
+        return "Renamed '" + oldName + "' to '" + targetName + "'";
+
+    } catch (e) {
+        MDUX_debugLog("[RENAME-LAYER] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+/**
+ * Organize layers - create standard layers and apply correct colors
+ */
+function MDUX_organizeLayers() {
+    MDUX_debugLog("[V3] MDUX_organizeLayers called");
+
+    // Run legacy migration first
+    MDUX_migrateLegacyScaleFactor();
+
+    // Then create/ensure standard layers
+    return MDUX_createLayersBridge();
 }
 
 function MDUX_createLayersBridge() {
@@ -2502,6 +2727,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                                     MDUX_OriginalWidth: actualWidth,
                                     MDUX_OriginalHeight: actualHeight,
                                     MDUX_OriginalStrokeWidth: actualStrokeWidth,
+                                    MDUX_OriginalRotation: String(finalRotation),
                                     MDUX_CumulativeRotation: String(finalRotation),
                                     MDUX_CurrentScale: String(finalScale),
                                     tagScale: finalScale,
@@ -2700,6 +2926,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                                     MDUX_OriginalWidth: newItem.width,
                                     MDUX_OriginalHeight: newItem.height,
                                     MDUX_OriginalStrokeWidth: 1,
+                                    MDUX_OriginalRotation: "0",
                                     MDUX_CumulativeRotation: "0",
                                     MDUX_CurrentScale: String(smallestScale),
                                     tagScale: smallestScale,
@@ -2921,6 +3148,7 @@ function MDUX_transformEach(scale, rotation, undoPrevious) {
                     meta.MDUX_OriginalWidth = item.width;
                     meta.MDUX_OriginalHeight = item.height;
                     meta.MDUX_OriginalStrokeWidth = sWidth;
+                    meta.MDUX_OriginalRotation = "0";
                     meta.MDUX_CumulativeRotation = "0";
                     meta.MDUX_CurrentScale = "100";
                 }
@@ -3896,6 +4124,1262 @@ function MDUX_mergePathsAtEndpoints() {
 
     } catch (e) {
         MDUX_debugLog("[MERGE-PATHS] FATAL ERROR: " + e + " (line: " + e.line + ")");
+        return "Error: " + e.message;
+    }
+}
+
+// ============================================
+// V3 HELPER FUNCTIONS
+// ============================================
+
+// Get duct role (trunk/branch) from path metadata
+function MDUX_getDuctRoleForPath(pathItem) {
+    if (!pathItem) return null;
+    try {
+        var meta = MDUX_getMetadata(pathItem);
+        if (meta && (meta.ductRole === "trunk" || meta.ductRole === "branch")) {
+            return meta.ductRole;
+        }
+    } catch (e) {}
+    return null;
+}
+
+// Collect selected paths that are valid ductwork lines
+function MDUX_collectSelectedDuctworkPaths() {
+    var paths = [];
+    try {
+        var doc = app.activeDocument;
+        var sel = doc.selection;
+        if (!sel || sel.length === 0) return paths;
+
+        for (var i = 0; i < sel.length; i++) {
+            var item = sel[i];
+            try {
+                if (item.typename === "PathItem" && !item.guides && !item.clipping) {
+                    if (item.pathPoints && item.pathPoints.length >= 2) {
+                        paths.push(item);
+                    }
+                } else if (item.typename === "CompoundPathItem") {
+                    for (var j = 0; j < item.pathItems.length; j++) {
+                        var subPath = item.pathItems[j];
+                        if (subPath.pathPoints && subPath.pathPoints.length >= 2) {
+                            paths.push(subPath);
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+    } catch (e) {
+        MDUX_debugLog("[V3-HELPER] Error collecting paths: " + e);
+    }
+    return paths;
+}
+
+// Filter paths by duct role
+function MDUX_filterPathsByRole(paths, targetRole) {
+    var filtered = [];
+    for (var i = 0; i < paths.length; i++) {
+        var role = MDUX_getDuctRoleForPath(paths[i]);
+        if (role === targetRole) {
+            filtered.push(paths[i]);
+        }
+    }
+    return filtered;
+}
+
+// Store pre-ortho geometry for a path (backup before orthogonalization)
+function MDUX_storePreOrthoGeometry(pathItem) {
+    if (!pathItem || !pathItem.pathPoints) return;
+    try {
+        var points = [];
+        for (var i = 0; i < pathItem.pathPoints.length; i++) {
+            var pt = pathItem.pathPoints[i];
+            points.push({
+                anchor: [pt.anchor[0], pt.anchor[1]],
+                left: [pt.leftDirection[0], pt.leftDirection[1]],
+                right: [pt.rightDirection[0], pt.rightDirection[1]]
+            });
+        }
+        var encoded = JSON.stringify(points);
+        var note = pathItem.note || "";
+        var PREFIX = "MD:PREORTHO=";
+        // Remove existing pre-ortho data
+        var tokens = note.split(";");
+        var filtered = [];
+        for (var t = 0; t < tokens.length; t++) {
+            if (tokens[t].indexOf(PREFIX) !== 0) {
+                filtered.push(tokens[t]);
+            }
+        }
+        filtered.push(PREFIX + encoded);
+        pathItem.note = filtered.join(";");
+    } catch (e) {
+        MDUX_debugLog("[PRE-ORTHO] Error storing geometry: " + e);
+    }
+}
+
+// ============================================
+// T-JUNCTION DETECTION AND RESTORATION
+// Preserves endpoint-to-segment connections during orthogonalization
+// ============================================
+
+// Detect T-junctions: endpoints that project onto the middle of other path segments
+// Returns array of T-junction objects with path references and connection info
+function MDUX_detectTJunctions(paths) {
+    var tJunctions = [];
+    var T_JUNCTION_TOLERANCE = 3; // Distance tolerance in points
+
+    MDUX_debugLog("[PRE-ORTHO-TJ] Detecting T-junctions for " + paths.length + " paths");
+
+    for (var pathAIdx = 0; pathAIdx < paths.length; pathAIdx++) {
+        var pathA = paths[pathAIdx];
+
+        // Validate path
+        try {
+            var ptsA = pathA.pathPoints;
+            if (!ptsA || ptsA.length < 2) continue;
+        } catch (e) {
+            continue; // Path is invalid
+        }
+
+        var ptsA = pathA.pathPoints;
+
+        // Check each endpoint of pathA (index 0 and length-1)
+        for (var epIdx = 0; epIdx < 2; epIdx++) {
+            var endpointIndex = (epIdx === 0) ? 0 : ptsA.length - 1;
+            var endpoint = ptsA[endpointIndex].anchor;
+
+            // Check against all OTHER paths' segments
+            for (var pathBIdx = 0; pathBIdx < paths.length; pathBIdx++) {
+                if (pathBIdx === pathAIdx) continue; // Skip same path
+
+                var pathB = paths[pathBIdx];
+
+                // Validate pathB
+                try {
+                    var ptsB = pathB.pathPoints;
+                    if (!ptsB || ptsB.length < 2) continue;
+                } catch (e) {
+                    continue;
+                }
+
+                var ptsB = pathB.pathPoints;
+
+                // Check each segment of pathB
+                for (var segIdx = 0; segIdx < ptsB.length - 1; segIdx++) {
+                    var segStart = ptsB[segIdx].anchor;
+                    var segEnd = ptsB[segIdx + 1].anchor;
+
+                    // Calculate closest point on segment to endpoint using parametric projection
+                    var segDx = segEnd[0] - segStart[0];
+                    var segDy = segEnd[1] - segStart[1];
+                    var segLenSq = segDx * segDx + segDy * segDy;
+
+                    if (segLenSq < 0.001) continue; // Skip zero-length segments
+
+                    // Calculate t parameter (0-1 for points on segment)
+                    var t = ((endpoint[0] - segStart[0]) * segDx + (endpoint[1] - segStart[1]) * segDy) / segLenSq;
+
+                    // Only consider points that project onto the MIDDLE of segment (not endpoints)
+                    // t between 0.001 and 0.999 means it's not at the endpoints
+                    if (t > 0.001 && t < 0.999) {
+                        var closestX = segStart[0] + t * segDx;
+                        var closestY = segStart[1] + t * segDy;
+
+                        var dx = endpoint[0] - closestX;
+                        var dy = endpoint[1] - closestY;
+                        var dist = Math.sqrt(dx * dx + dy * dy);
+
+                        if (dist <= T_JUNCTION_TOLERANCE) {
+                            // Found a T-junction
+                            tJunctions.push({
+                                endpointPath: pathA,
+                                endpointPathIndex: pathAIdx,
+                                endpointIndex: endpointIndex,
+                                segmentPath: pathB,
+                                segmentPathIndex: pathBIdx,
+                                segmentIndex: segIdx,
+                                originalDist: dist,
+                                originalT: t
+                            });
+
+                            MDUX_debugLog("[PRE-ORTHO-TJ] Found T-junction: endpoint at [" +
+                                endpoint[0].toFixed(1) + "," + endpoint[1].toFixed(1) +
+                                "] -> segment (dist=" + dist.toFixed(2) + "pt, t=" + t.toFixed(3) + ")");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    MDUX_debugLog("[PRE-ORTHO-TJ] Found " + tJunctions.length + " T-junction(s)");
+    return tJunctions;
+}
+
+// Restore T-junctions after orthogonalization
+// Snaps endpoints back to segments to maintain connections
+function MDUX_restoreTJunctions(tJunctions) {
+    if (!tJunctions || tJunctions.length === 0) return 0;
+
+    MDUX_debugLog("\n=== POST-ORTHO: RESTORING T-JUNCTION CONNECTIONS ===");
+    var restoredCount = 0;
+
+    for (var i = 0; i < tJunctions.length; i++) {
+        var tj = tJunctions[i];
+
+        try {
+            var endpointPath = tj.endpointPath;
+            var segmentPath = tj.segmentPath;
+
+            // Get CURRENT positions after orthogonalization
+            var epPts = endpointPath.pathPoints;
+            var segPts = segmentPath.pathPoints;
+
+            if (!epPts || epPts.length <= tj.endpointIndex) continue;
+            if (!segPts || segPts.length <= tj.segmentIndex + 1) continue;
+
+            var currentEndpoint = epPts[tj.endpointIndex].anchor;
+            var currentSegStart = segPts[tj.segmentIndex].anchor;
+            var currentSegEnd = segPts[tj.segmentIndex + 1].anchor;
+
+            // Calculate closest point on CURRENT segment
+            var segDx = currentSegEnd[0] - currentSegStart[0];
+            var segDy = currentSegEnd[1] - currentSegStart[1];
+            var segLenSq = segDx * segDx + segDy * segDy;
+
+            if (segLenSq < 0.001) continue; // Skip zero-length segments
+
+            var t = ((currentEndpoint[0] - currentSegStart[0]) * segDx +
+                     (currentEndpoint[1] - currentSegStart[1]) * segDy) / segLenSq;
+
+            // Clamp t to [0, 1] to stay on segment
+            if (t < 0) t = 0;
+            if (t > 1) t = 1;
+
+            var snapX = currentSegStart[0] + t * segDx;
+            var snapY = currentSegStart[1] + t * segDy;
+
+            // Calculate current distance
+            var currentDx = currentEndpoint[0] - snapX;
+            var currentDy = currentEndpoint[1] - snapY;
+            var currentDist = Math.sqrt(currentDx * currentDx + currentDy * currentDy);
+
+            // Only snap if distance is reasonable (within 10pt)
+            // This prevents snapping to wrong segments if paths moved significantly
+            if (currentDist <= 10) {
+                // Apply the snap
+                epPts[tj.endpointIndex].anchor = [snapX, snapY];
+                epPts[tj.endpointIndex].leftDirection = [snapX, snapY];
+                epPts[tj.endpointIndex].rightDirection = [snapX, snapY];
+                restoredCount++;
+
+                MDUX_debugLog("[POST-ORTHO-TJ] Snapped endpoint from [" +
+                    currentEndpoint[0].toFixed(1) + "," + currentEndpoint[1].toFixed(1) +
+                    "] to [" + snapX.toFixed(1) + "," + snapY.toFixed(1) +
+                    "] (was " + currentDist.toFixed(2) + "pt away)");
+            } else {
+                MDUX_debugLog("[POST-ORTHO-TJ] SKIPPED snapping (distance " +
+                    currentDist.toFixed(2) + "pt too large, paths moved significantly)");
+            }
+        } catch (e) {
+            MDUX_debugLog("[POST-ORTHO-TJ] Error restoring T-junction: " + e);
+        }
+    }
+
+    MDUX_debugLog("[POST-ORTHO-TJ] Restored " + restoredCount + " of " + tJunctions.length + " T-junction(s)");
+    return restoredCount;
+}
+
+// Apply orthogonalization using Python bridge
+function MDUX_applyPythonOrtho(paths, snapThreshold) {
+    if (!paths || paths.length === 0) {
+        return { success: false, message: "No paths to orthogonalize" };
+    }
+
+    MDUX_debugLog("[V3-ORTHO] Starting Python orthogonalization for " + paths.length + " paths");
+
+    // Check if Python bridge is available
+    if (typeof PythonBridge === "undefined" || !PythonBridge.isAvailable()) {
+        MDUX_debugLog("[V3-ORTHO] Python bridge not available, using fallback");
+        return MDUX_applyExtendScriptOrtho(paths, snapThreshold);
+    }
+
+    try {
+        // Store pre-ortho geometry for all paths
+        for (var i = 0; i < paths.length; i++) {
+            MDUX_storePreOrthoGeometry(paths[i]);
+        }
+
+        // *** DETECT T-JUNCTIONS BEFORE ORTHOGONALIZATION ***
+        // Store endpoint-to-segment connections so we can restore them after ortho
+        var preOrthoTJunctions = MDUX_detectTJunctions(paths);
+
+        // Call Python orthogonalization
+        var result = PythonBridge.orthogonalize(paths, snapThreshold || 5, []);
+
+        if (result && result.paths && !result.error) {
+            // Apply results back to Illustrator paths
+            var appliedCount = 0;
+            for (var j = 0; j < result.paths.length; j++) {
+                var pyPath = result.paths[j];
+                var targetPath = paths[pyPath.id];
+
+                try {
+                    var pts = targetPath.pathPoints;
+                    var pyPts = pyPath.points;
+
+                    if (pts.length === pyPts.length) {
+                        for (var k = 0; k < pts.length; k++) {
+                            var newX = pyPts[k].x;
+                            var newY = pyPts[k].y;
+                            pts[k].anchor = [newX, newY];
+                            pts[k].leftDirection = [newX, newY];
+                            pts[k].rightDirection = [newX, newY];
+                        }
+                        appliedCount++;
+                    }
+                } catch (e) {
+                    MDUX_debugLog("[V3-ORTHO] Error applying to path " + j + ": " + e);
+                }
+            }
+
+            // *** RESTORE T-JUNCTIONS AFTER ORTHOGONALIZATION ***
+            // Snap endpoints back to segments to maintain connections
+            var restoredTJ = MDUX_restoreTJunctions(preOrthoTJunctions);
+
+            MDUX_debugLog("[V3-ORTHO] Applied orthogonalization to " + appliedCount + " paths");
+            return {
+                success: true,
+                message: "Orthogonalized " + appliedCount + " path(s)" + (restoredTJ > 0 ? ", restored " + restoredTJ + " T-junction(s)" : ""),
+                count: appliedCount,
+                iterations: result.iterations || 0,
+                snaps: result.total_snaps || 0,
+                tJunctionsRestored: restoredTJ
+            };
+        } else {
+            var errMsg = result && result.error ? result.error : "Unknown error";
+            MDUX_debugLog("[V3-ORTHO] Python returned error: " + errMsg);
+            return { success: false, message: "Python error: " + errMsg };
+        }
+    } catch (e) {
+        MDUX_debugLog("[V3-ORTHO] Exception: " + e);
+        return { success: false, message: "Error: " + e.message };
+    }
+}
+
+// Fallback ExtendScript orthogonalization (slower)
+function MDUX_applyExtendScriptOrtho(paths, snapThreshold) {
+    var SNAP = snapThreshold || 5;
+    var changed = 0;
+
+    // Store pre-ortho geometry for all paths first
+    for (var i = 0; i < paths.length; i++) {
+        MDUX_storePreOrthoGeometry(paths[i]);
+    }
+
+    // *** DETECT T-JUNCTIONS BEFORE ORTHOGONALIZATION ***
+    var preOrthoTJunctions = MDUX_detectTJunctions(paths);
+
+    // Perform orthogonalization
+    for (var i = 0; i < paths.length; i++) {
+        var path = paths[i];
+        try {
+            var pts = path.pathPoints;
+            if (!pts || pts.length < 2) continue;
+
+            // Simple orthogonalization: snap segment angles to 0/90/180/270
+            for (var j = 0; j < pts.length - 1; j++) {
+                var p1 = pts[j].anchor;
+                var p2 = pts[j + 1].anchor;
+                var dx = p2[0] - p1[0];
+                var dy = p2[1] - p1[1];
+                var angle = Math.atan2(dy, dx) * 180 / Math.PI;
+
+                // Snap to nearest 90 degree increment
+                var snappedAngle = Math.round(angle / 90) * 90;
+                var angleDiff = Math.abs(angle - snappedAngle);
+
+                // Only snap if close enough (within steep threshold)
+                if (angleDiff < 17 || angleDiff > 73) {
+                    var len = Math.sqrt(dx * dx + dy * dy);
+                    var newRad = snappedAngle * Math.PI / 180;
+                    var newX = p1[0] + Math.cos(newRad) * len;
+                    var newY = p1[1] + Math.sin(newRad) * len;
+                    pts[j + 1].anchor = [newX, newY];
+                    pts[j + 1].leftDirection = [newX, newY];
+                    pts[j + 1].rightDirection = [newX, newY];
+                }
+            }
+            changed++;
+        } catch (e) {
+            MDUX_debugLog("[ES-ORTHO] Error on path " + i + ": " + e);
+        }
+    }
+
+    // *** RESTORE T-JUNCTIONS AFTER ORTHOGONALIZATION ***
+    var restoredTJ = MDUX_restoreTJunctions(preOrthoTJunctions);
+
+    return {
+        success: true,
+        message: "Orthogonalized " + changed + " path(s) (ExtendScript fallback)" + (restoredTJ > 0 ? ", restored " + restoredTJ + " T-junction(s)" : ""),
+        count: changed,
+        tJunctionsRestored: restoredTJ
+    };
+}
+
+// ============================================
+// V3 FULL FUNCTIONS - Process Ductwork Panel
+// ============================================
+
+function MDUX_rotateRegistersOnly() {
+    MDUX_debugLog("[V3] MDUX_rotateRegistersOnly called");
+    try {
+        var doc = app.activeDocument;
+
+        // Find register layers
+        var registerLayers = ["Square Registers", "Rectangular Registers", "Circular Registers", "Exhaust Registers"];
+        var rotatedCount = 0;
+
+        for (var layerIdx = 0; layerIdx < registerLayers.length; layerIdx++) {
+            var layerName = registerLayers[layerIdx];
+            var layer = null;
+
+            try {
+                layer = doc.layers.getByName(layerName);
+            } catch (e) {
+                continue; // Layer doesn't exist
+            }
+
+            if (!layer) continue;
+
+            // Process placed items (register graphics) on this layer
+            try {
+                for (var i = 0; i < layer.placedItems.length; i++) {
+                    var item = layer.placedItems[i];
+                    var meta = MDUX_getMetadata(item);
+
+                    if (meta && typeof meta.targetRotation === "number") {
+                        var currentRotation = meta.rotation || 0;
+                        var targetRotation = meta.targetRotation;
+                        var delta = targetRotation - currentRotation;
+
+                        if (Math.abs(delta) > 0.1) {
+                            var rotMatrix = app.getRotationMatrix(delta);
+                            item.transform(rotMatrix, true, true, true, true, true);
+                            meta.rotation = targetRotation;
+                            MDUX_setMetadata(item, meta);
+                            rotatedCount++;
+                        }
+                    }
+                }
+            } catch (e) {
+                MDUX_debugLog("[ROTATE-REG] Error on layer " + layerName + ": " + e);
+            }
+        }
+
+        return "Rotated " + rotatedCount + " register(s)";
+    } catch (e) {
+        MDUX_debugLog("[ROTATE-REG] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+function MDUX_carveForRegistersOnly() {
+    MDUX_debugLog("[V3] MDUX_carveForRegistersOnly called");
+    try {
+        var doc = app.activeDocument;
+        var REGISTER_CARVE_HALF_WIDTH = 13.5; // 27pt total gap
+        var carvedCount = 0;
+
+        // Get register positions from register layers
+        var registerLayers = ["Square Registers", "Rectangular Registers"];
+        var registerCenters = [];
+
+        for (var layerIdx = 0; layerIdx < registerLayers.length; layerIdx++) {
+            try {
+                var layer = doc.layers.getByName(registerLayers[layerIdx]);
+                for (var i = 0; i < layer.placedItems.length; i++) {
+                    var item = layer.placedItems[i];
+                    var bounds = item.geometricBounds;
+                    var cx = (bounds[0] + bounds[2]) / 2;
+                    var cy = (bounds[1] + bounds[3]) / 2;
+                    registerCenters.push([cx, cy]);
+                }
+            } catch (e) {}
+        }
+
+        if (registerCenters.length === 0) {
+            return "No registers found to carve around";
+        }
+
+        MDUX_debugLog("[CARVE-REG] Found " + registerCenters.length + " register center(s)");
+
+        // Get selected ductwork paths
+        var paths = MDUX_collectSelectedDuctworkPaths();
+        if (paths.length === 0) {
+            return "No ductwork paths selected";
+        }
+
+        // For each path, check if it passes through any register
+        for (var pathIdx = 0; pathIdx < paths.length; pathIdx++) {
+            var path = paths[pathIdx];
+            try {
+                var pts = path.pathPoints;
+                if (!pts || pts.length < 2) continue;
+
+                // Check each segment
+                for (var segIdx = 0; segIdx < pts.length - 1; segIdx++) {
+                    var p1 = pts[segIdx].anchor;
+                    var p2 = pts[segIdx + 1].anchor;
+
+                    for (var regIdx = 0; regIdx < registerCenters.length; regIdx++) {
+                        var regCenter = registerCenters[regIdx];
+
+                        // Check if register center is near segment
+                        var dx = p2[0] - p1[0];
+                        var dy = p2[1] - p1[1];
+                        var segLen = Math.sqrt(dx * dx + dy * dy);
+                        if (segLen < 1) continue;
+
+                        // Project register center onto segment
+                        var t = ((regCenter[0] - p1[0]) * dx + (regCenter[1] - p1[1]) * dy) / (segLen * segLen);
+
+                        if (t > 0.05 && t < 0.95) {
+                            var projX = p1[0] + t * dx;
+                            var projY = p1[1] + t * dy;
+                            var dist = Math.sqrt(Math.pow(regCenter[0] - projX, 2) + Math.pow(regCenter[1] - projY, 2));
+
+                            if (dist < 50) { // Within threshold
+                                // Mark this path as needing carve (actual carve happens in main processing)
+                                MDUX_debugLog("[CARVE-REG] Path segment near register at [" + regCenter[0].toFixed(1) + "," + regCenter[1].toFixed(1) + "]");
+                                carvedCount++;
+                            }
+                        }
+                    }
+                }
+            } catch (e) {}
+        }
+
+        return "Found " + carvedCount + " segment(s) near registers (run full process to carve)";
+    } catch (e) {
+        MDUX_debugLog("[CARVE-REG] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+function MDUX_carveOverlapsOnly() {
+    MDUX_debugLog("[V3] MDUX_carveOverlapsOnly called");
+    try {
+        var paths = MDUX_collectSelectedDuctworkPaths();
+        if (paths.length === 0) {
+            return "No ductwork paths selected";
+        }
+
+        // Use Python bridge to detect intersections
+        if (typeof PythonBridge !== "undefined" && PythonBridge.isAvailable()) {
+            var result = PythonBridge.detectIntersections(paths);
+
+            if (result && result.intersections) {
+                var intersectionCount = result.intersections.length;
+                MDUX_debugLog("[CARVE-OVERLAP] Found " + intersectionCount + " intersection(s)");
+                return "Found " + intersectionCount + " intersection(s) (run full process to carve)";
+            }
+        }
+
+        return "Overlap detection requires Python bridge (run full process)";
+    } catch (e) {
+        MDUX_debugLog("[CARVE-OVERLAP] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+// ============================================
+// V3 FULL FUNCTIONS - Orthogonalize Panel
+// ============================================
+
+// Track whether pre-ortho backup has been created for this document
+// Uses document tag to persist across sessions
+var PRE_ORTHO_BACKUP_TAG = "MD:PRE_ORTHO_BACKUP_CREATED";
+
+function MDUX_hasPreOrthoBackup(doc) {
+    try {
+        var tags = doc.tags;
+        for (var i = 0; i < tags.length; i++) {
+            if (tags[i].name === PRE_ORTHO_BACKUP_TAG) {
+                return true;
+            }
+        }
+    } catch (e) {}
+    return false;
+}
+
+function MDUX_setPreOrthoBackupCreated(doc) {
+    try {
+        var tag = doc.tags.add();
+        tag.name = PRE_ORTHO_BACKUP_TAG;
+        tag.value = new Date().toISOString();
+    } catch (e) {
+        MDUX_debugLog("[PRE-ORTHO-BACKUP] Error setting tag: " + e);
+    }
+}
+
+function MDUX_createPreOrthoBackup() {
+    MDUX_debugLog("[V3] MDUX_createPreOrthoBackup called");
+    try {
+        var doc = app.activeDocument;
+
+        // Check if backup already exists for this document
+        if (MDUX_hasPreOrthoBackup(doc)) {
+            MDUX_debugLog("[PRE-ORTHO-BACKUP] Backup already created for this document");
+            return { created: false, message: "Pre-Ortho backup already exists" };
+        }
+
+        // Get the current file path
+        var docPath = null;
+        try {
+            docPath = doc.fullName;
+        } catch (e) {
+            // Document hasn't been saved yet
+            MDUX_debugLog("[PRE-ORTHO-BACKUP] Document not saved - cannot create backup");
+            return { created: false, message: "Save document first to enable Pre-Ortho backup" };
+        }
+
+        if (!docPath || !docPath.exists) {
+            return { created: false, message: "Save document first to enable Pre-Ortho backup" };
+        }
+
+        // Create backup filename
+        var originalPath = docPath.fsName;
+        var ext = ".ai";
+        var baseName = originalPath;
+
+        // Remove extension
+        if (originalPath.toLowerCase().indexOf(".ai") === originalPath.length - 3) {
+            baseName = originalPath.substring(0, originalPath.length - 3);
+            ext = ".ai";
+        }
+
+        var backupPath = baseName + " - Pre-Ortho" + ext;
+        var backupFile = new File(backupPath);
+
+        // Save a copy
+        MDUX_debugLog("[PRE-ORTHO-BACKUP] Creating backup: " + backupPath);
+
+        // Save current document to backup location
+        var saveOptions = new IllustratorSaveOptions();
+        saveOptions.compatibility = Compatibility.ILLUSTRATOR17; // CS3+
+        saveOptions.flattenOutput = OutputFlattening.PRESERVEAPPEARANCE;
+        saveOptions.pdfCompatible = true;
+
+        doc.saveAs(backupFile, saveOptions);
+
+        // Re-open original (saveAs changes the current document)
+        var originalFile = new File(originalPath);
+        app.open(originalFile);
+
+        // Mark backup as created on the reopened document
+        MDUX_setPreOrthoBackupCreated(app.activeDocument);
+
+        MDUX_debugLog("[PRE-ORTHO-BACKUP] Backup created successfully");
+        return { created: true, message: "Pre-Ortho backup created: " + backupFile.name };
+
+    } catch (e) {
+        MDUX_debugLog("[PRE-ORTHO-BACKUP] Error: " + e);
+        return { created: false, message: "Backup error: " + e.message };
+    }
+}
+
+// Wrapper function that creates backup if needed before orthogonalization
+function MDUX_ensurePreOrthoBackupAndOrtho(orthoFunc) {
+    try {
+        var doc = app.activeDocument;
+
+        // Create backup if not already done
+        if (!MDUX_hasPreOrthoBackup(doc)) {
+            var backupResult = MDUX_createPreOrthoBackup();
+            if (backupResult.created) {
+                MDUX_debugLog("[PRE-ORTHO] Created backup before orthogonalization");
+            }
+        }
+
+        // Now run the orthogonalization
+        return orthoFunc();
+    } catch (e) {
+        return "Error: " + e.message;
+    }
+}
+
+function MDUX_orthoTrunkOnly() {
+    MDUX_debugLog("[V3] MDUX_orthoTrunkOnly called");
+    try {
+        var allPaths = MDUX_collectSelectedDuctworkPaths();
+        if (allPaths.length === 0) {
+            return "No ductwork paths selected";
+        }
+
+        // Filter to trunk paths only
+        var trunkPaths = MDUX_filterPathsByRole(allPaths, "trunk");
+
+        if (trunkPaths.length === 0) {
+            // No paths with trunk metadata - classify by connection pattern
+            // Paths with endpoint-to-endpoint connections are trunks
+            for (var i = 0; i < allPaths.length; i++) {
+                var path = allPaths[i];
+                var meta = MDUX_getMetadata(path);
+                if (!meta || !meta.ductRole) {
+                    // Default classification: paths with more than 2 points are likely trunk
+                    if (path.pathPoints && path.pathPoints.length > 2) {
+                        trunkPaths.push(path);
+                    }
+                }
+            }
+        }
+
+        if (trunkPaths.length === 0) {
+            return "No trunk paths found in selection";
+        }
+
+        MDUX_debugLog("[V3-ORTHO] Orthogonalizing " + trunkPaths.length + " trunk path(s)");
+        var result = MDUX_applyPythonOrtho(trunkPaths, 5);
+        return result.message;
+    } catch (e) {
+        MDUX_debugLog("[V3-ORTHO-TRUNK] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+function MDUX_orthoBranchesOnly() {
+    MDUX_debugLog("[V3] MDUX_orthoBranchesOnly called");
+    try {
+        var allPaths = MDUX_collectSelectedDuctworkPaths();
+        if (allPaths.length === 0) {
+            return "No ductwork paths selected";
+        }
+
+        // Filter to branch paths only
+        var branchPaths = MDUX_filterPathsByRole(allPaths, "branch");
+
+        if (branchPaths.length === 0) {
+            // No paths with branch metadata - classify by connection pattern
+            // Open paths with 2-3 points that aren't marked as trunk are likely branches
+            for (var i = 0; i < allPaths.length; i++) {
+                var path = allPaths[i];
+                if (!path.closed && path.pathPoints && path.pathPoints.length >= 2 && path.pathPoints.length <= 4) {
+                    var role = MDUX_getDuctRoleForPath(path);
+                    if (!role) {
+                        branchPaths.push(path);
+                    }
+                }
+            }
+        }
+
+        if (branchPaths.length === 0) {
+            return "No branch paths found in selection";
+        }
+
+        MDUX_debugLog("[V3-ORTHO] Orthogonalizing " + branchPaths.length + " branch path(s)");
+        var result = MDUX_applyPythonOrtho(branchPaths, 5);
+        return result.message;
+    } catch (e) {
+        MDUX_debugLog("[V3-ORTHO-BRANCH] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+function MDUX_orthoFinalOnly() {
+    MDUX_debugLog("[V3] MDUX_orthoFinalOnly called");
+    try {
+        var allPaths = MDUX_collectSelectedDuctworkPaths();
+        if (allPaths.length === 0) {
+            return "No ductwork paths selected";
+        }
+
+        var doc = app.activeDocument;
+
+        // Get register positions to identify final segments
+        var registerLayers = ["Square Registers", "Rectangular Registers", "Circular Registers"];
+        var registerPositions = [];
+
+        for (var layerIdx = 0; layerIdx < registerLayers.length; layerIdx++) {
+            try {
+                var layer = doc.layers.getByName(registerLayers[layerIdx]);
+                for (var i = 0; i < layer.placedItems.length; i++) {
+                    var item = layer.placedItems[i];
+                    var bounds = item.geometricBounds;
+                    registerPositions.push([(bounds[0] + bounds[2]) / 2, (bounds[1] + bounds[3]) / 2]);
+                }
+            } catch (e) {}
+        }
+
+        // Final segments are paths that have an endpoint near a register
+        var REGISTER_THRESHOLD = 50; // 50pt threshold
+        var finalPaths = [];
+
+        for (var pathIdx = 0; pathIdx < allPaths.length; pathIdx++) {
+            var path = allPaths[pathIdx];
+            try {
+                var pts = path.pathPoints;
+                if (!pts || pts.length < 2) continue;
+
+                var firstPt = pts[0].anchor;
+                var lastPt = pts[pts.length - 1].anchor;
+
+                // Check if either endpoint is near a register
+                for (var regIdx = 0; regIdx < registerPositions.length; regIdx++) {
+                    var regPos = registerPositions[regIdx];
+                    var d1 = Math.sqrt(Math.pow(firstPt[0] - regPos[0], 2) + Math.pow(firstPt[1] - regPos[1], 2));
+                    var d2 = Math.sqrt(Math.pow(lastPt[0] - regPos[0], 2) + Math.pow(lastPt[1] - regPos[1], 2));
+
+                    if (d1 < REGISTER_THRESHOLD || d2 < REGISTER_THRESHOLD) {
+                        finalPaths.push(path);
+                        break;
+                    }
+                }
+            } catch (e) {}
+        }
+
+        if (finalPaths.length === 0) {
+            return "No final segments found (paths connecting to registers)";
+        }
+
+        MDUX_debugLog("[V3-ORTHO] Orthogonalizing " + finalPaths.length + " final segment(s)");
+        var result = MDUX_applyPythonOrtho(finalPaths, 5);
+        return result.message;
+    } catch (e) {
+        MDUX_debugLog("[V3-ORTHO-FINAL] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+function MDUX_orthoAll() {
+    MDUX_debugLog("[V3] MDUX_orthoAll called");
+    try {
+        var allPaths = MDUX_collectSelectedDuctworkPaths();
+        if (allPaths.length === 0) {
+            return "No ductwork paths selected";
+        }
+
+        MDUX_debugLog("[V3-ORTHO] Orthogonalizing all " + allPaths.length + " path(s)");
+        var result = MDUX_applyPythonOrtho(allPaths, 5);
+        return result.message;
+    } catch (e) {
+        MDUX_debugLog("[V3-ORTHO-ALL] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+// ============================================
+// V3 FULL FUNCTIONS - Ductwork Parts Panel
+// ============================================
+
+function MDUX_createUpdateDuctworkParts() {
+    MDUX_debugLog("[V3] MDUX_createUpdateDuctworkParts called");
+    try {
+        var doc = app.activeDocument;
+        var paths = MDUX_collectSelectedDuctworkPaths();
+
+        if (paths.length === 0) {
+            return "No ductwork paths selected";
+        }
+
+        // Use Python to find connection points
+        var connections = null;
+        if (typeof PythonBridge !== "undefined" && PythonBridge.isAvailable()) {
+            connections = PythonBridge.findConnections(paths, 10, 0.1);
+        }
+
+        var anchorCount = 0;
+        var connectionPoints = [];
+
+        if (connections && connections.pairs) {
+            for (var i = 0; i < connections.pairs.length; i++) {
+                var pair = connections.pairs[i];
+                if (pair.type === "endpoint-endpoint" || pair.type === "t-junction") {
+                    connectionPoints.push({
+                        x: pair.point ? pair.point[0] : (pair.p1[0] + pair.p2[0]) / 2,
+                        y: pair.point ? pair.point[1] : (pair.p1[1] + pair.p2[1]) / 2,
+                        type: pair.type
+                    });
+                }
+            }
+        }
+
+        // Also collect endpoints of all paths
+        for (var pathIdx = 0; pathIdx < paths.length; pathIdx++) {
+            var path = paths[pathIdx];
+            try {
+                var pts = path.pathPoints;
+                if (pts && pts.length >= 2) {
+                    connectionPoints.push({ x: pts[0].anchor[0], y: pts[0].anchor[1], type: "endpoint" });
+                    connectionPoints.push({ x: pts[pts.length - 1].anchor[0], y: pts[pts.length - 1].anchor[1], type: "endpoint" });
+                }
+            } catch (e) {}
+        }
+
+        // Create/get Ductwork Parts layer
+        var partsLayer = null;
+        try {
+            partsLayer = doc.layers.getByName("Ductwork Parts");
+        } catch (e) {
+            partsLayer = doc.layers.add();
+            partsLayer.name = "Ductwork Parts";
+        }
+
+        // Create anchor points at connection locations
+        for (var cpIdx = 0; cpIdx < connectionPoints.length; cpIdx++) {
+            var cp = connectionPoints[cpIdx];
+            try {
+                var anchorPath = partsLayer.pathItems.add();
+                var anchorPt = anchorPath.pathPoints.add();
+                anchorPt.anchor = [cp.x, cp.y];
+                anchorPt.leftDirection = [cp.x, cp.y];
+                anchorPt.rightDirection = [cp.x, cp.y];
+                anchorPath.stroked = false;
+                anchorPath.filled = false;
+                anchorPath.name = "__MDUX_anchor_" + cpIdx;
+                anchorCount++;
+            } catch (e) {
+                MDUX_debugLog("[CREATE-PARTS] Error creating anchor " + cpIdx + ": " + e);
+            }
+        }
+
+        return "Created " + anchorCount + " anchor point(s) at " + connectionPoints.length + " location(s)";
+    } catch (e) {
+        MDUX_debugLog("[CREATE-PARTS] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+function MDUX_createPartAnchorsOnly() {
+    MDUX_debugLog("[V3] MDUX_createPartAnchorsOnly called");
+    // This is essentially the same as createUpdateDuctworkParts but without graphics
+    return MDUX_createUpdateDuctworkParts();
+}
+
+function MDUX_selectDuctworkParts() {
+    MDUX_debugLog("[V3] MDUX_selectDuctworkParts called");
+    try {
+        var doc = app.activeDocument;
+        var sel = doc.selection;
+        if (!sel || sel.length === 0) return "No selection";
+
+        var partsFound = [];
+
+        // Find all ductwork parts in selection (items on any ductwork parts layer)
+        for (var i = 0; i < sel.length; i++) {
+            try {
+                var item = sel[i];
+                if (MDUX_isDuctworkPart(item)) {
+                    partsFound.push(item);
+                }
+            } catch (e) {}
+        }
+
+        if (partsFound.length === 0) {
+            return "No ductwork parts in selection";
+        }
+
+        doc.selection = null;
+        for (var j = 0; j < partsFound.length; j++) {
+            partsFound[j].selected = true;
+        }
+
+        return "Selected " + partsFound.length + " ductwork part(s)";
+    } catch (e) {
+        return "Error: " + e.message;
+    }
+}
+
+function MDUX_selectDuctworkAnchors() {
+    MDUX_debugLog("[V3] MDUX_selectDuctworkAnchors called");
+    try {
+        var doc = app.activeDocument;
+        var sel = doc.selection;
+        if (!sel || sel.length === 0) return "No selection";
+
+        var anchorsFound = [];
+
+        // Find all anchor points in selection (items with __MDUX names)
+        for (var i = 0; i < sel.length; i++) {
+            try {
+                var item = sel[i];
+                var name = item.name || "";
+                if (name.indexOf("__MDUX") === 0 || name.indexOf("anchor") !== -1) {
+                    anchorsFound.push(item);
+                }
+            } catch (e) {}
+        }
+
+        if (anchorsFound.length === 0) {
+            return "No ductwork anchors in selection";
+        }
+
+        doc.selection = null;
+        for (var j = 0; j < anchorsFound.length; j++) {
+            anchorsFound[j].selected = true;
+        }
+
+        return "Selected " + anchorsFound.length + " anchor(s)";
+    } catch (e) {
+        return "Error: " + e.message;
+    }
+}
+
+function MDUX_deleteSelectedAnchors() {
+    MDUX_debugLog("[V3] MDUX_deleteSelectedAnchors called");
+    try {
+        var doc = app.activeDocument;
+        var sel = doc.selection;
+        if (!sel || sel.length === 0) return "No selection";
+
+        var deletedCount = 0;
+
+        for (var i = sel.length - 1; i >= 0; i--) {
+            try {
+                var item = sel[i];
+                var name = item.name || "";
+                if (name.indexOf("__MDUX") === 0 || name.indexOf("anchor") !== -1) {
+                    item.remove();
+                    deletedCount++;
+                }
+            } catch (e) {}
+        }
+
+        return "Deleted " + deletedCount + " anchor(s)";
+    } catch (e) {
+        return "Error: " + e.message;
+    }
+}
+
+function MDUX_placeDuctworkPartGraphics() {
+    MDUX_debugLog("[V3] MDUX_placeDuctworkPartGraphics called");
+    try {
+        var doc = app.activeDocument;
+
+        // Find anchor points on Ductwork Parts layer
+        var partsLayer = null;
+        try {
+            partsLayer = doc.layers.getByName("Ductwork Parts");
+        } catch (e) {
+            return "No Ductwork Parts layer found";
+        }
+
+        // Find graphic library file
+        var graphicsPath = MDUX_extensionRoot() + "/graphics/ductwork-parts.ai";
+        var graphicsFile = new File(graphicsPath);
+
+        if (!graphicsFile.exists) {
+            MDUX_debugLog("[PLACE-GRAPHICS] Graphics file not found: " + graphicsPath);
+            return "Graphics library not found";
+        }
+
+        var placedCount = 0;
+
+        // Find all anchor points (paths with 1 point, no stroke/fill)
+        var anchorPositions = [];
+        for (var i = 0; i < partsLayer.pathItems.length; i++) {
+            var path = partsLayer.pathItems[i];
+            try {
+                if (path.pathPoints.length === 1 && !path.stroked && !path.filled) {
+                    var anchor = path.pathPoints[0].anchor;
+                    anchorPositions.push({
+                        x: anchor[0],
+                        y: anchor[1],
+                        path: path
+                    });
+                }
+            } catch (e) {}
+        }
+
+        if (anchorPositions.length === 0) {
+            return "No anchor points found on Ductwork Parts layer";
+        }
+
+        MDUX_debugLog("[PLACE-GRAPHICS] Found " + anchorPositions.length + " anchor position(s)");
+
+        // Place graphics at each anchor position
+        for (var j = 0; j < anchorPositions.length; j++) {
+            var anchorPos = anchorPositions[j];
+            try {
+                var placed = partsLayer.placedItems.add();
+                placed.file = graphicsFile;
+
+                // Center the graphic on the anchor position
+                var bounds = placed.geometricBounds;
+                var width = bounds[2] - bounds[0];
+                var height = bounds[1] - bounds[3];
+
+                placed.position = [
+                    anchorPos.x - width / 2,
+                    anchorPos.y + height / 2
+                ];
+
+                // Store metadata linking graphic to anchor
+                var meta = {
+                    anchorX: anchorPos.x,
+                    anchorY: anchorPos.y,
+                    rotation: 0,
+                    scale: 100
+                };
+                MDUX_setMetadata(placed, meta);
+
+                placedCount++;
+            } catch (e) {
+                MDUX_debugLog("[PLACE-GRAPHICS] Error placing graphic " + j + ": " + e);
+            }
+        }
+
+        return "Placed " + placedCount + " graphic(s) at anchor positions";
+    } catch (e) {
+        MDUX_debugLog("[PLACE-GRAPHICS] Error: " + e);
+        return "Error: " + e.message;
+    }
+}
+
+// ============================================
+// V3 FULL FUNCTIONS - Transform Panel
+// ============================================
+
+function MDUX_resetDuctworkPartsRotation() {
+    MDUX_debugLog("[V3] MDUX_resetDuctworkPartsRotation called");
+    try {
+        var doc = app.activeDocument;
+        var sel = doc.selection;
+        if (!sel || sel.length === 0) return "No selection";
+
+        MDUX_debugLog("[RESET-ROT] Selection has " + sel.length + " items");
+        var resetCount = 0;
+        var skippedNotPart = 0;
+        var skippedNoRotation = 0;
+
+        for (var i = 0; i < sel.length; i++) {
+            try {
+                var item = sel[i];
+                var layerName = "unknown";
+                try { layerName = item.layer ? item.layer.name : "no layer"; } catch (e) {}
+
+                // Check if it's a ductwork part (on any ductwork parts layer)
+                var isPart = MDUX_isDuctworkPart(item);
+                MDUX_debugLog("[RESET-ROT] Item " + i + " layer='" + layerName + "' isDuctworkPart=" + isPart);
+
+                if (!isPart) {
+                    skippedNotPart++;
+                    continue;
+                }
+
+                var meta = MDUX_getMetadata(item);
+                MDUX_debugLog("[RESET-ROT] Item " + i + " meta=" + (meta ? JSON.stringify(meta) : "null"));
+
+                // Also check for MD:PLACED_ROT tag in the note
+                var placedRot = 0;
+                var note = "";
+                try { note = item.note || ""; } catch (e) {}
+                var placedRotMatch = note.match(/MD:PLACED_ROT=([0-9.\-]+)/);
+                if (placedRotMatch) {
+                    placedRot = parseFloat(placedRotMatch[1]) || 0;
+                }
+
+                // Get cumulative rotation from metadata - check multiple possible sources
+                var cumRot = 0;
+                if (meta && meta.MDUX_CumulativeRotation !== undefined) {
+                    cumRot = parseFloat(meta.MDUX_CumulativeRotation) || 0;
+                } else if (meta && meta.MDUX_RotationOverride !== undefined) {
+                    // Old format - rotation override
+                    cumRot = parseFloat(meta.MDUX_RotationOverride) || 0;
+                } else if (meta && typeof meta.rotation === "number") {
+                    cumRot = meta.rotation;
+                } else if (meta && meta.tagRotation !== undefined) {
+                    cumRot = parseFloat(meta.tagRotation) || 0;
+                } else if (placedRot !== 0) {
+                    // Fall back to MD:PLACED_ROT from magic-final.jsx
+                    cumRot = placedRot;
+                }
+
+                MDUX_debugLog("[RESET-ROT] Item " + i + " cumRot=" + cumRot + " (placedRot=" + placedRot + ")");
+
+                if (Math.abs(cumRot) > 0.001) {
+                    // Capture center position before rotation
+                    var bounds = item.geometricBounds;
+                    var centerX = (bounds[0] + bounds[2]) / 2;
+                    var centerY = (bounds[1] + bounds[3]) / 2;
+
+                    // Rotate back to 0 around center
+                    item.rotate(-cumRot, true, true, true, true, Transformation.CENTER);
+
+                    // Verify center stayed in place, translate back if needed
+                    var newBounds = item.geometricBounds;
+                    var newCenterX = (newBounds[0] + newBounds[2]) / 2;
+                    var newCenterY = (newBounds[1] + newBounds[3]) / 2;
+                    if (Math.abs(newCenterX - centerX) > 0.1 || Math.abs(newCenterY - centerY) > 0.1) {
+                        item.translate(centerX - newCenterX, centerY - newCenterY);
+                    }
+
+                    // Update metadata - clear all rotation-related fields
+                    if (!meta) meta = {};
+                    meta.MDUX_CumulativeRotation = "0";
+                    meta.MDUX_RotationOverride = 0;
+                    meta.tagRotation = 0;
+                    if (typeof meta.rotation === "number") {
+                        meta.rotation = 0;
+                    }
+                    MDUX_setMetadata(item, meta);
+
+                    // Also clear MD:PLACED_ROT in the note
+                    try {
+                        var currentNote = item.note || "";
+                        currentNote = currentNote.replace(/MD:PLACED_ROT=[0-9.\-]+/g, "MD:PLACED_ROT=0");
+                        item.note = currentNote;
+                    } catch (e) {}
+
+                    // Relink PlacedItem to refresh bounding box (like rotation slider does)
+                    try {
+                        if (item.typename === "PlacedItem" && item.file) {
+                            var linkedFile = item.file;
+                            if (linkedFile && linkedFile.exists) {
+                                // Save note before relink - relink wipes metadata!
+                                var savedNote = item.note || "";
+                                MDUX_debugLog("[RESET-ROT] Saved note before relink: " + savedNote.substring(0, 80));
+
+                                // Three-step refresh like rotation slider: file assignment + relink + update
+                                item.file = linkedFile;
+                                try { item.relink(linkedFile); } catch (eRl) { }
+                                try { item.update(); } catch (eUp) { }
+
+                                // Restore the note after relink
+                                if (savedNote) {
+                                    item.note = savedNote;
+                                    MDUX_debugLog("[RESET-ROT] Restored note after relink");
+                                }
+                                MDUX_debugLog("[RESET-ROT] Refreshed link (file+relink+update) to fix bounding box");
+                            }
+                        }
+                    } catch (eRelink) {
+                        MDUX_debugLog("[RESET-ROT] Relink error (non-fatal): " + eRelink);
+                    }
+
+                    resetCount++;
+
+                    MDUX_debugLog("[RESET-ROT] Reset item " + i + " from " + cumRot + " to 0");
+                } else {
+                    skippedNoRotation++;
+                    MDUX_debugLog("[RESET-ROT] Item " + i + " skipped - no rotation to reset (cumRot=" + cumRot + ")");
+                }
+            } catch (e) {
+                MDUX_debugLog("[RESET-ROT] Error on item " + i + ": " + e);
+            }
+        }
+
+        MDUX_debugLog("[RESET-ROT] Summary: reset=" + resetCount + ", skippedNotPart=" + skippedNotPart + ", skippedNoRotation=" + skippedNoRotation);
+
+        // Return detailed message
+        if (resetCount === 0 && skippedNotPart > 0) {
+            return "No ductwork parts in selection (skipped " + skippedNotPart + " non-part items)";
+        } else if (resetCount === 0 && skippedNoRotation > 0) {
+            return "Parts have no rotation metadata - use rotation slider first";
+        }
+        return "Reset rotation on " + resetCount + " part(s)";
+    } catch (e) {
         return "Error: " + e.message;
     }
 }

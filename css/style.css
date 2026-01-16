@@ -279,7 +279,7 @@ button {
     background: transparent;
     border: 1px solid var(--secondary-color);
     color: var(--text-color);
-    padding: 3px 5px;
+    padding: 5px 6px;
     border-radius: 4px;
     cursor: pointer;
     font-family: inherit;
@@ -289,6 +289,8 @@ button {
     letter-spacing: 0.5px;
     position: relative;
     overflow: hidden;
+    min-height: 24px;
+    line-height: 1.2;
 }
 
 button:hover {
@@ -398,9 +400,13 @@ input[type="range"]::-webkit-slider-thumb {
 
 .layer-subgrid button {
     font-size: 7px;
-    padding: 3px;
-    height: 100%;
+    padding: 5px 3px;
+    min-height: 28px;
     white-space: normal;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
 }
 
 .unlock-btn {
@@ -505,4 +511,88 @@ footer:hover {
 .refresh-btn-top svg {
     color: var(--primary-color);
     filter: drop-shadow(0 0 3px var(--primary-color));
+}
+
+/* ============================================ */
+/* ACCORDION SECTIONS */
+/* ============================================ */
+
+.accordion-section {
+    margin-bottom: 4px;
+    border: 1px solid rgba(0, 170, 255, 0.3);
+    background: rgba(10, 20, 35, 0.6);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.accordion-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    cursor: pointer;
+    user-select: none;
+    transition: all 0.2s;
+    background: rgba(0, 50, 100, 0.2);
+}
+
+.accordion-header:hover {
+    background: rgba(0, 102, 255, 0.15);
+}
+
+.accordion-icon {
+    font-size: 8px;
+    color: var(--primary-color);
+    transition: transform 0.2s;
+    width: 10px;
+    text-align: center;
+}
+
+.accordion-title {
+    font-size: 9px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--primary-color);
+    text-shadow: 0 0 5px var(--primary-color);
+    font-weight: bold;
+}
+
+.accordion-content {
+    padding: 6px 8px;
+    border-top: 1px solid rgba(0, 240, 255, 0.15);
+}
+
+.accordion-section.expanded .accordion-header {
+    background: rgba(0, 102, 255, 0.1);
+}
+
+/* Button row with 3 equal columns */
+.btn-row-thirds {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+    margin-bottom: 4px;
+}
+
+.btn-row-thirds button {
+    font-size: 7px;
+    padding: 5px 3px;
+    white-space: normal;
+    min-height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+}
+
+/* Accent button style */
+.btn-accent {
+    border-color: var(--accent-color) !important;
+    color: var(--accent-color) !important;
+    background: rgba(255, 0, 60, 0.1) !important;
+}
+
+.btn-accent:hover {
+    background: rgba(255, 0, 60, 0.2) !important;
+    box-shadow: 0 0 10px rgba(255, 0, 60, 0.3) !important;
 }
