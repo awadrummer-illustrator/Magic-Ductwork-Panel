@@ -3164,6 +3164,7 @@ function MDUX_scaleStrokeRecursively(item, scalePercent, stats) {
 }
 
 function MDUX_transformEach(scale, rotation, undoPrevious) {
+    MDUX_debugLog("[TRANSFORM-EACH] === Called with scale=" + scale + ", rotation=" + rotation + ", undoPrevious=" + undoPrevious + " ===");
     try {
         if (app.documents.length === 0) return JSON.stringify({ ok: false, message: "No document open." });
 
@@ -3173,6 +3174,7 @@ function MDUX_transformEach(scale, rotation, undoPrevious) {
         var len = sel.length;
         var targetScale = Number(scale);        // ABSOLUTE target scale (e.g., 120 = 120%)
         var targetRotation = Number(rotation);  // ABSOLUTE target rotation (e.g., 45 = 45°)
+        MDUX_debugLog("[TRANSFORM-EACH] Selection: " + len + " items, targetScale=" + targetScale + ", targetRotation=" + targetRotation);
         var anchor = Number(MDUX_getDocumentScale()) || 100;
         var targetPercent = targetScale * (anchor / 100);
 
@@ -3212,16 +3214,26 @@ function MDUX_transformEach(scale, rotation, undoPrevious) {
                 var currentScale = parseFloat(meta.MDUX_CurrentScale || "100");
                 var currentRotation = parseFloat(meta.MDUX_CumulativeRotation || "0");
 
+                MDUX_debugLog("[TRANSFORM-EACH] Item " + i + ": isDuctPart=" + isDuctPart + ", isDuctLine=" + isDuctLine);
+                MDUX_debugLog("[TRANSFORM-EACH] currentRotation=" + currentRotation + ", targetRotation=" + targetRotation);
+
                 // --- ROTATION (ABSOLUTE) ---
                 // Calculate delta to reach target rotation from current rotation
                 if (isDuctPart) {
                     var rotationDelta = targetRotation - currentRotation;
+                    MDUX_debugLog("[TRANSFORM-EACH] rotationDelta=" + rotationDelta);
                     if (Math.abs(rotationDelta) > 0.001) {
+                        MDUX_debugLog("[TRANSFORM-EACH] Applying rotation: " + rotationDelta + "°");
                         item.rotate(rotationDelta, true, true, true, true, Transformation.CENTER);
                         meta.MDUX_CumulativeRotation = String(targetRotation);
                         // Also sync MDUX_RotationOverride so rotation text box reads correct value
                         meta.MDUX_RotationOverride = targetRotation;
+                        MDUX_debugLog("[TRANSFORM-EACH] Updated metadata: MDUX_CumulativeRotation=" + targetRotation);
+                    } else {
+                        MDUX_debugLog("[TRANSFORM-EACH] Skipping rotation (delta too small)");
                     }
+                } else {
+                    MDUX_debugLog("[TRANSFORM-EACH] Skipping rotation (not a duct part)");
                 }
 
                 // --- SCALING (ABSOLUTE) ---

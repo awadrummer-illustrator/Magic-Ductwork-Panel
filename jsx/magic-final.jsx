@@ -5461,10 +5461,21 @@ function isDuctworkLineLayer(name) {
                         }
                         safeDebug("[ROT-ABS] currentAngle = " + currentAngle);
                     } else {
-                        // For other items, try to read from metadata or assume 0
-                        var storedRot2 = getPlacedRotation(target);
-                        if (storedRot2 !== null && isFinite(storedRot2)) {
-                            currentAngle = storedRot2;
+                        // For other items (PathItems, GroupItems, etc.), check MDUX metadata first
+                        var meta2 = MDUX_getMetadata_inner(target);
+                        if (meta2 && meta2.MDUX_CumulativeRotation !== undefined) {
+                            currentAngle = parseFloat(meta2.MDUX_CumulativeRotation) || 0;
+                            safeDebug("[ROT-ABS] Using MDUX_CumulativeRotation: " + currentAngle);
+                        } else if (meta2 && meta2.MDUX_RotationOverride !== undefined && meta2.MDUX_RotationOverride !== null) {
+                            currentAngle = parseFloat(meta2.MDUX_RotationOverride) || 0;
+                            safeDebug("[ROT-ABS] Using MDUX_RotationOverride: " + currentAngle);
+                        } else {
+                            // Fallback to legacy getPlacedRotation
+                            var storedRot2 = getPlacedRotation(target);
+                            if (storedRot2 !== null && isFinite(storedRot2)) {
+                                currentAngle = storedRot2;
+                                safeDebug("[ROT-ABS] Using getPlacedRotation: " + currentAngle);
+                            }
                         }
                     }
 
@@ -5487,6 +5498,15 @@ function isDuctworkLineLayer(name) {
                         // Already at target, but update metadata to be consistent
                         if (typeName === "PlacedItem") {
                             setPlacedRotation(target, normalizedTarget);
+                            var skipMeta = MDUX_getMetadata_inner(target) || {};
+                            skipMeta.MDUX_CumulativeRotation = String(normalizedTarget);
+                            skipMeta.MDUX_RotationOverride = normalizedTarget;
+                            MDUX_setMetadata_inner(target, skipMeta);
+                        } else {
+                            var skipMeta2 = MDUX_getMetadata_inner(target) || {};
+                            skipMeta2.MDUX_CumulativeRotation = String(normalizedTarget);
+                            skipMeta2.MDUX_RotationOverride = normalizedTarget;
+                            MDUX_setMetadata_inner(target, skipMeta2);
                         }
                         stats.rotated++;
                         continue;
@@ -5505,6 +5525,7 @@ function isDuctworkLineLayer(name) {
                         // Also update MDUX_RotationOverride so the display shows the correct angle
                         var updateMeta = MDUX_getMetadata_inner(target) || {};
                         updateMeta.MDUX_RotationOverride = normalizedTarget;
+                        updateMeta.MDUX_CumulativeRotation = String(normalizedTarget);
                         MDUX_setMetadata_inner(target, updateMeta);
                         safeDebug("[ROT-ABS] Updated MDUX_RotationOverride: " + normalizedTarget);
 
@@ -5532,6 +5553,13 @@ function isDuctworkLineLayer(name) {
                         // Verify what was stored
                         var verifyRot = getPlacedRotation(target);
                         safeDebug("[ROT-ABS] Verify after store: " + verifyRot);
+                    } else {
+                        // For non-PlacedItems (PathItems, GroupItems, etc.), update MDUX metadata
+                        var updateMeta2 = MDUX_getMetadata_inner(target) || {};
+                        updateMeta2.MDUX_CumulativeRotation = String(normalizedTarget);
+                        updateMeta2.MDUX_RotationOverride = normalizedTarget;
+                        MDUX_setMetadata_inner(target, updateMeta2);
+                        safeDebug("[ROT-ABS] Updated MDUX metadata for non-PlacedItem: " + normalizedTarget);
                     }
                 } catch (eRotate) {
                     safeDebug("[ROT-ABS] ERROR: " + eRotate);

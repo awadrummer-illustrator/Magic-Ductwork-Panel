@@ -1758,6 +1758,14 @@
             if (e.key === 'Enter') {
                 e.preventDefault();
                 e.stopPropagation();
+
+                // CRITICAL: Cancel any pending slider debounce to prevent competing transforms
+                if (transformDebounceTimer) {
+                    clearTimeout(transformDebounceTimer);
+                    transformDebounceTimer = null;
+                }
+                teNextPayload = null;
+
                 scaleEnterPressed = true;
                 teScaleInput.blur();
                 console.log('[TRANSFORM] Enter pressed on scale, triggering Apply Transform');
@@ -1803,6 +1811,13 @@
                 e.stopPropagation();
                 let val = parseFloat(teRotateInput.value);
                 if (isNaN(val)) return;
+
+                // CRITICAL: Cancel any pending slider debounce to prevent competing transforms
+                if (transformDebounceTimer) {
+                    clearTimeout(transformDebounceTimer);
+                    transformDebounceTimer = null;
+                }
+                teNextPayload = null;
 
                 rotateEnterPressed = true;
                 teRotateInput.blur();
