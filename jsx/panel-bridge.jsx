@@ -932,6 +932,24 @@ function MDUX_resetTransforms(targetPercent) {
                         item.note = newNote;
                     } catch (eNote) {}
                 }
+
+                // Relink PlacedItem to refresh bounding box after rotation reset
+                if (item.typename === "PlacedItem") {
+                    try {
+                        var linkedFile = item.file;
+                        if (linkedFile && linkedFile.exists) {
+                            // Save note before relink - relink wipes metadata!
+                            var savedNote = item.note || "";
+                            item.file = linkedFile;
+                            try { item.relink(linkedFile); } catch (eRl) { }
+                            try { item.update(); } catch (eUp) { }
+                            // Restore the note after relink
+                            if (savedNote) {
+                                item.note = savedNote;
+                            }
+                        }
+                    } catch (eRelink) { }
+                }
             }
 
             // 2. Restore Scale (around center) - only for ductwork PARTS, not lines
@@ -3229,6 +3247,28 @@ function MDUX_transformEach(scale, rotation, undoPrevious) {
                         // Also sync MDUX_RotationOverride so rotation text box reads correct value
                         meta.MDUX_RotationOverride = targetRotation;
                         MDUX_debugLog("[TRANSFORM-EACH] Updated metadata: MDUX_CumulativeRotation=" + targetRotation);
+
+                        // For PlacedItems, refresh the link to fix the bounding box after rotation
+                        // (Same logic as rotateSelectionAbsolute in magic-final.jsx)
+                        if (item.typename === "PlacedItem") {
+                            try {
+                                var linkedFile = item.file;
+                                if (linkedFile && linkedFile.exists) {
+                                    // Save note before relink - relink wipes metadata!
+                                    var savedNote = item.note || "";
+                                    item.file = linkedFile;
+                                    try { item.relink(linkedFile); } catch (eRl) { }
+                                    try { item.update(); } catch (eUp) { }
+                                    // Restore the note after relink
+                                    if (savedNote) {
+                                        item.note = savedNote;
+                                    }
+                                    MDUX_debugLog("[TRANSFORM-EACH] Refreshed PlacedItem link to fix bounding box");
+                                }
+                            } catch (eRelink) {
+                                MDUX_debugLog("[TRANSFORM-EACH] Could not refresh link: " + eRelink);
+                            }
+                        }
                     } else {
                         MDUX_debugLog("[TRANSFORM-EACH] Skipping rotation (delta too small)");
                     }
@@ -3277,42 +3317,69 @@ function MDUX_getSelectedLineAngleBridge() {
             return JSON.stringify({ ok: false, message: "Please select a line." });
         }
 
-        // Find the first PathItem in the selection
-        var pathItem = null;
-        for (var i = 0; i < sel.length; i++) {
-            if (sel[i].typename === "PathItem") {
-                pathItem = sel[i];
-                break;
+        // Recursively collect all PathItems from selection (including groups and compound paths)
+        function collectPaths(item, paths) {
+            if (item.typename === "PathItem") {
+                paths.push(item);
+            } else if (item.typename === "GroupItem") {
+                for (var i = 0; i < item.pageItems.length; i++) {
+                    collectPaths(item.pageItems[i], paths);
+                }
+            } else if (item.typename === "CompoundPathItem") {
+                for (var j = 0; j < item.pathItems.length; j++) {
+                    paths.push(item.pathItems[j]);
+                }
             }
         }
 
-        if (!pathItem) {
+        var allPaths = [];
+        for (var s = 0; s < sel.length; s++) {
+            collectPaths(sel[s], allPaths);
+        }
+
+        if (allPaths.length === 0) {
             return JSON.stringify({ ok: false, message: "Please select a path or line." });
         }
 
-        if (!pathItem.pathPoints || pathItem.pathPoints.length < 2) {
-            return JSON.stringify({ ok: false, message: "Selected path must have at least 2 points." });
+        // Find the longest segment across all paths
+        var longestLength = 0;
+        var longestAngle = 0;
+        var segmentCount = 0;
+
+        for (var p = 0; p < allPaths.length; p++) {
+            var pathItem = allPaths[p];
+            if (!pathItem.pathPoints || pathItem.pathPoints.length < 2) continue;
+
+            // Check each segment in the path
+            for (var i = 0; i < pathItem.pathPoints.length - 1; i++) {
+                var point1 = pathItem.pathPoints[i].anchor;
+                var point2 = pathItem.pathPoints[i + 1].anchor;
+
+                var dx = point2[0] - point1[0];
+                var dy = point2[1] - point1[1];
+                var segmentLength = Math.sqrt(dx * dx + dy * dy);
+                segmentCount++;
+
+                if (segmentLength > longestLength) {
+                    longestLength = segmentLength;
+                    // Calculate angle - negate dy for Illustrator's inverted Y-axis
+                    var angleRadians = Math.atan2(-dy, dx);
+                    longestAngle = angleRadians * (180 / Math.PI);
+                }
+            }
         }
 
-        // Get the first two points of the path
-        var point1 = pathItem.pathPoints[0].anchor;
-        var point2 = pathItem.pathPoints[1].anchor;
-
-        // Calculate the angle in degrees
-        // atan2 returns angle in radians from -PI to PI
-        // Negate dy to account for Illustrator's inverted Y-axis (Y increases downward)
-        var dx = point2[0] - point1[0];
-        var dy = point2[1] - point1[1];
-        var angleRadians = Math.atan2(-dy, dx);
-        var angleDegrees = angleRadians * (180 / Math.PI);
+        if (longestLength === 0) {
+            return JSON.stringify({ ok: false, message: "No valid line segments found." });
+        }
 
         // Round to 1 decimal place
-        angleDegrees = Math.round(angleDegrees * 10) / 10;
+        longestAngle = Math.round(longestAngle * 10) / 10;
 
         return JSON.stringify({
             ok: true,
-            angle: angleDegrees,
-            message: "Angle: " + angleDegrees + "°"
+            angle: longestAngle,
+            message: "Angle: " + longestAngle + "° (longest of " + segmentCount + " segments)"
         });
 
     } catch (e) {

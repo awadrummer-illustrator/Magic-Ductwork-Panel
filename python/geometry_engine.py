@@ -33,8 +33,16 @@ PATH_ANCHOR_TOLERANCE = 10.0  # Distance threshold for path vertex at intersecti
 
 
 def log(msg: str):
-    """Log to stderr so it doesn't pollute JSON output."""
+    """Log to stderr and to file for debugging."""
     print(f"[PYGEOM] {msg}", file=sys.stderr)
+    # Also write to file for debugging
+    try:
+        from pathlib import Path
+        log_file = Path(__file__).parent.parent / "Debug" / "pygeometry.log"
+        with open(log_file, 'a', encoding='utf-8') as f:
+            f.write(f"[PYGEOM] {msg}\n")
+    except:
+        pass
 
 
 def paths_to_linestrings(paths_data: List[Dict]) -> List[Optional[LineString]]:
@@ -549,7 +557,8 @@ def snap_anchors(paths_data: List[Dict], snap_threshold: float = 5.0, locked_poi
 
 def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
                         steep_min: float = 17.0, steep_max: float = 70.0,
-                        locked_points: List[Dict] = None) -> Dict:
+                        locked_points: List[Dict] = None,
+                        rotation_override: float = None) -> Dict:
     """
     Full orthogonalization pipeline:
     1. Snap anchors to nearby segments
@@ -557,11 +566,38 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
     3. Return modified path coordinates
 
     locked_points: List of {path_idx, point_idx} dicts for points that should NOT snap.
-    
+    rotation_override: If specified, segments snap to this angle instead of 0°,
+                       and to (rotation_override + 90) instead of 90°.
+                       Steep angles (45° relative to override) are preserved.
+
     This replaces the iterative ExtendScript loop with a single Python call.
     """
     start_time = time.time()
-    
+
+    # Helper function to find the longest segment and its angle
+    def find_longest_segment_angle(paths_list):
+        max_length = 0
+        longest_angle = 0
+        longest_info = None
+        for path_idx, path in enumerate(paths_list):
+            pts = path['points']
+            if len(pts) < 2:
+                continue
+            for i in range(len(pts) - 1):
+                dx = pts[i + 1][0] - pts[i][0]
+                dy = pts[i + 1][1] - pts[i][1]
+                length = np.sqrt(dx * dx + dy * dy)
+                if length > max_length:
+                    max_length = length
+                    longest_angle = np.degrees(np.arctan2(dy, dx))
+                    longest_info = (path_idx, i, length)
+        return longest_angle, max_length, longest_info
+
+    # Handle rotation override - snap directly to override grid angles
+    has_rotation_override = rotation_override is not None and rotation_override != 0
+    if has_rotation_override:
+        log(f"Rotation override: {rotation_override}° - will snap to {rotation_override}°, {rotation_override + 90}°, {rotation_override + 45}° grid")
+
     # Build set of locked points for fast lookup
     locked_set = set()
     if locked_points:
@@ -578,6 +614,11 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
             'layer': p.get('layerName', ''),
             'id': p.get('id', -1)
         })
+
+    # Log original longest segment angle
+    if has_rotation_override:
+        orig_angle, orig_length, orig_info = find_longest_segment_angle(paths)
+        log(f"[DEBUG] ORIGINAL longest segment: angle={orig_angle:.2f}°, length={orig_length:.1f}")
 
     changes_made = True
     iteration = 0
@@ -633,6 +674,16 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
                             break
 
         # Phase 2: Orthogonalize segments
+        # If rotation override is set, snap to override grid (override, override+90, override+45)
+        # Otherwise snap to standard grid (0, 90, 45)
+
+        # Define target angles based on override
+        if has_rotation_override:
+            # Grid angles: override (horizontal), override+90 (vertical), override+45 (diagonal)
+            base = rotation_override
+        else:
+            base = 0
+
         for path in paths:
             pts = path['points']
             if len(pts) < 2:
@@ -648,66 +699,71 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
                 if abs(dx) < 0.001 and abs(dy) < 0.001:
                     continue
 
-                # Calculate normalized angle (-90 to 90)
+                segment_length = np.sqrt(dx * dx + dy * dy)
                 angle_deg = np.degrees(np.arctan2(dy, dx))
-                if angle_deg > 90:
-                    angle_deg = angle_deg - 180
-                elif angle_deg < -90:
-                    angle_deg = angle_deg + 180
 
-                # Check if within 10� of �45� - snap to exactly 45�
-                if (35 <= angle_deg <= 55) or (-55 <= angle_deg <= -35):
-                    # Snap to 45� or -45�
-                    segment_length = np.sqrt(dx * dx + dy * dy)
-                    diagonal_component = segment_length / np.sqrt(2)
+                # Helper to normalize angle difference to -90 to 90
+                def angle_diff(a, b):
+                    diff = (a - b) % 180
+                    if diff > 90:
+                        diff -= 180
+                    return diff
 
-                    # Preserve direction signs
-                    if angle_deg > 0:
-                        # Positive 45� - snap to exactly 45�
-                        new_dx = diagonal_component if dx > 0 else -diagonal_component
-                        new_dy = diagonal_component if dy > 0 else -diagonal_component
+                # Calculate difference from each grid angle
+                diff_horiz = angle_diff(angle_deg, base)        # difference from "horizontal" (base)
+                diff_vert = angle_diff(angle_deg, base + 90)    # difference from "vertical" (base+90)
+                diff_diag = angle_diff(angle_deg, base + 45)    # difference from diagonal (base+45)
+                diff_diag2 = angle_diff(angle_deg, base - 45)   # difference from other diagonal (base-45)
+
+                # Find smallest absolute difference
+                abs_diffs = [abs(diff_horiz), abs(diff_vert), abs(diff_diag), abs(diff_diag2)]
+                min_diff = min(abs_diffs)
+
+                # Steep angle preservation: if closest grid angle is still >17° away, preserve
+                if min_diff > steep_max:
+                    continue
+
+                # If within tolerance of grid, snap to it
+                if min_diff < steep_min:
+                    # Find which grid angle we're snapping to
+                    if abs(diff_horiz) == min_diff:
+                        target_angle = base
+                    elif abs(diff_vert) == min_diff:
+                        target_angle = base + 90
+                    elif abs(diff_diag) == min_diff:
+                        target_angle = base + 45
                     else:
-                        # Negative 45� - snap to exactly -45�
-                        new_dx = diagonal_component if dx > 0 else -diagonal_component
-                        new_dy = -diagonal_component if dy < 0 else diagonal_component
+                        target_angle = base - 45
 
-                    # Apply the snap
-                    pts[i + 1][0] = pts[i][0] + new_dx
-                    pts[i + 1][1] = pts[i][1] + new_dy
-                    changes_made = True
-                    total_ortho += 1
-                    continue
+                    # Snap to target angle
+                    target_rad = np.radians(target_angle)
+                    new_dx = segment_length * np.cos(target_rad)
+                    new_dy = segment_length * np.sin(target_rad)
 
-                angle = abs(angle_deg)
+                    # Preserve direction (don't flip the segment)
+                    if np.sign(new_dx) != np.sign(dx) and abs(dx) > 0.01:
+                        new_dx = -new_dx
+                        new_dy = -new_dy
 
-                # Skip steep angles (non-orthogonal by design)
-                if steep_min <= angle <= steep_max:
-                    continue
-
-                # Decide whether to make horizontal or vertical
-                if abs(dx) > abs(dy):
-                    # More horizontal - make perfectly horizontal
-                    if pts[i + 1][1] != pts[i][1]:
-                        mid_y = (p1[1] + p2[1]) / 2
-                        pts[i][1] = mid_y
-                        pts[i + 1][1] = mid_y
+                    if abs(pts[i + 1][0] - (pts[i][0] + new_dx)) > 0.01 or abs(pts[i + 1][1] - (pts[i][1] + new_dy)) > 0.01:
+                        pts[i + 1][0] = pts[i][0] + new_dx
+                        pts[i + 1][1] = pts[i][1] + new_dy
                         changes_made = True
                         total_ortho += 1
-                else:
-                    # More vertical - make perfectly vertical
-                    if pts[i + 1][0] != pts[i][0]:
-                        mid_x = (p1[0] + p2[0]) / 2
-                        pts[i][0] = mid_x
-                        pts[i + 1][0] = mid_x
-                        changes_made = True
-                        total_ortho += 1
+
+    # Log angle after orthogonalization
+    if has_rotation_override:
+        post_ortho_angle, post_ortho_length, _ = find_longest_segment_angle(paths)
+        log(f"[DEBUG] AFTER ORTHO: longest segment angle={post_ortho_angle:.2f}° (target grid: {rotation_override}°, {rotation_override+90}°, {rotation_override+45}°)")
+        log(f"[DEBUG] SUMMARY: Original={orig_angle:.2f}° -> Final={post_ortho_angle:.2f}°")
 
     # Convert back to output format
     result_paths = []
     for path in paths:
+        pts = path['points']
         result_paths.append({
             'id': path['id'],
-            'points': [{'x': float(pt[0]), 'y': float(pt[1])} for pt in path['points']]
+            'points': [{'x': float(pt[0]), 'y': float(pt[1])} for pt in pts]
         })
 
     elapsed_ms = (time.time() - start_time) * 1000

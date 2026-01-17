@@ -463,7 +463,7 @@ var PythonBridge = (function() {
         findConnections: function(p, d, t) { return executePython('find_connections', p, { max_dist: d || 10, t_tolerance: t }); },
         detectIntersections: function(p) { return executePython('detect_intersections', p, {}); },
         buildGroups: function(p, d) { return executePython('build_groups', p, { max_dist: d || 10 }); },
-        orthogonalize: function(p, t, lockedPts) { return executePython('orthogonalize', p, { snap_threshold: t || 5, steep_min: 17, steep_max: 70, locked_points: lockedPts || [] }); },
+        orthogonalize: function(p, t, lockedPts, rotationOverride) { return executePython('orthogonalize', p, { snap_threshold: t || 5, steep_min: 17, steep_max: 70, locked_points: lockedPts || [], rotation_override: (typeof rotationOverride === 'number' && isFinite(rotationOverride)) ? rotationOverride : null }); },
         findCrossovers: function(p) { return executePython('find_crossovers', p, {}); },
         snapAnchors: function(p, t) { return executePython('snap_anchors', p, { snap_threshold: t || 5 }); },
         findCollinearAnchors: function(p, tol) { return executePython('find_collinear_anchors', p, { collinear_tolerance: tol || 0.005 }); },
@@ -16504,6 +16504,7 @@ function isDuctworkLineLayer(name) {
 
         var pythonOrthoSuccess = false;
 
+        // Python handles rotation override using rotate-ortho-rotate approach (all coords rotate together)
         if ($.global.MDUX_USE_PYTHON && typeof PythonBridge !== 'undefined' && PythonBridge.isAvailable()) {
             addDebug("[PYTHON-ORTHO] Attempting Python-accelerated orthogonalization for " + geometryPaths.length + " paths");
             var orthoStartTime = new Date().getTime();
@@ -16574,8 +16575,8 @@ function isDuctworkLineLayer(name) {
 
             try {
                 updateProgress("Orthogonalizing paths (Python)...");
-                addDebug("[PYTHON-ORTHO] Sending " + pathsForPython.length + " paths to Python (excluded " + excludedPaths.length + " branch paths, locked " + lockedPointsForPython.length + " points)");
-                var pyOrthoResult = PythonBridge.orthogonalize(pathsForPython, SNAP_THRESHOLD, lockedPointsForPython);
+                addDebug("[PYTHON-ORTHO] Sending " + pathsForPython.length + " paths to Python (excluded " + excludedPaths.length + " branch paths, locked " + lockedPointsForPython.length + " points, rotation_override=" + GLOBAL_ROTATION_OVERRIDE + ")");
+                var pyOrthoResult = PythonBridge.orthogonalize(pathsForPython, SNAP_THRESHOLD, lockedPointsForPython, GLOBAL_ROTATION_OVERRIDE);
 
                 if (pyOrthoResult && pyOrthoResult.paths && !pyOrthoResult.error) {
                     // Apply Python results back to Illustrator paths
@@ -17125,30 +17126,75 @@ function isDuctworkLineLayer(name) {
                         // IMPORTANT: Must orthogonalize ALL segments from crossover to end of path
                         // before splitting, otherwise the split halves will have misaligned endpoints.
                         var tolerance = 0.5; // Allow small tolerance for already-orthogonal segments
-                        if (Math.abs(segDx) > tolerance && Math.abs(segDy) > tolerance) {
-                            addDebug("[POST-ORTHO-SPLIT] Crossover segment is non-orthogonal (dx=" + segDx.toFixed(2) + ", dy=" + segDy.toFixed(2) + ") - forcing orthogonalization of entire path");
+                        var hasRotationOverride = (typeof GLOBAL_ROTATION_OVERRIDE === "number" && isFinite(GLOBAL_ROTATION_OVERRIDE) && Math.abs(GLOBAL_ROTATION_OVERRIDE % 360) > 0.001);
+                        var rotRad = 0;
+                        var cosRot = 1;
+                        var sinRot = 0;
+                        var localSegDx = segDx;
+                        var localSegDy = segDy;
+
+                        if (hasRotationOverride) {
+                            rotRad = GLOBAL_ROTATION_OVERRIDE * (Math.PI / 180);
+                            cosRot = Math.cos(rotRad);
+                            sinRot = Math.sin(rotRad);
+                            // Rotate segment into local (override-aligned) space for orthogonality check
+                            localSegDx = (segDx * cosRot) + (segDy * sinRot);
+                            localSegDy = (-segDx * sinRot) + (segDy * cosRot);
+                        }
+
+                        if (Math.abs(localSegDx) > tolerance && Math.abs(localSegDy) > tolerance) {
+                            addDebug("[POST-ORTHO-SPLIT] Crossover segment is non-orthogonal (dx=" + segDx.toFixed(2) + ", dy=" + segDy.toFixed(2) +
+                                     (hasRotationOverride ? ", localDx=" + localSegDx.toFixed(2) + ", localDy=" + localSegDy.toFixed(2) : "") +
+                                     ") - forcing orthogonalization of entire path");
 
                             // Determine orientation based on dominant direction of crossover segment
-                            var isHorizontal = Math.abs(segDx) > Math.abs(segDy);
-                            var alignmentCoord = segStartPt[isHorizontal ? 1 : 0]; // Y for horizontal, X for vertical
+                            var isHorizontal = Math.abs(localSegDx) > Math.abs(localSegDy);
 
-                            addDebug("[POST-ORTHO-SPLIT] Forcing " + (isHorizontal ? "HORIZONTAL" : "VERTICAL") + " alignment at " + (isHorizontal ? "Y" : "X") + "=" + alignmentCoord.toFixed(2));
+                            if (hasRotationOverride) {
+                                var segStartLocalX = (segStartPt[0] * cosRot) + (segStartPt[1] * sinRot);
+                                var segStartLocalY = (-segStartPt[0] * sinRot) + (segStartPt[1] * cosRot);
+                                addDebug("[POST-ORTHO-SPLIT] Forcing " + (isHorizontal ? "HORIZONTAL" : "VERTICAL") + " alignment in rotated grid (rot=" + GLOBAL_ROTATION_OVERRIDE + ")");
 
-                            // Orthogonalize ALL points from crossover segment to end of path
-                            for (var i = segIdx + 1; i < pts.length; i++) {
-                                var oldAnchor = pts[i].anchor;
-                                if (isHorizontal) {
-                                    // Horizontal: set all Y coordinates to alignment Y
-                                    pts[i].anchor = [oldAnchor[0], alignmentCoord];
-                                    pts[i].leftDirection = [oldAnchor[0], alignmentCoord];
-                                    pts[i].rightDirection = [oldAnchor[0], alignmentCoord];
-                                    addDebug("[POST-ORTHO-SPLIT]   Point " + i + ": [" + oldAnchor[0].toFixed(1) + "," + oldAnchor[1].toFixed(1) + "] -> [" + oldAnchor[0].toFixed(1) + "," + alignmentCoord.toFixed(1) + "]");
-                                } else {
-                                    // Vertical: set all X coordinates to alignment X
-                                    pts[i].anchor = [alignmentCoord, oldAnchor[1]];
-                                    pts[i].leftDirection = [alignmentCoord, oldAnchor[1]];
-                                    pts[i].rightDirection = [alignmentCoord, oldAnchor[1]];
-                                    addDebug("[POST-ORTHO-SPLIT]   Point " + i + ": [" + oldAnchor[0].toFixed(1) + "," + oldAnchor[1].toFixed(1) + "] -> [" + alignmentCoord.toFixed(1) + "," + oldAnchor[1].toFixed(1) + "]");
+                                // Orthogonalize ALL points from crossover segment to end of path in local space, then rotate back
+                                for (var i = segIdx + 1; i < pts.length; i++) {
+                                    var oldAnchor = pts[i].anchor;
+                                    var localX = (oldAnchor[0] * cosRot) + (oldAnchor[1] * sinRot);
+                                    var localY = (-oldAnchor[0] * sinRot) + (oldAnchor[1] * cosRot);
+
+                                    if (isHorizontal) {
+                                        localY = segStartLocalY;
+                                    } else {
+                                        localX = segStartLocalX;
+                                    }
+
+                                    var worldX = (localX * cosRot) - (localY * sinRot);
+                                    var worldY = (localX * sinRot) + (localY * cosRot);
+
+                                    pts[i].anchor = [worldX, worldY];
+                                    pts[i].leftDirection = [worldX, worldY];
+                                    pts[i].rightDirection = [worldX, worldY];
+                                    addDebug("[POST-ORTHO-SPLIT]   Point " + i + ": [" + oldAnchor[0].toFixed(1) + "," + oldAnchor[1].toFixed(1) + "] -> [" + worldX.toFixed(1) + "," + worldY.toFixed(1) + "]");
+                                }
+                            } else {
+                                var alignmentCoord = segStartPt[isHorizontal ? 1 : 0]; // Y for horizontal, X for vertical
+                                addDebug("[POST-ORTHO-SPLIT] Forcing " + (isHorizontal ? "HORIZONTAL" : "VERTICAL") + " alignment at " + (isHorizontal ? "Y" : "X") + "=" + alignmentCoord.toFixed(2));
+
+                                // Orthogonalize ALL points from crossover segment to end of path
+                                for (var i = segIdx + 1; i < pts.length; i++) {
+                                    var oldAnchor = pts[i].anchor;
+                                    if (isHorizontal) {
+                                        // Horizontal: set all Y coordinates to alignment Y
+                                        pts[i].anchor = [oldAnchor[0], alignmentCoord];
+                                        pts[i].leftDirection = [oldAnchor[0], alignmentCoord];
+                                        pts[i].rightDirection = [oldAnchor[0], alignmentCoord];
+                                        addDebug("[POST-ORTHO-SPLIT]   Point " + i + ": [" + oldAnchor[0].toFixed(1) + "," + oldAnchor[1].toFixed(1) + "] -> [" + oldAnchor[0].toFixed(1) + "," + alignmentCoord.toFixed(1) + "]");
+                                    } else {
+                                        // Vertical: set all X coordinates to alignment X
+                                        pts[i].anchor = [alignmentCoord, oldAnchor[1]];
+                                        pts[i].leftDirection = [alignmentCoord, oldAnchor[1]];
+                                        pts[i].rightDirection = [alignmentCoord, oldAnchor[1]];
+                                        addDebug("[POST-ORTHO-SPLIT]   Point " + i + ": [" + oldAnchor[0].toFixed(1) + "," + oldAnchor[1].toFixed(1) + "] -> [" + alignmentCoord.toFixed(1) + "," + oldAnchor[1].toFixed(1) + "]");
+                                    }
                                 }
                             }
 
@@ -22011,7 +22057,23 @@ function isDuctworkLineLayer(name) {
                             } catch (eSp) { }
                         }
                     }
-                    addDebug("[COMPONENT PLACEMENT] Using " + selectedPathsToUse.length + " cached selected path(s) from SELECTED_PATHS");
+                    // Also include compound paths created during carve-out (branch paths become compounds)
+                    // These have vertices that should be included in proximity filtering
+                    if (typeof CARVE_OUT_COMPOUNDS !== "undefined" && CARVE_OUT_COMPOUNDS && CARVE_OUT_COMPOUNDS.length > 0) {
+                        addDebug("[COMPONENT PLACEMENT] Adding " + CARVE_OUT_COMPOUNDS.length + " carve-out compound paths for proximity filtering");
+                        for (var cocIdx = 0; cocIdx < CARVE_OUT_COMPOUNDS.length; cocIdx++) {
+                            try {
+                                var coc = CARVE_OUT_COMPOUNDS[cocIdx];
+                                if (!coc) continue;
+                                // Validate compound path is still valid
+                                var cocType = coc.typename;
+                                if (cocType === "CompoundPathItem" && coc.layer && ductworkLayerLookup[coc.layer.name]) {
+                                    selectedPathsToUse.push(coc);
+                                }
+                            } catch (eCoc) { }
+                        }
+                    }
+                    addDebug("[COMPONENT PLACEMENT] Using " + selectedPathsToUse.length + " path(s) for proximity filter (SELECTED_PATHS + CARVE_OUT_COMPOUNDS)");
                     if (selectedPathsToUse.length === 0) selectedPathsToUse = null;
                     placeLinkedComponents_local(doc, selectedPathsToUse);
 
@@ -22990,20 +23052,23 @@ function isDuctworkLineLayer(name) {
                     }
 
                     // Helper to check if a point is near any selected path endpoint
-                    function isNearSelectedPath(pos) {
-                        if (!useProximityFilter) return true; // No filter active
-                        if (!isWithinSelectionBounds(pos)) return false;
+                    // Returns { near: boolean, minDist: number, reason: string }
+                    function isNearSelectedPath(pos, debugKey) {
+                        if (!useProximityFilter) return { near: true, minDist: 0, reason: "no-filter" };
+                        if (!isWithinSelectionBounds(pos)) return { near: false, minDist: -1, reason: "outside-bounds" };
                         var PROXIMITY_THRESHOLD = 10; // CLOSE_DIST constant
+                        var minDistSq = Infinity;
                         for (var i = 0; i < selectedEndpoints.length; i++) {
                             var ep = selectedEndpoints[i];
                             var dx = pos[0] - ep[0];
                             var dy = pos[1] - ep[1];
                             var distSq = dx * dx + dy * dy;
+                            if (distSq < minDistSq) minDistSq = distSq;
                             if (distSq <= PROXIMITY_THRESHOLD * PROXIMITY_THRESHOLD) {
-                                return true;
+                                return { near: true, minDist: Math.sqrt(distSq), reason: "matched" };
                             }
                         }
-                        return false;
+                        return { near: false, minDist: Math.sqrt(minDistSq), reason: "too-far" };
                     }
 
                     function processPath(p) {
@@ -23051,7 +23116,10 @@ function isDuctworkLineLayer(name) {
                             var key = a[0].toFixed(2) + "_" + a[1].toFixed(2);
                             if (!seen[key]) {
                                 var anchorPos = [a[0], a[1]];
-                                if (!isWithinSelectionBounds(anchorPos)) {
+                                // Skip bounds check when proximity filter is active - proximity already limits search
+                                // Bounds uses pre-ortho positions but anchors may be at post-ortho endpoints
+                                if (!useProximityFilter && !isWithinSelectionBounds(anchorPos)) {
+                                    addDebug("[ANCHOR " + key + "] REJECTED - outside selection bounds");
                                     continue;
                                 }
                                 // Skip if anchor is ignored (within IGNORED_DIST of any ignored anchor)
@@ -23060,10 +23128,13 @@ function isDuctworkLineLayer(name) {
                                     continue;
                                 }
                                 // Only include anchor if it's near selected paths (or no filter active)
-                                if (isNearSelectedPath(anchorPos) || bypassProximity) {
+                                var proximityResult = isNearSelectedPath(anchorPos, key);
+                                if (proximityResult.near || bypassProximity) {
                                     seen[key] = true;
                                     pts.push({ pos: anchorPos, rotation: rotation });
                                     addDebug("[ANCHOR " + key + "] Rotation: " + (rotation !== null ? rotation + "° from " + rotationSource : "null"));
+                                } else {
+                                    addDebug("[ANCHOR " + key + "] REJECTED - " + proximityResult.reason + " (minDist=" + proximityResult.minDist.toFixed(1) + "pt, threshold=10pt)");
                                 }
                             }
                         }
@@ -23105,7 +23176,8 @@ function isDuctworkLineLayer(name) {
                                     // Skip if already seen
                                     if (seen[key]) continue;
 
-                                    if (!isWithinSelectionBounds(centerPos)) {
+                                    // Skip bounds check when proximity filter is active
+                                    if (!useProximityFilter && !isWithinSelectionBounds(centerPos)) {
                                         continue;
                                     }
 
@@ -23116,11 +23188,14 @@ function isDuctworkLineLayer(name) {
                                     }
 
                                     // Only include if near selected paths (or no filter active)
-                                    if (isNearSelectedPath(centerPos)) {
+                                    var placedProximityResult = isNearSelectedPath(centerPos, key);
+                                    if (placedProximityResult.near) {
                                         seen[key] = true;
                                         // PlacedItems don't have rotation metadata on their anchor points, rotation will be determined later
                                         pts.push({ pos: centerPos, rotation: null });
                                         addDebug("[PLACED " + key + "] Collected existing PlacedItem for file link update");
+                                    } else {
+                                        addDebug("[PLACED " + key + "] REJECTED - " + placedProximityResult.reason + " (minDist=" + placedProximityResult.minDist.toFixed(1) + "pt)");
                                     }
                                 } catch (e) {
                                     // Skip this placed item

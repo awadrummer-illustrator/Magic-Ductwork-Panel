@@ -585,6 +585,41 @@ footer:hover {
     text-align: center;
 }
 
+/* Process options checkboxes row */
+.process-options-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    margin: 6px 0;
+    padding: 4px 0;
+}
+
+.process-option {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 8px;
+    color: var(--text-color);
+    cursor: pointer;
+    opacity: 0.7;
+    transition: opacity 0.2s;
+}
+
+.process-option:hover {
+    opacity: 1;
+}
+
+.process-option input[type="checkbox"] {
+    width: 12px;
+    height: 12px;
+    accent-color: var(--primary-color);
+    cursor: pointer;
+}
+
+.process-option span {
+    white-space: nowrap;
+}
+
 /* Accent button style */
 .btn-accent {
     border-color: var(--accent-color) !important;

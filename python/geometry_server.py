@@ -43,6 +43,28 @@ STATUS_UPDATE_INTERVAL = 2.0
 # How often to check for new requests (seconds)
 POLL_INTERVAL = 0.05  # 50ms
 
+# How often to check if Illustrator is still running (seconds)
+ILLUSTRATOR_CHECK_INTERVAL = 5.0
+
+# How long to wait after Illustrator closes before shutting down (seconds)
+# This gives time for quick restarts
+SHUTDOWN_GRACE_PERIOD = 10.0
+
+
+def is_illustrator_running():
+    """Check if Adobe Illustrator is currently running."""
+    try:
+        import subprocess
+        # Use tasklist to check for Illustrator process
+        result = subprocess.run(
+            ['tasklist', '/FI', 'IMAGENAME eq Illustrator.exe', '/NH'],
+            capture_output=True, text=True, timeout=5
+        )
+        return 'Illustrator.exe' in result.stdout
+    except Exception:
+        # If we can't check, assume it's running to avoid false shutdowns
+        return True
+
 
 def ensure_watch_folder(folder):
     """Create watch folder if it doesn't exist."""
@@ -73,6 +95,41 @@ def status_heartbeat_thread(folder, stop_event):
         stop_event.wait(STATUS_UPDATE_INTERVAL)
     # Write final "stopped" status
     write_status_file(folder, running=False)
+
+
+def illustrator_monitor_thread(stop_event):
+    """Background thread to monitor if Illustrator is still running.
+
+    If Illustrator closes, this thread will trigger server shutdown after a grace period.
+    """
+    illustrator_was_running = True
+    shutdown_timer_start = None
+
+    while not stop_event.is_set():
+        is_running = is_illustrator_running()
+
+        if is_running:
+            # Illustrator is running - reset any shutdown timer
+            if shutdown_timer_start is not None:
+                log("[SERVER] Illustrator detected again - cancelling shutdown")
+                shutdown_timer_start = None
+            illustrator_was_running = True
+        else:
+            # Illustrator is not running
+            if illustrator_was_running:
+                # Just closed - start grace period
+                log(f"[SERVER] Illustrator not detected - starting {SHUTDOWN_GRACE_PERIOD}s grace period")
+                shutdown_timer_start = time.time()
+                illustrator_was_running = False
+            elif shutdown_timer_start is not None:
+                # Check if grace period has elapsed
+                elapsed = time.time() - shutdown_timer_start
+                if elapsed >= SHUTDOWN_GRACE_PERIOD:
+                    log("[SERVER] Grace period elapsed - Illustrator still not running, initiating shutdown")
+                    stop_event.set()
+                    return
+
+        stop_event.wait(ILLUSTRATOR_CHECK_INTERVAL)
 
 
 def process_request(request_data):
@@ -218,6 +275,15 @@ def run_server(watch_folder=DEFAULT_WATCH_FOLDER):
         daemon=True
     )
     heartbeat.start()
+
+    # Start Illustrator monitor thread (auto-shutdown when Illustrator closes)
+    monitor = threading.Thread(
+        target=illustrator_monitor_thread,
+        args=(stop_event,),
+        daemon=True
+    )
+    monitor.start()
+    log("[SERVER] Illustrator monitor started - will auto-shutdown when Illustrator closes")
 
     # Write initial status
     write_status_file(folder, running=True)

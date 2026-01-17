@@ -135,6 +135,25 @@
         return root.replace(/\\/g, '/') + '/jsx/panel-bridge.jsx';
     })();;
 
+    /**
+     * Normalize angle to range -90 to 90 (acute angle from axis)
+     * This gives the meaningful "tilt" for ductwork rotation override.
+     * e.g., 170 -> -10 (10° from horizontal), 100 -> -80, 270 -> 0
+     */
+    function normalizeAngle(angle) {
+        // First, reduce to 0-360 range
+        angle = angle % 360;
+        // Handle negative results from modulo
+        if (angle < 0) angle += 360;
+        // Convert to -180 to 180 range first
+        if (angle > 180) angle -= 360;
+        // Now convert to -90 to 90 range (acute angle)
+        if (angle > 90) angle -= 180;
+        else if (angle < -90) angle += 180;
+        // Round to avoid floating point noise
+        return Math.round(angle * 100) / 100;
+    }
+
     function evalScript(script) {
         return new Promise((resolve, reject) => {
             csInterface.evalScript(script, (result) => {
@@ -439,6 +458,12 @@
         }
 
         var formatted = summary.formatted || '';
+        // Normalize the angle if it's a valid number
+        var numVal = parseFloat(formatted);
+        if (!isNaN(numVal)) {
+            var normalized = normalizeAngle(numVal);
+            formatted = normalized.toString();
+        }
         rotationInput.value = formatted;
         rotationInput.dataset.autoValue = formatted;
 
@@ -575,15 +600,18 @@
             }
         }
 
-        const enableRegisterCarveOption = document.getElementById('enable-register-carve-option');
-        const enableOverlapCarveOption = document.getElementById('enable-overlap-carve-option');
+        // Use new visible checkboxes for process options (all off by default)
+        const processRotateRegistersOption = document.getElementById('process-rotate-registers-option');
+        const processCarveRegistersOption = document.getElementById('process-carve-registers-option');
+        const processCarveOverlapsOption = document.getElementById('process-carve-overlaps-option');
         const options = {
             action: 'process',
             skipAllBranchSegments: !!skipAllBranchesOption.checked,
             skipFinalRegisterSegment: !!skipFinalOption.checked,
-            skipRegisterRotation: !(skipRegisterRotationOption && skipRegisterRotationOption.checked),
-            enableRegisterCarve: !!(enableRegisterCarveOption && enableRegisterCarveOption.checked),
-            enableOverlapCarve: !!(enableOverlapCarveOption && enableOverlapCarveOption.checked)
+            // skipRegisterRotation is TRUE to skip rotation (checkbox NOT checked = skip)
+            skipRegisterRotation: !(processRotateRegistersOption && processRotateRegistersOption.checked),
+            enableRegisterCarve: !!(processCarveRegistersOption && processCarveRegistersOption.checked),
+            enableOverlapCarve: !!(processCarveOverlapsOption && processCarveOverlapsOption.checked)
         };
 
         if (!skipOrthoOption.indeterminate) {
@@ -984,11 +1012,12 @@
         try {
             const data = JSON.parse(result.value);
             if (data.ok && typeof data.angle === 'number') {
-                rotationInput.value = data.angle.toString();
+                const normalized = normalizeAngle(data.angle);
+                rotationInput.value = normalized.toString();
                 rotationInput.dataset.autoValue = '';
                 rotationInput.dataset.multi = 'false';
-                setProcessStatus(data.message || ('Angle set to ' + data.angle + '°'));
-                debugStatus.textContent = 'Angle retrieved: ' + data.angle + '°';
+                setProcessStatus(data.message || ('Angle set to ' + normalized + '°'));
+                debugStatus.textContent = 'Angle retrieved: ' + normalized + '°';
             } else {
                 setProcessStatus(data.message || 'Failed to get angle', true);
                 debugStatus.textContent = 'Get angle failed: ' + (data.message || 'Unknown error');
@@ -1227,9 +1256,13 @@
         if (transformDebounceTimer) {
             clearTimeout(transformDebounceTimer);
         }
-        transformDebounceTimer = setTimeout(() => {
-            processTransformQueue();
+        transformDebounceTimer = setTimeout(async () => {
+            await processTransformQueue();
             transformDebounceTimer = null;
+            // Small delay to let Illustrator finalize state before polling can run
+            await new Promise(r => setTimeout(r, 100));
+            // NOW safe to allow polling again - transform is complete
+            teDragActive = false;
         }, TRANSFORM_DEBOUNCE_MS);
     }
 
@@ -1398,7 +1431,12 @@
     }
 
     function handleDragEnd() {
-        teDragActive = false;
+        // DON'T set teDragActive = false here if there's a pending debounce timer
+        // The debounce callback will set it after the transform completes
+        // This prevents polling from overwriting the slider value before the transform fires
+        if (!transformDebounceTimer) {
+            teDragActive = false;
+        }
         // The transformation is already applied during 'input' events.
         // We do NOT reset controls here so the user can see where they left it.
         teTransformAppliedInDrag = false;
@@ -1453,6 +1491,17 @@
                     if (!isNaN(val)) {
                         console.log('[ROTATION] Enter pressed, applying rotation: ' + val);
                         rotateSelection(val);
+                    }
+                }
+            });
+            // Normalize angle on blur (when user leaves the field)
+            rotationInput.addEventListener('blur', () => {
+                const val = parseFloat(rotationInput.value);
+                if (!isNaN(val)) {
+                    const normalized = normalizeAngle(val);
+                    if (normalized !== val) {
+                        rotationInput.value = normalized;
+                        console.log('[ROTATION] Normalized ' + val + '° to ' + normalized + '°');
                     }
                 }
             });
@@ -1723,8 +1772,17 @@
         // Backup: change event fires on commit (release)
         // teScaleSlider.addEventListener('change', () => resetTransformControls(true)); // REMOVED
 
-        teScaleSlider.addEventListener('input', () => {
-            teScaleInput.value = teScaleSlider.value;
+        teScaleSlider.addEventListener('input', (e) => {
+            let newValue = parseFloat(teScaleSlider.value);
+            // Shift+drag for fine control: move at 10% of normal speed
+            if (e.shiftKey && teDragActive) {
+                const delta = newValue - teDragStartScale;
+                newValue = teDragStartScale + (delta * 0.1);
+                // Clamp to slider range
+                newValue = Math.max(10, Math.min(400, newValue));
+                teScaleSlider.value = newValue;
+            }
+            teScaleInput.value = Math.round(newValue);
             handleLiveTransform();
         });
 
@@ -1777,8 +1835,17 @@
         teRotateSlider.addEventListener('mousedown', handleDragStart);
         // teRotateSlider.addEventListener('change', () => resetTransformControls(true)); // REMOVED
 
-        teRotateSlider.addEventListener('input', () => {
-            teRotateInput.value = teRotateSlider.value;
+        teRotateSlider.addEventListener('input', (e) => {
+            let newValue = parseFloat(teRotateSlider.value);
+            // Shift+drag for fine control: move at 10% of normal speed
+            if (e.shiftKey && teDragActive) {
+                const delta = newValue - teDragStartRotate;
+                newValue = teDragStartRotate + (delta * 0.1);
+                // Clamp to slider range
+                newValue = Math.max(-180, Math.min(180, newValue));
+                teRotateSlider.value = newValue;
+            }
+            teRotateInput.value = Math.round(newValue);
             handleLiveTransform();
         });
 
