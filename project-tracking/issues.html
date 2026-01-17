@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Issues - Magic Ductwork Panel</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-gradient-1: #0a0a0f;
+      --bg-gradient-2: #0d0d15;
+      --bg-gradient-3: #0a0a12;
+      --glass-bg: rgba(15, 15, 25, 0.85);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-shadow: rgba(0, 0, 0, 0.5);
+      --text-primary: #ffffff;
+      --text-secondary: rgba(255, 255, 255, 0.7);
+      --text-muted: rgba(255, 255, 255, 0.4);
+      --accent-blue: #00d4ff;
+      --accent-purple: #7b2cbf;
+      --status-red: #ff4757;
+      --status-yellow: #ffa502;
+      --status-green: #2ed573;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      background: linear-gradient(135deg, var(--bg-gradient-1) 0%, var(--bg-gradient-2) 50%, var(--bg-gradient-3) 100%);
+      background-attachment: fixed;
+      color: var(--text-primary);
+      padding: 40px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    .header { text-align: center; margin-bottom: 40px; }
+    .header h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #fff 0%, var(--accent-blue) 50%, var(--accent-purple) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 10px;
+    }
+
+    .glass-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px var(--glass-shadow);
+      padding: 25px;
+      margin-bottom: 25px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--glass-border);
+      vertical-align: top;
+    }
+
+    th {
+      background: rgba(255, 255, 255, 0.03);
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    tr:hover { background: rgba(255, 255, 255, 0.02); }
+
+    .issue-id {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.9rem;
+      color: var(--accent-blue);
+      font-weight: 600;
+    }
+
+    .status-verified {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 50px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: rgba(46, 213, 115, 0.15);
+      color: var(--status-green);
+    }
+
+    .status-pending {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 50px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: rgba(255, 71, 87, 0.15);
+      color: var(--status-red);
+    }
+
+    .description {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    /* Collapsible details styling */
+    details {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+
+    details[open] {
+      border-color: var(--accent-blue);
+    }
+
+    summary {
+      padding: 12px 15px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: var(--accent-blue);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    summary::before {
+      content: '▶';
+      font-size: 0.7rem;
+      transition: transform 0.2s ease;
+    }
+
+    details[open] summary::before {
+      transform: rotate(90deg);
+    }
+
+    summary:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .detail-notes {
+      padding: 15px;
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      border-top: 1px solid var(--glass-border);
+    }
+
+    .detail-notes code {
+      background: rgba(0, 212, 255, 0.1);
+      color: var(--accent-blue);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.8rem;
+    }
+
+    .detail-notes ul, .detail-notes ol {
+      margin-left: 20px;
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
+
+    .detail-notes li {
+      margin-bottom: 6px;
+    }
+
+    .detail-notes strong {
+      color: var(--text-primary);
+    }
+
+    .detail-notes pre {
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 6px;
+      padding: 12px;
+      overflow-x: auto;
+      margin: 10px 0;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.8rem;
+      color: var(--accent-blue);
+    }
+
+    .date {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .section-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--accent-blue);
+      margin-bottom: 8px;
+      margin-top: 12px;
+    }
+
+    .section-title:first-child {
+      margin-top: 0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Issues Tracker - Magic Ductwork Panel</h1>
+</div>
+
+<div class="glass-card">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Status</th>
+        <th>Issue</th>
+        <th>Description & Root Cause</th>
+        <th>Reported</th>
+        <th>Fixed</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- ISS-001: Unrelated paths merged -->
+      <tr>
+        <td><span class="issue-id">ISS-001</span></td>
+        <td><span class="status-verified">VERIFIED</span></td>
+        <td><strong>Unrelated paths merged into same compound path</strong></td>
+        <td>
+          <div class="description">
+            Two completely separate duct runs (L-shape and U-shape) 22pt apart were being incorrectly merged into one compound path.
+          </div>
+          <details>
+            <summary>Root Cause & Fix (line ~9924)</summary>
+            <div class="detail-notes">
+              <div class="section-title">Root Cause:</div>
+              <p><code>T_JUNCTION_DIST</code> was set to 25pt, way too high. Any path endpoint within 25pt of another path's segment was considered a T-junction connection, even when paths were unrelated.</p>
+
+              <div class="section-title">Fix Applied:</div>
+              <ul>
+                <li>Reduced <code>T_JUNCTION_DIST</code> from 25pt to 3pt (line ~9924)</li>
+                <li>Added skip for T-junctions at exactly 4.25pt (carve-out gap distance)</li>
+                <li>Added self-intersection handling to skip blocking when otherPath = pathToCarve</li>
+              </ul>
+
+              <div class="section-title">Lesson Learned:</div>
+              <p><strong>Check spatial thresholds FIRST when debugging connection/compounding issues!</strong></p>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-08</td>
+        <td class="date">2026-01-08</td>
+      </tr>
+
+      <!-- ISS-002: Subsequent runs slow -->
+      <tr>
+        <td><span class="issue-id">ISS-002</span></td>
+        <td><span class="status-pending">PENDING</span></td>
+        <td><strong>Subsequent runs extremely slow after processing large ductwork</strong></td>
+        <td>
+          <div class="description">
+            First run on massive ductwork was fast. Selecting just 2 lines afterwards and hitting Process Ductwork caused window lockup and took a very long time. 247 components updated taking 11+ seconds.
+          </div>
+          <details>
+            <summary>Root Cause & Fix (lines 17981-17982, 19229-19230, 18679-18703)</summary>
+            <div class="detail-notes">
+              <div class="section-title">Root Cause #1 (PRIMARY):</div>
+              <p>Line 17981 cleared <code>doc.selection</code> BEFORE STEP 7 component placement. This caused STEP 7's proximity filter (line 18909) to be disabled because it couldn't re-collect selected paths (lines 18050-18062). Result: processed ALL 247 components document-wide instead of just those near the selection.</p>
+
+              <div class="section-title">Root Cause #2 (SECONDARY):</div>
+              <p>Line 18681 blindly updated <code>targetItem.file</code> for every existing item (11 seconds for 247 items at ~45ms each) even when the file link was already correct.</p>
+
+              <div class="section-title">Fix Applied:</div>
+              <ul>
+                <li><strong>PRIMARY FIX (lines 17981-17982, 19229-19230):</strong> Moved <code>doc.selection = null;</code> from BEFORE STEP 7 to AFTER STEP 7. This preserves selection during component placement so proximity filter works correctly.</li>
+                <li><strong>SECONDARY FIX (lines 18679-18703):</strong> Added check to skip file link updates if <code>targetItem.file.fsName === file.fsName</code> (already correct).</li>
+              </ul>
+
+              <div class="section-title">Expected Result:</div>
+              <p>Instead of processing 247 components document-wide (11+ seconds), now processes only ~5-15 components near selection (under 1 second).</p>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-10</td>
+        <td class="date">2026-01-10</td>
+      </tr>
+
+      <!-- ISS-003: Units disappearing -->
+      <tr>
+        <td><span class="issue-id">ISS-003</span></td>
+        <td><span class="status-verified">VERIFIED</span></td>
+        <td><strong>Units disappearing in unrelated locations</strong></td>
+        <td>
+          <div class="description">
+            Processing a selection caused units in totally different areas (not selected) to disappear. Unit at 300.08,1183.44 was being deleted even though selection was at Y=1014-1114 (69pt away).
+          </div>
+          <details>
+            <summary>Root Cause & Fix (lines 9164-9191, 14957, 18251)</summary>
+            <div class="detail-notes">
+              <div class="section-title">Root Cause:</div>
+              <p><code>placeComponentAtAnchorPoints_local()</code> in STEP 7 (line 18359) was checking ALL <code>docParam.placedItems</code> against ALL ignored anchors. No bounds checking whatsoever - if any unit anywhere in document was within 4pt of any ignored marker anywhere, it was deleted.</p>
+              <p><strong>Why bounds calculation failed:</strong> By the time STEP 7 ran, <code>selectedPaths</code> was empty (paths had been processed into compound paths), so bounds calculation returned nothing.</p>
+
+              <div class="section-title">Fix Applied:</div>
+              <ul>
+                <li>Calculate selection bounds EARLY at start (lines 9164-9191) - right after collecting paths, before any processing</li>
+                <li>Store bounds globally in <code>$.global.MDUX_SELECTION_BOUNDS</code></li>
+                <li>STEP 2 uses global bounds (line 14957)</li>
+                <li>STEP 7 uses global bounds (line 18251)</li>
+                <li>Both <code>removeConflictingArtAndAnchors()</code> and <code>placeComponentAtAnchorPoints_local()</code> check bounds with 50pt buffer</li>
+              </ul>
+
+              <div class="section-title">Safety Improvement:</div>
+              <p>Only items within 50pt of selection bounds are checked for conflicts.</p>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-10</td>
+        <td class="date">2026-01-10</td>
+      </tr>
+
+      <!-- ISS-004: Register at Unit anchor -->
+      <tr>
+        <td><span class="issue-id">ISS-004</span></td>
+        <td><span class="status-pending">PENDING</span></td>
+        <td><strong>Register placed at Unit anchor point</strong></td>
+        <td>
+          <div class="description">
+            Two blue ductwork endpoints close together should have ONE unit. Instead, script places a register at one endpoint. Using ignore marker to prevent register also deletes the unit on subsequent runs.
+          </div>
+          <details>
+            <summary>Root Cause & Fix (lines 18311-18334, 18341, 18658-18674)</summary>
+            <div class="detail-notes">
+              <div class="section-title">Root Cause:</div>
+              <p>No priority system for component placement. When multiple component types have anchor points at the same location, all types were placed without checking for conflicts. Ignore markers affected ALL component types equally (including Units).</p>
+              <p><strong>Expected behavior:</strong> Units should take priority over registers at shared anchor points.</p>
+
+              <div class="section-title">Fix Applied:</div>
+              <ul>
+                <li>Collect all existing Unit positions BEFORE processing any components (lines 18311-18334)</li>
+                <li>Pass Unit positions to <code>placeComponentAtAnchorPoints_local()</code> (line 18337)</li>
+                <li>For register types, check if Unit exists within 10pt of anchor before placement (lines 18658-18674)</li>
+                <li>Skip register placement if Unit found at that location</li>
+              </ul>
+
+              <div class="section-title">Result:</div>
+              <p>Units now take priority over registers at shared anchor points.</p>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-10</td>
+        <td class="date">2026-01-10</td>
+      </tr>
+
+      <!-- ISS-005: Random Illustrator freezes -->
+      <tr>
+        <td><span class="issue-id">ISS-005</span></td>
+        <td><span class="status-pending">PENDING</span></td>
+        <td><strong>Random Illustrator freezes requiring task manager kill</strong></td>
+        <td>
+          <div class="description">
+            Extension causes Illustrator to randomly freeze completely, even when not actively being used. Also freezes Python server window and Chrome. No warning, no ability to save work. Only fix is End Task in task manager.
+          </div>
+          <details>
+            <summary>Root Cause & Fix (js/panel.js 1515-1548, jsx/magic-final.jsx 198-243)</summary>
+            <div class="detail-notes">
+              <div class="section-title">Root Cause #1 (Panel polling):</div>
+              <p>Polling loop at <code>js/panel.js:1518-1523</code> calling <code>evalScript()</code> EVERY 2 SECONDS. When Illustrator's ExtendScript engine is busy or under load, these calls BLOCK the JavaScript thread indefinitely.</p>
+
+              <div class="section-title">Root Cause #2 (Python bridge blocking):</div>
+              <p>Python Bridge wait loop using <code>$.sleep()</code> with 60 second timeout. When Python server crashes or hangs, Illustrator is FROZEN for up to 60 seconds.</p>
+
+              <div class="section-title">Fix Applied:</div>
+              <ul>
+                <li><strong>FIX #1 - Panel Polling (js/panel.js lines 1515-1548):</strong> Implemented SMART POLLING with change detection. Fast check every 1 second (just selection count + typename), only expensive refresh if selection changed.</li>
+                <li><strong>FIX #2 - Python Bridge Timeout (jsx/magic-final.jsx lines 198-243):</strong> Reduced timeout from 60s to 10s, added cancellation check inside wait loop, graceful fallback to ExtendScript.</li>
+                <li><strong>FIX #3 - Debug Logging:</strong> Removed excessive <code>evalScript('MDUX_debugLog(...)')</code> calls from refresh functions.</li>
+              </ul>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-10</td>
+        <td class="date">2026-01-10</td>
+      </tr>
+
+      <!-- ISS-006: Blue ductwork path erased -->
+      <tr>
+        <td><span class="issue-id">ISS-006</span></td>
+        <td><span class="status-pending">PENDING</span></td>
+        <td><strong>Blue ductwork path completely erased during processing</strong></td>
+        <td>
+          <div class="description">
+            One of the 4 blue ductwork paths in the selection was completely deleted during processing, leaving only 1 point (invisible/invalid path).
+          </div>
+          <details>
+            <summary>Root Cause & Fix (lines 13474-13491)</summary>
+            <div class="detail-notes">
+              <div class="section-title">Root Cause:</div>
+              <p>FR-003 was DELETING anchors near intersections and ADDING new vertices. When you delete an anchor, any OTHER path that has an endpoint connecting to it loses the connection, creating a gap.</p>
+              <p><strong>What happened:</strong> FR-003 found anchor [1205.30,1349.24] which was 0.13pt from intersection. It deleted this anchor and added a vertex at [1205.21,1349.15]. But another path had an endpoint connected to [1205.30,1349.24]. After deletion, that endpoint was disconnected.</p>
+
+              <div class="section-title">Key Insight:</div>
+              <p><strong>When an anchor is part of a line and near an intersection, you must SNAP it to the intersection, not delete/recreate. Snapping preserves all connections to other paths.</strong></p>
+
+              <div class="section-title">Fix Applied:</div>
+              <p>Changed from DELETE+ADD to SNAP:</p>
+              <pre>snapPts[anchorIdx].anchor = [intPt[0], intPt[1]];</pre>
+              <ul>
+                <li><strong>Before:</strong> Delete anchor at [1205.30,1349.24], add vertex at [1205.21,1349.15] - breaks connection</li>
+                <li><strong>After:</strong> Move anchor from [1205.30,1349.24] to [1205.21,1349.15] - preserves connection</li>
+              </ul>
+
+              <div class="section-title">Result:</div>
+              <p>FR-003 now SNAPS misaligned anchors to exact intersection points. All path connections are preserved. No gaps.</p>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-10</td>
+        <td class="date">2026-01-10</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+</body>
+</html>

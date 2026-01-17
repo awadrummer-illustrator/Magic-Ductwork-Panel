@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Feature Requests - Magic Ductwork Panel</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-gradient-1: #0a0a0f;
+      --bg-gradient-2: #0d0d15;
+      --bg-gradient-3: #0a0a12;
+      --glass-bg: rgba(15, 15, 25, 0.85);
+      --glass-border: rgba(255, 255, 255, 0.08);
+      --glass-shadow: rgba(0, 0, 0, 0.5);
+      --text-primary: #ffffff;
+      --text-secondary: rgba(255, 255, 255, 0.7);
+      --text-muted: rgba(255, 255, 255, 0.4);
+      --accent-blue: #00d4ff;
+      --accent-purple: #7b2cbf;
+      --status-red: #ff4757;
+      --status-yellow: #ffa502;
+      --status-green: #2ed573;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      min-height: 100vh;
+      background: linear-gradient(135deg, var(--bg-gradient-1) 0%, var(--bg-gradient-2) 50%, var(--bg-gradient-3) 100%);
+      background-attachment: fixed;
+      color: var(--text-primary);
+      padding: 40px;
+      max-width: 1600px;
+      margin: 0 auto;
+    }
+
+    .header { text-align: center; margin-bottom: 40px; }
+    .header h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      background: linear-gradient(135deg, #fff 0%, var(--accent-blue) 50%, var(--accent-purple) 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      margin-bottom: 10px;
+    }
+
+    .glass-card {
+      background: var(--glass-bg);
+      backdrop-filter: blur(20px);
+      border: 1px solid var(--glass-border);
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px var(--glass-shadow);
+      padding: 25px;
+      margin-bottom: 25px;
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--glass-border);
+      vertical-align: top;
+    }
+
+    th {
+      background: rgba(255, 255, 255, 0.03);
+      font-weight: 600;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    tr:hover { background: rgba(255, 255, 255, 0.02); }
+
+    .feature-id {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.9rem;
+      color: var(--accent-blue);
+      font-weight: 600;
+    }
+
+    .status-completed {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 50px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: rgba(46, 213, 115, 0.15);
+      color: var(--status-green);
+    }
+
+    .status-pending {
+      display: inline-block;
+      padding: 6px 14px;
+      border-radius: 50px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      background: rgba(255, 71, 87, 0.15);
+      color: var(--status-red);
+    }
+
+    .priority-high {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: rgba(255, 71, 87, 0.2);
+      color: var(--status-red);
+    }
+
+    .priority-medium {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.7rem;
+      font-weight: 600;
+      background: rgba(255, 165, 2, 0.2);
+      color: var(--status-yellow);
+    }
+
+    .description {
+      color: var(--text-secondary);
+      font-size: 0.9rem;
+      line-height: 1.6;
+    }
+
+    /* Collapsible details styling */
+    details {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--glass-border);
+      border-radius: 8px;
+      margin-top: 8px;
+    }
+
+    details[open] {
+      border-color: var(--accent-blue);
+    }
+
+    summary {
+      padding: 12px 15px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.85rem;
+      color: var(--accent-blue);
+      list-style: none;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    summary::-webkit-details-marker {
+      display: none;
+    }
+
+    summary::before {
+      content: '▶';
+      font-size: 0.7rem;
+      transition: transform 0.2s ease;
+    }
+
+    details[open] summary::before {
+      transform: rotate(90deg);
+    }
+
+    summary:hover {
+      background: rgba(255, 255, 255, 0.05);
+    }
+
+    .implementation-notes {
+      padding: 15px;
+      font-size: 0.85rem;
+      line-height: 1.7;
+      color: var(--text-secondary);
+      border-top: 1px solid var(--glass-border);
+    }
+
+    .implementation-notes code {
+      background: rgba(0, 212, 255, 0.1);
+      color: var(--accent-blue);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.8rem;
+    }
+
+    .implementation-notes ul, .implementation-notes ol {
+      margin-left: 20px;
+      margin-top: 10px;
+      margin-bottom: 10px;
+    }
+
+    .implementation-notes li {
+      margin-bottom: 6px;
+    }
+
+    .implementation-notes strong {
+      color: var(--text-primary);
+    }
+
+    .implementation-notes pre {
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 6px;
+      padding: 12px;
+      overflow-x: auto;
+      margin: 10px 0;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.8rem;
+      color: var(--accent-blue);
+    }
+
+    .date {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .section-title {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--accent-blue);
+      margin-bottom: 8px;
+      margin-top: 12px;
+    }
+
+    .section-title:first-child {
+      margin-top: 0;
+    }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <h1>Feature Requests - Magic Ductwork Panel</h1>
+</div>
+
+<div class="glass-card">
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th>
+        <th>Status</th>
+        <th>Priority</th>
+        <th>Feature</th>
+        <th>Description & Implementation</th>
+        <th>Requested</th>
+      </tr>
+    </thead>
+    <tbody>
+      <!-- FR-006: Visual Overlap Detection System -->
+      <tr>
+        <td><span class="feature-id">FR-006</span></td>
+        <td><span class="status-completed">COMPLETED</span></td>
+        <td><span class="priority-high">High</span></td>
+        <td><strong>Visual Overlap Detection System</strong></td>
+        <td>
+          <div class="description">
+            Detect and visualize overlapping/collinear paths to help debug double ductwork line issues. Shows visual indicators (colored overlays, markers, text labels) for any paths that are close to each other and collinear.
+          </div>
+          <details>
+            <summary>Implementation Notes (lines 56-63, 19496, 19620-19903)</summary>
+            <div class="implementation-notes">
+              <div class="section-title">Debug Flag:</div>
+              <ul>
+                <li>Added debug flag: <code>$.global.MDUX_DEBUG.OVERLAP_DETECTION = true</code></li>
+              </ul>
+
+              <div class="section-title">Helper Functions:</div>
+              <ul>
+                <li><code>distanceBetweenPoints(p1, p2)</code> - Calculate point-to-point distance</li>
+                <li><code>distancePointToSegment(pt, segStart, segEnd)</code> - Calculate point-to-segment distance</li>
+                <li><code>areSegmentsCollinear(seg1Start, seg1End, seg2Start, seg2End, angleTolerance)</code> - Check if segments are parallel (within 5 degrees)</li>
+                <li><code>doSegmentsOverlap(seg1Start, seg1End, seg2Start, seg2End, distTolerance, angleTolerance)</code> - Detect overlapping segments</li>
+              </ul>
+
+              <div class="section-title">Detection Parameters:</div>
+              <ul>
+                <li>Distance tolerance: <strong>3px</strong> (segments within 3px considered overlapping)</li>
+                <li>Angle tolerance: <strong>5 degrees</strong> (segments within 5° considered collinear)</li>
+              </ul>
+
+              <div class="section-title">Visual Indicators on OVERLAP_DETECTION layer:</div>
+              <ul>
+                <li><strong>Magenta highlight</strong> (8pt stroke, 70% opacity) for first overlapping segment</li>
+                <li><strong>Cyan highlight</strong> (6pt stroke, 70% opacity) for second overlapping segment</li>
+                <li><strong>Red circular marker</strong> at overlap midpoint</li>
+                <li><strong>Text label</strong> showing: overlap number, distance between segments, overlap length</li>
+              </ul>
+
+              <ul>
+                <li>Detection results logged to debug log with segment indices and measurements</li>
+                <li>Added OVERLAP_DETECTION layer to layer ordering (appears at top of stack)</li>
+              </ul>
+
+              <div class="section-title">Usage:</div>
+              <p>Run the Magic Ductwork script normally. If overlapping paths are detected, they will be highlighted with visual indicators on the OVERLAP_DETECTION layer. Check the debug log for detailed information about each overlap.</p>
+
+              <div class="section-title">Files Modified:</div>
+              <ul>
+                <li><code>jsx/magic-final.jsx</code> lines 56-63, 19496, 19620-19903</li>
+              </ul>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-10</td>
+      </tr>
+
+      <!-- FR-004: Connection Detection Improvements -->
+      <tr>
+        <td><span class="feature-id">FR-004</span></td>
+        <td><span class="status-pending">PENDING</span></td>
+        <td><span class="priority-high">High</span></td>
+        <td><strong>Connection Detection Improvements - Stroke-Width-Based Tolerances</strong></td>
+        <td>
+          <div class="description">
+            Fix connection detection issues causing false bridges and missed connections. Implement stroke-width-based tolerances that adapt to the scale slider.
+            <br><br><strong>Issues to fix:</strong>
+            <ul>
+              <li>False bridges between nearby but unintended endpoints (15pt too loose)</li>
+              <li>Missed connections due to float precision (0.5pt vertex tolerance too tight)</li>
+              <li>Ignored anchors not checking T-junction projection points</li>
+              <li>Connection markers not being used to force connections</li>
+            </ul>
+          </div>
+          <details>
+            <summary>Implementation Notes - Sub-Tasks (1-6)</summary>
+            <div class="implementation-notes">
+              <div class="section-title">Sub-Tasks (implement in order 1-6):</div>
+              <ol>
+                <li><strong>Increase vertex-at-intersection tolerance to 1.5pt</strong>
+                  <ul>
+                    <li>File: <code>jsx/magic-final.jsx</code> line ~10619</li>
+                    <li>Change: <code>if (d &lt; 0.5)</code> → <code>if (d &lt; 1.5)</code></li>
+                    <li>Fixes: "endpoint intersects line but not compounding" due to float drift</li>
+                  </ul>
+                </li>
+                <li><strong>Implement stroke-width-based CONNECTION_DIST calculation</strong>
+                  <ul>
+                    <li>File: <code>jsx/magic-final.jsx</code> before connection detection (~line 16180)</li>
+                    <li>Add helper: <code>getMedianStrokeWidth(pathItems)</code></li>
+                    <li>Formula: <code>CONNECTION_DIST = clamp(medianStroke * 6, 5, 15)</code></li>
+                    <li>Formula: <code>T_TOLERANCE = clamp(medianStroke * 1.5, 0.75, 8)</code></li>
+                  </ul>
+                </li>
+                <li><strong>Store gap distance on scale factor layer</strong>
+                  <ul>
+                    <li>When scale slider changes stroke widths, recalculate and store gap distance</li>
+                    <li>Store in layer note or hidden text item on SCALE_FACTOR layer</li>
+                    <li>Format: <code>"GAP_DIST=8.5"</code></li>
+                    <li>Helpers: <code>storeGapDistOnScaleLayer(dist)</code>, <code>readGapDistFromScaleLayer()</code></li>
+                  </ul>
+                </li>
+                <li><strong>Add projection point check for ignored anchors in T-junction</strong>
+                  <ul>
+                    <li>File: <code>jsx/magic-final.jsx</code> T-junction detection (~line 10492-10555)</li>
+                    <li>Check both endpoint AND projection point: <code>isNearIgnoredAnchor(closestPt, existingIgnoredAnchors)</code></li>
+                    <li>Prevents unwanted T-junctions into ignored regions</li>
+                  </ul>
+                </li>
+                <li><strong>Add connection marker override for intersections</strong>
+                  <ul>
+                    <li>File: <code>jsx/magic-final.jsx</code> segment intersection (~line 10592-10626)</li>
+                    <li>Add: <code>hasConnectionMarkerNear(intersectPt, connectionMarkers, 6)</code></li>
+                    <li>Logic: <code>if (hasVertexAtIntersection || hasMarkerNearby)</code></li>
+                    <li>Allows user to force connections at marked intersections</li>
+                  </ul>
+                </li>
+                <li><strong>Add mutual-nearest-neighbor check for endpoint connections</strong>
+                  <ul>
+                    <li>File: <code>jsx/magic-final.jsx</code> endpoint-to-endpoint (~line 10561-10577)</li>
+                    <li>Add: <code>findNearestEndpoint(pos, allPaths, excludePath)</code></li>
+                    <li>Add: <code>isMutualNearestNeighbor(pathA, endA, pathB, endB, allPaths)</code></li>
+                    <li>Only connect if endpoints are each other's nearest neighbor</li>
+                    <li>Prevents accidental bridges in dense linework</li>
+                  </ul>
+                </li>
+              </ol>
+            </div>
+          </details>
+          <details>
+            <summary>Helper Functions Code</summary>
+            <div class="implementation-notes">
+<pre>function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+function getMedianStrokeWidth(pathItems) {
+  var widths = [];
+  for (var i = 0; i < pathItems.length; i++) {
+    try {
+      widths.push(pathItems[i].strokeWidth);
+    } catch(e) {}
+  }
+  widths.sort(function(a,b){return a-b});
+  var mid = Math.floor(widths.length / 2);
+  return widths.length > 0 ? widths[mid] : 1;
+}</pre>
+            </div>
+          </details>
+          <details>
+            <summary>Scale Slider Integration</summary>
+            <div class="implementation-notes">
+              <ul>
+                <li>When scale slider changes, stroke widths update (existing behavior)</li>
+                <li>Recalculate CONNECTION_DIST and T_TOLERANCE from new median stroke</li>
+                <li>Store gap distance on SCALE_FACTOR layer for persistence</li>
+                <li>On next run, read stored value if available</li>
+              </ul>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-10</td>
+      </tr>
+
+      <!-- FR-005: Progress Window Close/Cancel Buttons -->
+      <tr>
+        <td><span class="feature-id">FR-005</span></td>
+        <td><span class="status-completed">COMPLETED</span></td>
+        <td><span class="priority-high">High</span></td>
+        <td><strong>Progress Window Close/Cancel Buttons</strong></td>
+        <td>
+          <div class="description">
+            Add Close button and Cancel button to the "Processing Ductwork" progress window so users can dismiss it if the script errors out or hangs. If user clicks Cancel or X button, processing should stop gracefully without showing an error alert.
+          </div>
+          <details>
+            <summary>Implementation Notes (lines 9048-9103, 19610-19629)</summary>
+            <div class="implementation-notes">
+              <ul>
+                <li>Changed <code>closeButton: false</code> to <code>closeButton: true</code> (line 9048)</li>
+                <li>Added Cancel button with onClick handler (lines 9061-9070)</li>
+                <li>Added onClose handler for window X button (lines 9072-9075)</li>
+                <li>Set global flag <code>$.global.MDUX_PROGRESS_CANCELLED</code> when cancelled</li>
+                <li>Check flag in <code>updateProgress()</code> and throw cancellation error (lines 9087-9090)</li>
+                <li>Catch cancellation in main error handler, suppress alert (lines 9612-9614)</li>
+                <li>Always close progress window in finally block (line 9626)</li>
+              </ul>
+
+              <div class="section-title">Result:</div>
+              <p>Users can now dismiss progress window at any time. Clicking Cancel or X stops processing gracefully without error alerts.</p>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-10</td>
+      </tr>
+
+      <!-- FR-001: Skip Second-to-Last Anchor -->
+      <tr>
+        <td><span class="feature-id">FR-001</span></td>
+        <td><span class="status-pending">PENDING</span></td>
+        <td><span class="priority-medium">Medium</span></td>
+        <td><strong>Skip Second-to-Last Anchor Only for Trunks with Branches</strong></td>
+        <td>
+          <div class="description">
+            The second-to-last anchor from an endpoint without a unit should only be skipped for square register placement if the path has branches connecting to it. If the path is a simple trunk with no branches, all collinear internal anchors should receive square registers.
+          </div>
+          <details>
+            <summary>Implementation Notes</summary>
+            <div class="implementation-notes">
+              <div class="section-title">Definition of "Has Branches":</div>
+              <ul>
+                <li>Another path has an endpoint that T-junctions onto this path's segments</li>
+                <li>Another path's segment intersects this path's segment at a point where there's a vertex anchor</li>
+              </ul>
+
+              <div class="section-title">Files to modify:</div>
+              <ul>
+                <li><code>jsx/magic-final.jsx</code> - Lines ~14240-14261 (internal register placement loop)</li>
+              </ul>
+
+              <div class="section-title">Implementation:</div>
+              <ul>
+                <li>Add branch detection function before internal anchor loop</li>
+                <li>Check for T-junctions from other paths using <code>closestPointOnSegment</code></li>
+                <li>Check for segment intersections with vertices using <code>getSegmentIntersectionPoint</code></li>
+                <li>Modify skip conditions: <code>if (hasBranches && !startHasUnit && iaIdx === 2)</code></li>
+                <li>Modify skip conditions: <code>if (hasBranches && !endHasUnit && iaIdx === irPts.length - 3)</code></li>
+              </ul>
+
+              <div class="section-title">Plan file:</div>
+              <p><code>C:\Users\Chris\.claude\plans\snuggly-herding-dragonfly.md</code></p>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-08</td>
+      </tr>
+
+      <!-- FR-002: No Ortho Final Segment -->
+      <tr>
+        <td><span class="feature-id">FR-002</span></td>
+        <td><span class="status-completed">COMPLETED</span></td>
+        <td><span class="priority-medium">Medium</span></td>
+        <td><strong>No Ortho Final Segment - Conditional Logic</strong></td>
+        <td>
+          <div class="description">
+            The "No Ortho Final Segment" button should only skip orthoing on final segments that actually receive a ductwork part. If there's an ignore anchor at the end of the final segment, the "no ortho" behavior should be bypassed (segment should still be orthoed).
+          </div>
+          <details>
+            <summary>Implementation Notes</summary>
+            <div class="implementation-notes">
+              <div class="section-title">Conditions to apply no-ortho:</div>
+              <ul>
+                <li>Final segment must result in an actual ductwork part being placed</li>
+                <li>If endpoint has an ignore anchor, do NOT skip ortho (apply normal orthoing)</li>
+              </ul>
+
+              <div class="section-title">Files to investigate:</div>
+              <ul>
+                <li><code>jsx/magic-final.jsx</code> - ortho logic and final segment handling</li>
+              </ul>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-08</td>
+      </tr>
+
+      <!-- FR-007: Recreate Gaps Tool -->
+      <tr>
+        <td><span class="feature-id">FR-007</span></td>
+        <td><span class="status-pending">PENDING</span></td>
+        <td><span class="priority-medium">Medium</span></td>
+        <td><strong>Recreate Gaps Tool - Auto-Merge After Gap Creation</strong></td>
+        <td>
+          <div class="description">
+            Improve the Recreate Gaps tool to automatically merge the resulting path segments with connected ductwork after creating the gap.
+            <br><br><strong>Current behavior:</strong> Creates a gap in the path, leaving two separate segments.
+            <br><br><strong>Desired behavior:</strong>
+            <ul>
+              <li>Create the gap as normal</li>
+              <li>Extract the paths on each side of the gap into separate compound paths</li>
+              <li>Merge each compound path with overlapping lines at endpoint-to-endpoint, endpoint-to-segment, and segment-to-segment intersections</li>
+            </ul>
+          </div>
+          <details>
+            <summary>Implementation Notes</summary>
+            <div class="implementation-notes">
+              <ul>
+                <li>After gap creation, identify the two resulting path segments</li>
+                <li>For each segment, find connected/overlapping paths</li>
+                <li>Use compound path merging to join connected paths</li>
+                <li>Handle all three types of intersections for merging</li>
+              </ul>
+
+              <div class="section-title">Files to investigate:</div>
+              <ul>
+                <li><code>jsx/magic-final.jsx</code> - Recreate Gaps tool implementation</li>
+              </ul>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-17</td>
+      </tr>
+
+      <!-- FR-003: Auto-Snap Near-Intersection Anchors -->
+      <tr>
+        <td><span class="feature-id">FR-003</span></td>
+        <td><span class="status-completed">COMPLETED</span></td>
+        <td><span class="priority-medium">Medium</span></td>
+        <td><strong>Auto-Snap Near-Intersection Anchors to Vertex Points</strong></td>
+        <td>
+          <div class="description">
+            If an anchor point is within 0.5pt of a line intersection but is not properly attached to two intersecting lines, it should be automatically converted to a proper vertex connection. The misaligned anchor should be removed and replaced with an anchor at the exact intersection point.
+          </div>
+          <details>
+            <summary>Implementation Notes</summary>
+            <div class="implementation-notes">
+              <div class="section-title">Logic:</div>
+              <ul>
+                <li>Detect anchors within 0.5pt of a calculated line intersection</li>
+                <li>Check if anchor is NOT already a proper vertex (attached to two intersecting lines)</li>
+                <li>Remove the misaligned anchor</li>
+                <li>Add a new anchor at the exact intersection point</li>
+                <li>This creates a proper vertex connection at the crossing</li>
+              </ul>
+
+              <div class="section-title">Files to investigate:</div>
+              <ul>
+                <li><code>jsx/magic-final.jsx</code> - anchor/vertex handling, <code>getSegmentIntersectionPoint</code></li>
+              </ul>
+            </div>
+          </details>
+        </td>
+        <td class="date">2026-01-08</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+</body>
+</html>
