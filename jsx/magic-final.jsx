@@ -463,7 +463,7 @@ var PythonBridge = (function() {
         findConnections: function(p, d, t) { return executePython('find_connections', p, { max_dist: d || 10, t_tolerance: t }); },
         detectIntersections: function(p) { return executePython('detect_intersections', p, {}); },
         buildGroups: function(p, d) { return executePython('build_groups', p, { max_dist: d || 10 }); },
-        orthogonalize: function(p, t, lockedPts, rotationOverride) { return executePython('orthogonalize', p, { snap_threshold: t || 5, steep_min: 17, steep_max: 70, locked_points: lockedPts || [], rotation_override: (typeof rotationOverride === 'number' && isFinite(rotationOverride)) ? rotationOverride : null }); },
+        orthogonalize: function(p, t, lockedPts, rotationOverride, fixedPts) { return executePython('orthogonalize', p, { snap_threshold: t || 5, steep_min: 17, steep_max: 70, locked_points: lockedPts || [], fixed_points: fixedPts || [], rotation_override: (typeof rotationOverride === 'number' && isFinite(rotationOverride)) ? rotationOverride : null }); },
         findCrossovers: function(p) { return executePython('find_crossovers', p, {}); },
         snapAnchors: function(p, t) { return executePython('snap_anchors', p, { snap_threshold: t || 5 }); },
         findCollinearAnchors: function(p, tol) { return executePython('find_collinear_anchors', p, { collinear_tolerance: tol || 0.005 }); },
@@ -16180,6 +16180,7 @@ function isDuctworkLineLayer(name) {
         // PERFORMANCE: Skip per-path logging - just log summary
         addDebug("[Orthogonalize] Processing " + geometryPaths.length + " paths");
 
+        var CROSSOVER_FIXED_POINTS = [];
         // *** EARLY CROSSOVER DETECTION AND SPLITTING ***
         // Must happen BEFORE orthogonalization so split paths get orthogonalized together at same Y level
         var EARLY_CROSSOVER_SEGMENTS = []; // Store for later ignore anchor placement
@@ -16495,6 +16496,47 @@ function isDuctworkLineLayer(name) {
 
         addDebug("[PRE-ORTHO-TJ] Found " + preOrthoTJunctions.length + " T-junction(s) before orthogonalization");
 
+        // === CROSSOVER FIXED POINTS (preserve intersection positions during ortho) ===
+        try {
+            if ($.global.MDUX_USE_PYTHON && typeof PythonBridge !== 'undefined' && PythonBridge.isAvailable() && geometryPaths.length > 1) {
+                var xoResult = PythonBridge.findCrossovers(geometryPaths);
+                if (xoResult && xoResult.crossovers && xoResult.crossovers.length > 0) {
+                    var xoKeyMap = {};
+                    for (var xoIdx = 0; xoIdx < xoResult.crossovers.length; xoIdx++) {
+                        var xo = xoResult.crossovers[xoIdx];
+                        if (!xo || !xo.point) continue;
+                        var px = xo.point.x;
+                        var py = xo.point.y;
+                        if (!isFinite(px) || !isFinite(py)) continue;
+
+                        var keyA = xo.pathIdx + ":" + xo.segmentIdx + ":" + px.toFixed(3) + ":" + py.toFixed(3);
+                        if (!xoKeyMap[keyA]) {
+                            CROSSOVER_FIXED_POINTS.push({
+                                pathIdx: xo.pathIdx,
+                                segmentIdx: xo.segmentIdx,
+                                point: [px, py]
+                            });
+                            xoKeyMap[keyA] = true;
+                        }
+
+                        var keyB = xo.crossingPathIdx + ":" + xo.crossingSegIdx + ":" + px.toFixed(3) + ":" + py.toFixed(3);
+                        if (!xoKeyMap[keyB]) {
+                            CROSSOVER_FIXED_POINTS.push({
+                                pathIdx: xo.crossingPathIdx,
+                                segmentIdx: xo.crossingSegIdx,
+                                point: [px, py]
+                            });
+                            xoKeyMap[keyB] = true;
+                        }
+                    }
+
+                    addDebug("[XOVER-FIX] Stored " + CROSSOVER_FIXED_POINTS.length + " fixed crossover point(s) for ortho");
+                }
+            }
+        } catch (eXOverFix) {
+            addDebug("[XOVER-FIX] Error collecting crossover points: " + eXOverFix);
+        }
+
         // =====================================================================
         // PYTHON-ACCELERATED ORTHOGONALIZATION
         // =====================================================================
@@ -16573,10 +16615,35 @@ function isDuctworkLineLayer(name) {
             }
             addDebug("[PYTHON-ORTHO] Total locked points: " + lockedPointsForPython.length + " (from " + ORTHO_IGNORE_MARKER_PATHS.length + " ignore markers)");
 
+            var fixedPointsForPython = [];
+            if (CROSSOVER_FIXED_POINTS && CROSSOVER_FIXED_POINTS.length > 0) {
+                var fixedKeyMap = {};
+                for (var fpIdx = 0; fpIdx < CROSSOVER_FIXED_POINTS.length; fpIdx++) {
+                    var fp = CROSSOVER_FIXED_POINTS[fpIdx];
+                    if (!fp || typeof fp.pathIdx !== "number" || typeof fp.segmentIdx !== "number" || !fp.point) continue;
+                    var pyPathIdx = pathIndexMap[fp.pathIdx];
+                    if (typeof pyPathIdx !== "number") continue;
+                    var px = fp.point[0];
+                    var py = fp.point[1];
+                    if (!isFinite(px) || !isFinite(py)) continue;
+                    var key = pyPathIdx + ":" + fp.segmentIdx + ":" + px.toFixed(3) + ":" + py.toFixed(3);
+                    if (fixedKeyMap[key]) continue;
+                    fixedKeyMap[key] = true;
+                    fixedPointsForPython.push({
+                        path_idx: pyPathIdx,
+                        seg_idx: fp.segmentIdx,
+                        point: [px, py]
+                    });
+                }
+                if (fixedPointsForPython.length > 0) {
+                    addDebug("[PYTHON-ORTHO] Added " + fixedPointsForPython.length + " fixed crossover point(s)");
+                }
+            }
+
             try {
                 updateProgress("Orthogonalizing paths (Python)...");
-                addDebug("[PYTHON-ORTHO] Sending " + pathsForPython.length + " paths to Python (excluded " + excludedPaths.length + " branch paths, locked " + lockedPointsForPython.length + " points, rotation_override=" + GLOBAL_ROTATION_OVERRIDE + ")");
-                var pyOrthoResult = PythonBridge.orthogonalize(pathsForPython, SNAP_THRESHOLD, lockedPointsForPython, GLOBAL_ROTATION_OVERRIDE);
+                addDebug("[PYTHON-ORTHO] Sending " + pathsForPython.length + " paths to Python (excluded " + excludedPaths.length + " branch paths, locked " + lockedPointsForPython.length + " points, fixed " + fixedPointsForPython.length + ", rotation_override=" + GLOBAL_ROTATION_OVERRIDE + ")");
+                var pyOrthoResult = PythonBridge.orthogonalize(pathsForPython, SNAP_THRESHOLD, lockedPointsForPython, GLOBAL_ROTATION_OVERRIDE, fixedPointsForPython);
 
                 if (pyOrthoResult && pyOrthoResult.paths && !pyOrthoResult.error) {
                     // Apply Python results back to Illustrator paths
@@ -17072,13 +17139,9 @@ function isDuctworkLineLayer(name) {
             // Bug fixed: 2026-01-05
             addDebug("[POST-ORTHO-SPLIT] Skipping destructive FORCE-ORTHO (normal ortho already applied)");
 
-            // Helper: Calculate intersection point of two line segments
+            // Helper: Calculate intersection point of two line segments (must lie on both segments)
             function getLineIntersection(x1, y1, x2, y2, x3, y3, x4, y4) {
-                var denom = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
-                if (Math.abs(denom) < 0.0001) return null; // Parallel lines
-
-                var t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / denom;
-                return [x1 + t * (x2 - x1), y1 + t * (y2 - y1)];
+                return getSegmentIntersectionPoint(x1, y1, x2, y2, x3, y3, x4, y4);
             }
 
             for (var postSplitIdx = EARLY_CROSSOVER_SEGMENTS.length - 1; postSplitIdx >= 0; postSplitIdx--) {

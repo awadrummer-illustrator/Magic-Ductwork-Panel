@@ -558,6 +558,7 @@ def snap_anchors(paths_data: List[Dict], snap_threshold: float = 5.0, locked_poi
 def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
                         steep_min: float = 17.0, steep_max: float = 70.0,
                         locked_points: List[Dict] = None,
+                        fixed_points: List[Dict] = None,
                         rotation_override: float = None) -> Dict:
     """
     Full orthogonalization pipeline:
@@ -569,6 +570,8 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
     rotation_override: If specified, segments snap to this angle instead of 0°,
                        and to (rotation_override + 90) instead of 90°.
                        Steep angles (45° relative to override) are preserved.
+    fixed_points: Optional list of {path_idx, seg_idx, point:[x,y]} to keep
+                  intersection points fixed during orthogonalization.
 
     This replaces the iterative ExtendScript loop with a single Python call.
     """
@@ -604,6 +607,31 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
         for lp in locked_points:
             locked_set.add((lp.get('path_idx', -1), lp.get('point_idx', -1)))
         log(f"Locked {len(locked_set)} points from snapping (ignore marker endpoints)")
+
+    fixed_map = {}
+    if fixed_points:
+        for fp in fixed_points:
+            path_idx = fp.get('path_idx', -1)
+            seg_idx = fp.get('seg_idx', -1)
+            if path_idx is None or seg_idx is None:
+                continue
+            pt = fp.get('point', None)
+            if not pt or len(pt) < 2:
+                x = fp.get('x', None)
+                y = fp.get('y', None)
+                if x is None or y is None:
+                    continue
+                pt = [x, y]
+            try:
+                fx = float(pt[0])
+                fy = float(pt[1])
+            except Exception:
+                continue
+            key = (int(path_idx), int(seg_idx))
+            if key not in fixed_map:
+                fixed_map[key] = np.array([fx, fy], dtype=float)
+        if fixed_map:
+            log(f"Fixed {len(fixed_map)} intersection point(s) during orthogonalization")
 
     # Convert to numpy for faster math
     paths = []
@@ -697,7 +725,7 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
         grid_angles_raw = [base, base + 90.0, base + 45.0, base - 45.0]
         grid_orientations = [normalize_orientation(ga) for ga in grid_angles_raw]
 
-        for path in paths:
+        for path_idx, path in enumerate(paths):
             pts = path['points']
             if len(pts) < 2:
                 continue
@@ -731,26 +759,55 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
                 if min_dist > SNAP_THRESHOLD:
                     continue
 
-                # Use the raw grid angle for snapping, then flip direction if needed.
+                lock_p1 = (path_idx, i) in locked_set
+                lock_p2 = (path_idx, i + 1) in locked_set
+                if lock_p1 and lock_p2:
+                    continue
+
                 target_angle = grid_angles_raw[closest_idx]
                 target_rad = np.radians(target_angle)
-                new_dx = segment_length * np.cos(target_rad)
-                new_dy = segment_length * np.sin(target_rad)
+                unit = np.array([np.cos(target_rad), np.sin(target_rad)], dtype=float)
+                seg_vec = np.array([dx, dy], dtype=float)
+                if np.dot(seg_vec, unit) < 0:
+                    unit = -unit
+                new_dx = segment_length * unit[0]
+                new_dy = segment_length * unit[1]
 
-                # Only flip if pointing in completely opposite direction (dot product very negative)
-                # Don't flip for segments that are just in different quadrants
-                dot_product = dx * new_dx + dy * new_dy
-                if dot_product < -0.5 * segment_length * segment_length:
-                    new_dx = -new_dx
-                    new_dy = -new_dy
-
-                # Apply if meaningfully changed
-                if abs(pts[i + 1][0] - (pts[i][0] + new_dx)) > 0.01 or \
-                   abs(pts[i + 1][1] - (pts[i][1] + new_dy)) > 0.01:
-                    pts[i + 1][0] = pts[i][0] + new_dx
-                    pts[i + 1][1] = pts[i][1] + new_dy
-                    changes_made = True
-                    total_ortho += 1
+                fixed_pt = fixed_map.get((path_idx, i))
+                if fixed_pt is not None and not (lock_p1 or lock_p2):
+                    t = np.dot(fixed_pt - p1, seg_vec) / (segment_length * segment_length)
+                    if t < 0.0:
+                        t = 0.0
+                    elif t > 1.0:
+                        t = 1.0
+                    new_p1 = fixed_pt - (unit * (t * segment_length))
+                    new_p2 = fixed_pt + (unit * ((1.0 - t) * segment_length))
+                    if abs(p1[0] - new_p1[0]) > 0.01 or \
+                       abs(p1[1] - new_p1[1]) > 0.01 or \
+                       abs(p2[0] - new_p2[0]) > 0.01 or \
+                       abs(p2[1] - new_p2[1]) > 0.01:
+                        pts[i][0] = new_p1[0]
+                        pts[i][1] = new_p1[1]
+                        pts[i + 1][0] = new_p2[0]
+                        pts[i + 1][1] = new_p2[1]
+                        changes_made = True
+                        total_ortho += 1
+                elif lock_p2 and not lock_p1:
+                    new_p1_x = p2[0] - new_dx
+                    new_p1_y = p2[1] - new_dy
+                    if abs(p1[0] - new_p1_x) > 0.01 or abs(p1[1] - new_p1_y) > 0.01:
+                        pts[i][0] = new_p1_x
+                        pts[i][1] = new_p1_y
+                        changes_made = True
+                        total_ortho += 1
+                else:
+                    new_p2_x = p1[0] + new_dx
+                    new_p2_y = p1[1] + new_dy
+                    if abs(p2[0] - new_p2_x) > 0.01 or abs(p2[1] - new_p2_y) > 0.01:
+                        pts[i + 1][0] = new_p2_x
+                        pts[i + 1][1] = new_p2_y
+                        changes_made = True
+                        total_ortho += 1
 
     # Log angle after orthogonalization
     if has_rotation_override:
