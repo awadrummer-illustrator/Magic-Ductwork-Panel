@@ -673,16 +673,29 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
                             total_snaps += 1
                             break
 
-        # Phase 2: Orthogonalize segments
-        # If rotation override is set, snap to override grid (override, override+90, override+45)
-        # Otherwise snap to standard grid (0, 90, 45)
+        # Phase 2: Orthogonalize segments relative to override grid
+        #
+        # Compare line orientations (0-180) against the grid orientations using
+        # a shortest-angle distance. This avoids bias toward diagonals when the
+        # base angle is rotated away from 0.
 
-        # Define target angles based on override
-        if has_rotation_override:
-            # Grid angles: override (horizontal), override+90 (vertical), override+45 (diagonal)
-            base = rotation_override
-        else:
-            base = 0
+        base = rotation_override if has_rotation_override else 0.0
+
+        SNAP_THRESHOLD = 180.0 if has_rotation_override else 17.0  # Snap threshold in degrees
+
+        def normalize_orientation(angle):
+            """Normalize angle to 0-180 (orientation only, no direction)."""
+            angle = angle % 180
+            if angle < 0:
+                angle += 180
+            return angle
+
+        def angular_distance(a, b):
+            diff = abs(a - b)
+            return min(diff, 180.0 - diff)
+
+        grid_angles_raw = [base, base + 90.0, base + 45.0, base - 45.0]
+        grid_orientations = [normalize_orientation(ga) for ga in grid_angles_raw]
 
         for path in paths:
             pts = path['points']
@@ -702,60 +715,52 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
                 segment_length = np.sqrt(dx * dx + dy * dy)
                 angle_deg = np.degrees(np.arctan2(dy, dx))
 
-                # Helper to normalize angle difference to -90 to 90
-                def angle_diff(a, b):
-                    diff = (a - b) % 180
-                    if diff > 90:
-                        diff -= 180
-                    return diff
+                # Normalize segment orientation for grid matching.
+                segment_orient = normalize_orientation(angle_deg)
 
-                # Calculate difference from each grid angle
-                diff_horiz = angle_diff(angle_deg, base)        # difference from "horizontal" (base)
-                diff_vert = angle_diff(angle_deg, base + 90)    # difference from "vertical" (base+90)
-                diff_diag = angle_diff(angle_deg, base + 45)    # difference from diagonal (base+45)
-                diff_diag2 = angle_diff(angle_deg, base - 45)   # difference from other diagonal (base-45)
+                # Find closest grid orientation (orientation only, not direction).
+                min_dist = 180.0
+                closest_idx = 0
+                for idx, grid_orient in enumerate(grid_orientations):
+                    dist = angular_distance(segment_orient, grid_orient)
+                    if dist < min_dist:
+                        min_dist = dist
+                        closest_idx = idx
 
-                # Find smallest absolute difference
-                abs_diffs = [abs(diff_horiz), abs(diff_vert), abs(diff_diag), abs(diff_diag2)]
-                min_diff = min(abs_diffs)
-
-                # Steep angle preservation: if closest grid angle is still >17° away, preserve
-                if min_diff > steep_max:
+                # Only snap if within threshold
+                if min_dist > SNAP_THRESHOLD:
                     continue
 
-                # If within tolerance of grid, snap to it
-                if min_diff < steep_min:
-                    # Find which grid angle we're snapping to
-                    if abs(diff_horiz) == min_diff:
-                        target_angle = base
-                    elif abs(diff_vert) == min_diff:
-                        target_angle = base + 90
-                    elif abs(diff_diag) == min_diff:
-                        target_angle = base + 45
-                    else:
-                        target_angle = base - 45
+                # Use the raw grid angle for snapping, then flip direction if needed.
+                target_angle = grid_angles_raw[closest_idx]
+                target_rad = np.radians(target_angle)
+                new_dx = segment_length * np.cos(target_rad)
+                new_dy = segment_length * np.sin(target_rad)
 
-                    # Snap to target angle
-                    target_rad = np.radians(target_angle)
-                    new_dx = segment_length * np.cos(target_rad)
-                    new_dy = segment_length * np.sin(target_rad)
+                # Only flip if pointing in completely opposite direction (dot product very negative)
+                # Don't flip for segments that are just in different quadrants
+                dot_product = dx * new_dx + dy * new_dy
+                if dot_product < -0.5 * segment_length * segment_length:
+                    new_dx = -new_dx
+                    new_dy = -new_dy
 
-                    # Preserve direction (don't flip the segment)
-                    if np.sign(new_dx) != np.sign(dx) and abs(dx) > 0.01:
-                        new_dx = -new_dx
-                        new_dy = -new_dy
-
-                    if abs(pts[i + 1][0] - (pts[i][0] + new_dx)) > 0.01 or abs(pts[i + 1][1] - (pts[i][1] + new_dy)) > 0.01:
-                        pts[i + 1][0] = pts[i][0] + new_dx
-                        pts[i + 1][1] = pts[i][1] + new_dy
-                        changes_made = True
-                        total_ortho += 1
+                # Apply if meaningfully changed
+                if abs(pts[i + 1][0] - (pts[i][0] + new_dx)) > 0.01 or \
+                   abs(pts[i + 1][1] - (pts[i][1] + new_dy)) > 0.01:
+                    pts[i + 1][0] = pts[i][0] + new_dx
+                    pts[i + 1][1] = pts[i][1] + new_dy
+                    changes_made = True
+                    total_ortho += 1
 
     # Log angle after orthogonalization
     if has_rotation_override:
         post_ortho_angle, post_ortho_length, _ = find_longest_segment_angle(paths)
-        log(f"[DEBUG] AFTER ORTHO: longest segment angle={post_ortho_angle:.2f}° (target grid: {rotation_override}°, {rotation_override+90}°, {rotation_override+45}°)")
+        log(f"[DEBUG] AFTER ORTHO: longest={post_ortho_angle:.2f}°")
+        log(f"[DEBUG] Grid: base={rotation_override}°, diag={rotation_override+45}°/{rotation_override-45}°, vert={rotation_override+90}°")
         log(f"[DEBUG] SUMMARY: Original={orig_angle:.2f}° -> Final={post_ortho_angle:.2f}°")
+    else:
+        post_ortho_angle, post_ortho_length, _ = find_longest_segment_angle(paths)
+        log(f"[DEBUG] AFTER ORTHO (no override): longest={post_ortho_angle:.2f}°")
 
     # Convert back to output format
     result_paths = []

@@ -588,15 +588,17 @@
         let rotationValue = null;
         const rotationText = rotationInput.value.trim();
         const autoValue = (rotationInput.dataset.autoValue || '').trim();
-        // Skip rotation override if user hasn't changed the auto-populated value
-        const isAutoPopulated = rotationText === autoValue && rotationText.length > 0;
-        if (rotationText && !isAutoPopulated) {
-            rotationValue = parseFloat(rotationText);
-            if (!isFinite(rotationValue)) {
-                setProcessStatus('Rotation override must be a valid number.', true);
-                processBtn.disabled = false;
-                revertBtn.disabled = false;
-                return;
+        if (rotationText) {
+            const isNumeric = /^-?\d+(\.\d+)?$/.test(rotationText);
+            if (!isNumeric) {
+                if (rotationText !== autoValue) {
+                    setProcessStatus('Rotation override must be a valid number.', true);
+                    processBtn.disabled = false;
+                    revertBtn.disabled = false;
+                    return;
+                }
+            } else {
+                rotationValue = parseFloat(rotationText);
             }
         }
 

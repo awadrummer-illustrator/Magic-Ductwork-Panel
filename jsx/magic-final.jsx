@@ -5809,7 +5809,7 @@ function isDuctworkLineLayer(name) {
 
             function addRotation(value) {
                 if (typeof value !== "number" || !isFinite(value)) return;
-                var normalized = normalizeAngle(value);
+                var normalized = normalizeAngle(-value);
                 var key = normalized.toFixed(2);
                 if (!rotationMap.hasOwnProperty(key)) {
                     rotationMap[key] = normalized;
@@ -10199,7 +10199,7 @@ function isDuctworkLineLayer(name) {
         // Handle rotation override from unified dialog (if provided)
         var GLOBAL_ROTATION_OVERRIDE = null;
         if (startupChoice.rotationOverride !== null && startupChoice.rotationOverride !== undefined) {
-            var normalized = normalizeAngle(startupChoice.rotationOverride);
+            var normalized = normalizeAngle(-startupChoice.rotationOverride);
             GLOBAL_ROTATION_OVERRIDE = normalized;  // Store for use in anchor point collection
             addDebug("========================================");
             addDebug("[ROTATION OVERRIDE] GLOBAL: " + normalized + "°");
