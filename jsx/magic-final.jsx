@@ -460,7 +460,7 @@ var PythonBridge = (function() {
     }
 
     return {
-        findConnections: function(p, d, t) { return executePython('find_connections', p, { max_dist: d || 10, t_tolerance: t }); },
+        findConnections: function(p, d, t, allowNonVertex) { return executePython('find_connections', p, { max_dist: d || 10, t_tolerance: t, allow_non_vertex_intersections: !!allowNonVertex }); },
         detectIntersections: function(p) { return executePython('detect_intersections', p, {}); },
         buildGroups: function(p, d) { return executePython('build_groups', p, { max_dist: d || 10 }); },
         orthogonalize: function(p, t, lockedPts, rotationOverride, fixedPts) { return executePython('orthogonalize', p, { snap_threshold: t || 5, steep_min: 17, steep_max: 70, locked_points: lockedPts || [], fixed_points: fixedPts || [], rotation_override: (typeof rotationOverride === 'number' && isFinite(rotationOverride)) ? rotationOverride : null }); },
@@ -3548,7 +3548,7 @@ function setStaticTextColor(control, rgbArray) {
         var LIMIT_BRANCH_PROCESS_MAP = null; // optional map of centerline ids to limit processing scope
         var SKIP_ALL_BRANCH_ORTHO = false; // controls whether all branch segments stay freeform
         var SKIP_FINAL_REGISTER_ORTHO = false; // controls whether only final register segments stay freeform
-        var SKIP_REGISTER_ROTATION = false; // controls whether square registers are rotated to match ductwork angle
+        var SKIP_REGISTER_ROTATION = false; // controls whether ductwork parts are rotated to match ductwork angle
         var ORTHO_IGNORED_ANCHORS = []; // ignored anchors collected early for ortho phase (FR-002)
         var ORTHO_REGISTER_ANCHORS = []; // register positions collected early for ortho phase (skip-final check)
         var ORTHO_IGNORE_MARKER_PATHS = []; // paths with ignore markers {path, endpoint, ignoreMarkerIndex}
@@ -10199,16 +10199,23 @@ function isDuctworkLineLayer(name) {
         // Handle rotation override from unified dialog (if provided)
         var GLOBAL_ROTATION_OVERRIDE = null;
         if (startupChoice.rotationOverride !== null && startupChoice.rotationOverride !== undefined) {
-            var normalized = normalizeAngle(-startupChoice.rotationOverride);
+            var overrideInput = parseFloat(startupChoice.rotationOverride);
+            if (!isFinite(overrideInput)) {
+                overrideInput = null;
+            }
+            var normalized = (overrideInput !== null) ? normalizeAngle(-overrideInput) : null;
             GLOBAL_ROTATION_OVERRIDE = normalized;  // Store for use in anchor point collection
+        }
+
+        if (GLOBAL_ROTATION_OVERRIDE !== null && GLOBAL_ROTATION_OVERRIDE !== undefined) {
             addDebug("========================================");
-            addDebug("[ROTATION OVERRIDE] GLOBAL: " + normalized + "°");
+            addDebug("[ROTATION OVERRIDE] GLOBAL: " + GLOBAL_ROTATION_OVERRIDE + "°");
             addDebug("[ROTATION OVERRIDE] Applying to " + allPaths.length + " ductwork line paths");
             addDebug("========================================");
             var appliedCount = 0;
             for (var rIdx = 0; rIdx < allPaths.length; rIdx++) {
                 if (allPaths[rIdx]) {
-                    setRotationOverride(allPaths[rIdx], normalized);
+                    setRotationOverride(allPaths[rIdx], GLOBAL_ROTATION_OVERRIDE);
                     clearOrthoLock(allPaths[rIdx]);
                     appliedCount++;
                 }
@@ -12991,29 +12998,61 @@ function isDuctworkLineLayer(name) {
 
         function getEndpoints(paths) {
             var endpoints = [];
+            function computeEndpointRotation(pathItem, index, fallback) {
+                try {
+                    if (!pathItem || !pathItem.pathPoints || pathItem.pathPoints.length < 2) {
+                        return (typeof fallback === "number" && isFinite(fallback)) ? fallback : null;
+                    }
+                    var pts = pathItem.pathPoints;
+                    var pt1, pt2;
+                    if (index <= 0) {
+                        pt1 = pts[0].anchor;
+                        pt2 = pts[1].anchor;
+                    } else if (index >= pts.length - 1) {
+                        var lastIdx = pts.length - 1;
+                        pt1 = pts[lastIdx - 1].anchor;
+                        pt2 = pts[lastIdx].anchor;
+                    } else {
+                        pt1 = pts[index - 1].anchor;
+                        pt2 = pts[index].anchor;
+                    }
+                    var dx = pt2[0] - pt1[0];
+                    var dy = pt2[1] - pt1[1];
+                    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) {
+                        return (typeof fallback === "number" && isFinite(fallback)) ? fallback : null;
+                    }
+                    return normalizeAngle(Math.atan2(dy, dx) * (180 / Math.PI));
+                } catch (e) {
+                    return (typeof fallback === "number" && isFinite(fallback)) ? fallback : null;
+                }
+            }
             for (var i = 0; i < paths.length; i++) {
                 var item = paths[i];
-                var rotationOverride = getRotationOverride(item);
+                var pathRotationOverride = getRotationOverride(item);
 
                 // Handle CompoundPathItems - iterate through child pathItems
                 if (item.typename === "CompoundPathItem" && item.pathItems) {
                     for (var cp = 0; cp < item.pathItems.length; cp++) {
                         var childPath = item.pathItems[cp];
                         if (!childPath.closed && childPath.pathPoints && childPath.pathPoints.length > 0) {
-                            endpoints.push({ path: childPath, index: 0, pos: childPath.pathPoints[0].anchor.slice(), rotationOverride: rotationOverride, parentCompound: item });
+                            var childRotStart = computeEndpointRotation(childPath, 0, pathRotationOverride);
+                            endpoints.push({ path: childPath, index: 0, pos: childPath.pathPoints[0].anchor.slice(), rotationOverride: childRotStart, parentCompound: item });
                             if (childPath.pathPoints.length > 1) {
                                 var lastIndex = childPath.pathPoints.length - 1;
-                                endpoints.push({ path: childPath, index: lastIndex, pos: childPath.pathPoints[lastIndex].anchor.slice(), rotationOverride: rotationOverride, parentCompound: item });
+                                var childRotEnd = computeEndpointRotation(childPath, lastIndex, pathRotationOverride);
+                                endpoints.push({ path: childPath, index: lastIndex, pos: childPath.pathPoints[lastIndex].anchor.slice(), rotationOverride: childRotEnd, parentCompound: item });
                             }
                         }
                     }
                 }
                 // Handle regular PathItems
                 else if (item.pathPoints && !item.closed && item.pathPoints.length > 0) {
-                    endpoints.push({ path: item, index: 0, pos: item.pathPoints[0].anchor.slice(), rotationOverride: rotationOverride });
+                    var rotStart = computeEndpointRotation(item, 0, pathRotationOverride);
+                    endpoints.push({ path: item, index: 0, pos: item.pathPoints[0].anchor.slice(), rotationOverride: rotStart });
                     if (item.pathPoints.length > 1) {
                         var lastIndex = item.pathPoints.length - 1;
-                        endpoints.push({ path: item, index: lastIndex, pos: item.pathPoints[lastIndex].anchor.slice(), rotationOverride: rotationOverride });
+                        var rotEnd = computeEndpointRotation(item, lastIndex, pathRotationOverride);
+                        endpoints.push({ path: item, index: lastIndex, pos: item.pathPoints[lastIndex].anchor.slice(), rotationOverride: rotEnd });
                     }
                 }
             }
@@ -13131,6 +13170,32 @@ function isDuctworkLineLayer(name) {
                 return false;
             }
 
+            function computeEndpointRotation(ep) {
+                try {
+                    if (!ep || !ep.path || !ep.path.pathPoints || ep.path.pathPoints.length < 2) return null;
+                    var pts = ep.path.pathPoints;
+                    var idx = ep.index;
+                    var pt1, pt2;
+                    if (idx <= 0) {
+                        pt1 = pts[0].anchor;
+                        pt2 = pts[1].anchor;
+                    } else if (idx >= pts.length - 1) {
+                        var lastIdx = pts.length - 1;
+                        pt1 = pts[lastIdx - 1].anchor;
+                        pt2 = pts[lastIdx].anchor;
+                    } else {
+                        pt1 = pts[idx - 1].anchor;
+                        pt2 = pts[idx].anchor;
+                    }
+                    var dx = pt2[0] - pt1[0];
+                    var dy = pt2[1] - pt1[1];
+                    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) return null;
+                    return normalizeAngle(Math.atan2(dy, dx) * (180 / Math.PI));
+                } catch (e) {
+                    return null;
+                }
+            }
+
             var sourcePaths = getPathsOnLayerSelected(sourceLayerName);
             if (sourcePaths.length === 0) return;
 
@@ -13193,15 +13258,22 @@ function isDuctworkLineLayer(name) {
                 // *** NEW: Skip if point overlaps with ignored anchors ***
                 if (isPointIgnored(currentEndpoint.pos, ignoredAnchors)) continue;
 
+                var endpointRotation = currentEndpoint.rotationOverride;
+                var computedRotation = computeEndpointRotation(currentEndpoint);
+                if (computedRotation !== null && isFinite(computedRotation)) {
+                    endpointRotation = computedRotation;
+                }
+                var taggedRotation = endpointRotation;
+
                 // *** NEW: Skip if point already exists on target layers (includes Units check now) ***
                 if (isPointAlreadyPlaced(currentEndpoint.pos, existingAnchors)) {
-                    ensureAnchorTagged(destLayer, currentEndpoint.pos, currentEndpoint.rotationOverride);
+                    ensureAnchorTagged(destLayer, currentEndpoint.pos, taggedRotation);
                     continue;
                 }
 
                 // *** NEW: For Square Registers, also skip if point exists on Rectangular Registers ***
                 if (destLayerName === "Square Registers" && rectangularRegisterAnchors && isPointAlreadyPlaced(currentEndpoint.pos, rectangularRegisterAnchors)) {
-                    ensureAnchorTagged(destLayer, currentEndpoint.pos, currentEndpoint.rotationOverride);
+                    ensureAnchorTagged(destLayer, currentEndpoint.pos, taggedRotation);
                     continue;
                 }
 
@@ -13211,33 +13283,9 @@ function isDuctworkLineLayer(name) {
                     continue;
                 }
 
-                // Calculate ductwork angle at endpoint for rotation (if not disabled)
-                var endpointRotation = currentEndpoint.rotationOverride;
-                if (!SKIP_REGISTER_ROTATION && destLayerName === "Square Registers") {
-                    try {
-                        var epPath = currentEndpoint.path;
-                        var epIdx = currentEndpoint.index;
-                        if (epPath && epPath.pathPoints && epPath.pathPoints.length >= 2) {
-                            var pt1, pt2;
-                            if (epIdx === 0) {
-                                // First point - angle from point 0 to point 1
-                                pt1 = epPath.pathPoints[0].anchor;
-                                pt2 = epPath.pathPoints[1].anchor;
-                            } else {
-                                // Last point - angle from second-to-last to last
-                                var lastIdx = epPath.pathPoints.length - 1;
-                                pt1 = epPath.pathPoints[lastIdx - 1].anchor;
-                                pt2 = epPath.pathPoints[lastIdx].anchor;
-                            }
-                            var dxEp = pt2[0] - pt1[0];
-                            var dyEp = pt2[1] - pt1[1];
-                            var ductAngleEp = Math.atan2(dyEp, dxEp) * (180 / Math.PI);
-                            endpointRotation = normalizeAngle(ductAngleEp);
-                            addDebug("[ENDPOINT-ROTATION] Calculated angle " + ductAngleEp.toFixed(1) + " deg at endpoint [" + currentEndpoint.pos[0].toFixed(1) + "," + currentEndpoint.pos[1].toFixed(1) + "]");
-                        }
-                    } catch (eAngle) {
-                        addDebug("[ENDPOINT-ROTATION] Error calculating angle: " + eAngle);
-                    }
+                // Calculate ductwork angle at endpoint for rotation (if available)
+                if (endpointRotation === null || endpointRotation === undefined) {
+                    endpointRotation = currentEndpoint.rotationOverride;
                 }
 
                 createAnchorPoint(destLayer, currentEndpoint.pos, endpointRotation);
@@ -20449,8 +20497,14 @@ function isDuctworkLineLayer(name) {
                 // Place a register LINKED COMPONENT at this collinear internal anchor
                 addDebug("[INTERNAL-REGISTERS] " + irColorSrc.name + ": Placing " + irRegisterLayerName + " at internal anchor [" + anchorPt[0].toFixed(1) + "," + anchorPt[1].toFixed(1) + "] (Python path " + ca.path_idx + ", point " + ca.point_idx + ")");
 
-                // Create anchor point for reference
-                createAnchorPoint(irRegisterLayer, anchorPt, null);
+                // Compute duct angle once so anchors can carry rotation metadata
+                var dxAngle = anchorPt[0] - prevPt[0];
+                var dyAngle = anchorPt[1] - prevPt[1];
+                var ductAngle = Math.atan2(dyAngle, dxAngle) * (180 / Math.PI);
+                var normalizedDuctAngle = normalizeAngle(ductAngle);
+
+                // Create anchor point for reference (store rotation for later use)
+                createAnchorPoint(irRegisterLayer, anchorPt, normalizedDuctAngle);
 
                 // Place the linked register component
                 try {
@@ -20473,12 +20527,15 @@ function isDuctworkLineLayer(name) {
 
                         // Apply rotation to match ductwork angle (if not disabled)
                         if (!SKIP_REGISTER_ROTATION) {
-                            var dxAngle = anchorPt[0] - prevPt[0];
-                            var dyAngle = anchorPt[1] - prevPt[1];
-                            var ductAngle = Math.atan2(dyAngle, dxAngle) * (180 / Math.PI);
                             placed.rotate(ductAngle, true, true, true, true, Transformation.CENTER);
-                            setPlacedRotation(placed, normalizeAngle(ductAngle));
-                            addDebug("[INTERNAL-REGISTERS] Applied rotation " + ductAngle.toFixed(1) + " deg to match ductwork");
+                            setPlacedRotation(placed, normalizedDuctAngle);
+                            try {
+                                var regMeta = MDUX_getMetadata(placed) || {};
+                                regMeta.MDUX_RotationOverride = normalizedDuctAngle;
+                                regMeta.MDUX_CumulativeRotation = String(normalizedDuctAngle);
+                                MDUX_setMetadata(placed, regMeta);
+                            } catch (eRegMeta) { }
+                            addDebug("[INTERNAL-REGISTERS] Applied rotation " + ductAngle.toFixed(1) + " deg");
                         }
 
                         // Re-center after scaling
@@ -20548,7 +20605,11 @@ function isDuctworkLineLayer(name) {
                             continue;
                         }
 
-                        createAnchorPoint(irRegisterLayer, anchorPt, null);
+                        var dxAngle = anchorPt[0] - prevPt[0];
+                        var dyAngle = anchorPt[1] - prevPt[1];
+                        var ductAngle = Math.atan2(dyAngle, dxAngle) * (180 / Math.PI);
+                        var normalizedDuctAngle = normalizeAngle(ductAngle);
+                        createAnchorPoint(irRegisterLayer, anchorPt, normalizedDuctAngle);
 
                         try {
                             if (irComponentFile.exists) {
@@ -20564,11 +20625,8 @@ function isDuctworkLineLayer(name) {
                                 var DEFAULT_SCALE = 50;
                                 placed.resize(DEFAULT_SCALE, DEFAULT_SCALE, true, true, true, true, DEFAULT_SCALE, Transformation.CENTER);
                                 if (!SKIP_REGISTER_ROTATION) {
-                                    var dxAngle = anchorPt[0] - prevPt[0];
-                                    var dyAngle = anchorPt[1] - prevPt[1];
-                                    var ductAngle = Math.atan2(dyAngle, dxAngle) * (180 / Math.PI);
                                     placed.rotate(ductAngle, true, true, true, true, Transformation.CENTER);
-                                    setPlacedRotation(placed, normalizeAngle(ductAngle));
+                                    setPlacedRotation(placed, normalizedDuctAngle);
                                 }
                                 bounds = placed.geometricBounds;
                                 var cx = (bounds[0] + bounds[2]) / 2;
@@ -22703,6 +22761,11 @@ function isDuctworkLineLayer(name) {
                         var info = anchorPts[j];
                         var a = info.pos;
                         var rotation = info.rotation;
+                        var forcePartRotationOverride = (!SKIP_REGISTER_ROTATION && type.layer !== "Thermostats" &&
+                            typeof GLOBAL_ROTATION_OVERRIDE === "number" && GLOBAL_ROTATION_OVERRIDE !== null);
+                        if (forcePartRotationOverride) {
+                            rotation = GLOBAL_ROTATION_OVERRIDE;
+                        }
                         var key = a[0].toFixed(2) + "_" + a[1].toFixed(2);
 
                         // UNIT PRIORITY: Skip register placement if a Unit already exists at this position
@@ -22860,9 +22923,9 @@ function isDuctworkLineLayer(name) {
                             // Apply rotation and scale ONLY for NEW items to preserve custom transforms on existing items
                             if (createdNew) {
                                 // Apply rotation for NEW items
-                                // Skip rotation for Square Registers if SKIP_REGISTER_ROTATION is enabled
+                                // Skip rotation for ductwork parts if SKIP_REGISTER_ROTATION is enabled
                                 addDebug("  [SKIP-ROT-CHECK] SKIP_REGISTER_ROTATION=" + SKIP_REGISTER_ROTATION + ", type.layer='" + type.layer + "'");
-                                var shouldSkipRotation = (SKIP_REGISTER_ROTATION && type.layer === "Square Registers");
+                                var shouldSkipRotation = (SKIP_REGISTER_ROTATION && type.layer !== "Thermostats");
                                 addDebug("  [SKIP-ROT-CHECK] shouldSkipRotation=" + shouldSkipRotation);
                                 if (type.layer !== "Thermostats" && desiredRotation !== null && !shouldSkipRotation) {
                                     addDebug("  APPLYING rotation: " + desiredRotation + "° (base: " + baseRotation + "°)");
@@ -22908,10 +22971,45 @@ function isDuctworkLineLayer(name) {
                                     // PERF: Removed verbose logging and verification read (Gemini optimization)
                                     var placedMeta2 = MDUX_getMetadata(targetItem) || {};
                                     placedMeta2.MDUX_RotationOverride = desiredRotation;
+                                    placedMeta2.MDUX_CumulativeRotation = String(desiredRotation);
                                     MDUX_setMetadata(targetItem, placedMeta2);
                                 } catch (eStoreMeta) {
                                     addDebug("  ERROR storing rotation metadata: " + eStoreMeta);
                                 }
+                            }
+                        }
+                        if (targetItem && !targetItem.locked && !createdNew && forcePartRotationOverride) {
+                            var existingBaseRotation = baseRotation;
+                            if (typeof existingBaseRotation !== 'number' || !isFinite(existingBaseRotation)) {
+                                try {
+                                    var mExisting = targetItem.matrix;
+                                    existingBaseRotation = Math.atan2(mExisting.mValueB, mExisting.mValueA) * (180 / Math.PI);
+                                } catch (eBase) {
+                                    existingBaseRotation = 0;
+                                }
+                                existingBaseRotation = normalizeSignedAngle_local(existingBaseRotation || 0);
+                            }
+
+                            var desiredExistingRotation = null;
+                            if (typeof rotation === 'number' && isFinite(rotation)) {
+                                desiredExistingRotation = rotation;
+                            } else if (typeof fallbackRotation === 'number' && isFinite(fallbackRotation)) {
+                                desiredExistingRotation = fallbackRotation;
+                            } else if (typeof existingBaseRotation === 'number' && isFinite(existingBaseRotation)) {
+                                desiredExistingRotation = normalizeAngle(existingBaseRotation);
+                            }
+
+                            if (type.layer !== "Thermostats" && desiredExistingRotation !== null) {
+                                addDebug("  APPLYING override rotation to existing " + type.name + ": " + desiredExistingRotation + "°");
+                                rotatePageItemToAbsolute(targetItem, desiredExistingRotation, existingBaseRotation);
+                                if (!customTransforms[key]) customTransforms[key] = {};
+                                customTransforms[key].absoluteRotation = desiredExistingRotation;
+                                try {
+                                    var placedMetaExisting = MDUX_getMetadata(targetItem) || {};
+                                    placedMetaExisting.MDUX_RotationOverride = desiredExistingRotation;
+                                    placedMetaExisting.MDUX_CumulativeRotation = String(desiredExistingRotation);
+                                    MDUX_setMetadata(targetItem, placedMetaExisting);
+                                } catch (eStoreExisting) { }
                             }
                         }
                     }
@@ -23119,25 +23217,23 @@ function isDuctworkLineLayer(name) {
                             }
                         } catch (eBypass) { }
 
-                        // Priority: global rotation override > path rotation override > stored point rotation
-                        // This ensures re-processing with a new angle override updates existing parts correctly
+                        // Priority: stored point rotation > path rotation override > global override
+                        // Anchor points carry per-endpoint angles; only fall back to overrides if missing.
                         var rotation = null;
                         var rotationSource = "";
-                        if (typeof GLOBAL_ROTATION_OVERRIDE === 'number' && GLOBAL_ROTATION_OVERRIDE !== null) {
+                        var pointRotation = getPointRotation(p);
+                        var pathOverride = getRotationOverride(p);
+                        if (pointRotation !== null && pointRotation !== undefined) {
+                            rotation = pointRotation;
+                            rotationSource = "POINT_METADATA";
+                        } else if (pathOverride !== null && pathOverride !== undefined) {
+                            rotation = pathOverride;
+                            rotationSource = "PATH_OVERRIDE";
+                        } else if (typeof GLOBAL_ROTATION_OVERRIDE === 'number' && GLOBAL_ROTATION_OVERRIDE !== null) {
                             rotation = GLOBAL_ROTATION_OVERRIDE;
                             rotationSource = "GLOBAL_OVERRIDE";
                         } else {
-                            var pathOverride = getRotationOverride(p);
-                            var pointRotation = getPointRotation(p);
-                            if (pathOverride !== null) {
-                                rotation = pathOverride;
-                                rotationSource = "PATH_OVERRIDE";
-                            } else if (pointRotation !== null) {
-                                rotation = pointRotation;
-                                rotationSource = "POINT_METADATA";
-                            } else {
-                                rotationSource = "NONE";
-                            }
+                            rotationSource = "NONE";
                         }
 
                         for (var j = 0; j < p.pathPoints.length; j++) {
