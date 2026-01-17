@@ -10685,12 +10685,10 @@ function isDuctworkLineLayer(name) {
             // NOTE: Do a LIVE check of the Ignored layer since ignore anchors may be created
             // during processing (e.g., when internal anchors close to endpoints are cleaned up)
             var registerEndpointIgnored = false;
-            var registerEndpointHasRegister = false; // Check if endpoint actually has a register nearby
             if (skipFinalBranchOrtho && pathIsBranch && pts.length >= 2) {
                 var registerEndpoint = registerEndIsFirst ? pts[0].anchor : pts[pts.length - 1].anchor;
                 var IGNORE_CHECK_DIST = 10; // tolerance for ignore anchor check
                 addDebug("[SKIP-FINAL-CHECK] Path is branch, checking register endpoint at [" + registerEndpoint[0].toFixed(1) + "," + registerEndpoint[1].toFixed(1) + "], registerEndIsFirst=" + registerEndIsFirst);
-                var REGISTER_CHECK_DIST = 25; // tolerance for register proximity check
 
                 // First check pre-collected ignore anchors
                 for (var igIdx = 0; igIdx < ORTHO_IGNORED_ANCHORS.length; igIdx++) {
@@ -10730,17 +10728,7 @@ function isDuctworkLineLayer(name) {
                     } catch (eLiveCheck) { /* Ignore errors in live check */ }
                 }
 
-                // Check if there's actually a register near this endpoint
-                // If no register exists, we should still orthogonalize (trunk without register at end)
-                for (var regIdx = 0; regIdx < ORTHO_REGISTER_ANCHORS.length; regIdx++) {
-                    var regPt = ORTHO_REGISTER_ANCHORS[regIdx];
-                    var regDist = Math.sqrt(Math.pow(registerEndpoint[0] - regPt[0], 2) + Math.pow(registerEndpoint[1] - regPt[1], 2));
-                    if (regDist <= REGISTER_CHECK_DIST) {
-                        registerEndpointHasRegister = true;
-                        break;
-                    }
-                }
-                addDebug("[SKIP-FINAL-CHECK] Results: registerEndpointIgnored=" + registerEndpointIgnored + ", registerEndpointHasRegister=" + registerEndpointHasRegister + ", ORTHO_REGISTER_ANCHORS.length=" + ORTHO_REGISTER_ANCHORS.length);
+                addDebug("[SKIP-FINAL-CHECK] Results: registerEndpointIgnored=" + registerEndpointIgnored);
             }
 
             // PERFORMANCE: Removed all addDebug calls from this hot function
@@ -10760,10 +10748,6 @@ function isDuctworkLineLayer(name) {
                         if (registerEndpointIgnored) {
                             addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment but endpoint is IGNORED - WILL ortho");
                             return true; // Ortho this segment normally
-                        }
-                        if (!registerEndpointHasRegister) {
-                            addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment but no register found - WILL ortho");
-                            return true; // Ortho when no register exists at endpoint
                         }
                         addDebug("[SKIP-FINAL-DECISION] Segment " + segmentIndex + " is final segment on branch - SKIPPING ortho");
                         return false;
@@ -16031,7 +16015,6 @@ function isDuctworkLineLayer(name) {
                 var endpointPairs = preOrthoConnections && preOrthoConnections.pairs ? preOrthoConnections.pairs : [];
                 var endpointSegments = preOrthoConnections && preOrthoConnections.endpointSegments ? preOrthoConnections.endpointSegments : [];
                 var IGNORE_CHECK_DIST = 10;
-                var REGISTER_CHECK_DIST = 25;
 
                 function endpointHasConnectionPair(path, anchorIndex) {
                     if (!endpointPairs || !endpointPairs.length) return false;
@@ -16072,16 +16055,6 @@ function isDuctworkLineLayer(name) {
                         var dx = pt[0] - igPt[0];
                         var dy = pt[1] - igPt[1];
                         if ((dx * dx + dy * dy) <= (IGNORE_CHECK_DIST * IGNORE_CHECK_DIST)) return true;
-                    }
-                    return false;
-                }
-
-                function endpointNearRegister(pt) {
-                    for (var regIdx = 0; regIdx < ORTHO_REGISTER_ANCHORS.length; regIdx++) {
-                        var regPt = ORTHO_REGISTER_ANCHORS[regIdx];
-                        var dx = pt[0] - regPt[0];
-                        var dy = pt[1] - regPt[1];
-                        if ((dx * dx + dy * dy) <= (REGISTER_CHECK_DIST * REGISTER_CHECK_DIST)) return true;
                     }
                     return false;
                 }
@@ -16144,13 +16117,6 @@ function isDuctworkLineLayer(name) {
                     var endPt = bfPts[endIndex].anchor;
                     if (endpointHasIgnoreMarker(bfPath, endpointName)) continue;
                     if (endpointNearIgnoredAnchor(endPt)) continue;
-
-                    // CRITICAL: Only capture branches that actually have a register at the endpoint
-                    // If no register exists, the branch should be fully ortho'd
-                    if (!endpointNearRegister(endPt)) {
-                        addDebug("[SKIP-FINAL] Skipping branch - no register found at endpoint [" + endPt[0].toFixed(1) + "," + endPt[1].toFixed(1) + "]");
-                        continue;
-                    }
 
                     var jointPt = bfPts[jointIndex].anchor;
                     var dxFinal = endPt[0] - jointPt[0];
