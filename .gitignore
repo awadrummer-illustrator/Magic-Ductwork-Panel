@@ -42,3 +42,10 @@ conversation-extract.txt
 conversation-full.txt
 conversation-yesterday.txt
 temp_old_gap_tools.jsx
+
+# Windows shortcuts
+*.lnk
+
+# Python reproduce/test scripts
+python/reproduce_*.py
+python/reproduce_*.txt
