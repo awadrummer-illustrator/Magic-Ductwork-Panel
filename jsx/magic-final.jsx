@@ -17547,6 +17547,9 @@ function isDuctworkLineLayer(name) {
         averageCloseEndpoints(lightGreenSourceLayer, blueSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
         averageCloseEndpoints(orangeSourceLayer, lightOrangeSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
         averageCloseEndpoints("Thermostat Lines", blueSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
+        // Also create units where Thermostat Lines meet Green/Light Green Ductwork
+        averageCloseEndpoints("Thermostat Lines", greenSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
+        averageCloseEndpoints("Thermostat Lines", lightGreenSourceLayer, "Units", ignoredAnchors, allExistingForUnits);
 
         // *** CREATE UNITS AT OPPOSITE ENDPOINTS (from internal anchor cleanup) ***
         // When an internal anchor is removed near an endpoint, create a unit at the opposite end of that path

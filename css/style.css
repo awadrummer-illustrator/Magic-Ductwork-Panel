@@ -631,3 +631,96 @@ footer:hover {
     background: rgba(255, 0, 60, 0.2) !important;
     box-shadow: 0 0 10px rgba(255, 0, 60, 0.3) !important;
 }
+
+/* ============================================ */
+/* SECTION DRAG AND DROP */
+/* ============================================ */
+
+/* Lock toggle button */
+.section-lock-toggle {
+    position: fixed;
+    top: 8px;
+    right: 40px;
+    z-index: 9999;
+    width: 24px;
+    height: 24px;
+    padding: 4px;
+    background: rgba(0, 0, 0, 0.7);
+    border: 1px solid var(--secondary-color);
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+    box-shadow: 0 0 8px rgba(0, 102, 255, 0.3);
+}
+
+.section-lock-toggle:hover {
+    background: rgba(0, 102, 255, 0.2);
+    box-shadow: 0 0 15px rgba(0, 102, 255, 0.5);
+}
+
+.section-lock-toggle svg {
+    color: var(--secondary-color);
+    filter: drop-shadow(0 0 3px var(--secondary-color));
+    width: 14px;
+    height: 14px;
+}
+
+.section-lock-toggle.unlocked {
+    border-color: var(--success-color);
+}
+
+.section-lock-toggle.unlocked svg {
+    color: var(--success-color);
+    filter: drop-shadow(0 0 3px var(--success-color));
+}
+
+/* Draggable accordion header */
+.accordion-header.draggable {
+    cursor: grab;
+}
+
+.accordion-header.draggable:active {
+    cursor: grabbing;
+}
+
+/* Drag handle icon */
+.accordion-header .drag-handle {
+    display: none;
+    width: 12px;
+    height: 12px;
+    margin-right: 4px;
+    opacity: 0.5;
+    color: var(--text-muted);
+}
+
+.accordion-header.draggable .drag-handle {
+    display: block;
+}
+
+.accordion-header.draggable:hover .drag-handle {
+    opacity: 1;
+    color: var(--primary-color);
+}
+
+/* Section being dragged */
+.accordion-section.dragging {
+    opacity: 0.5;
+    border: 1px dashed var(--primary-color);
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.4);
+}
+
+/* Drop indicator */
+.accordion-section.drag-over {
+    border-top: 2px solid var(--primary-color);
+    margin-top: -1px;
+    box-shadow: 0 -4px 10px rgba(0, 240, 255, 0.3);
+}
+
+.accordion-section.drag-over-bottom {
+    border-bottom: 2px solid var(--primary-color);
+    margin-bottom: -1px;
+    box-shadow: 0 4px 10px rgba(0, 240, 255, 0.3);
+}
