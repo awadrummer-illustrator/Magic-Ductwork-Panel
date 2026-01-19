@@ -317,6 +317,10 @@ button:active {
     text-shadow: 0 0 5px var(--primary-color);
 }
 
+#process-btn {
+    display: none !important;
+}
+
 .btn-primary-glow:hover {
     background: linear-gradient(90deg, rgba(0,240,255,0.2) 0%, rgba(0,102,255,0.4) 50%, rgba(0,240,255,0.2) 100%);
     box-shadow: 0 0 20px var(--primary-dim);

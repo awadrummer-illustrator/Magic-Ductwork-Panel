@@ -3995,8 +3995,8 @@ function MDUX_getSelectedLineAngleBridge() {
 
                 if (segmentLength > longestLength) {
                     longestLength = segmentLength;
-                    // Calculate angle - negate dy for Illustrator's inverted Y-axis
-                    var angleRadians = Math.atan2(-dy, dx);
+                    // Calculate angle using Illustrator's rotation convention
+                    var angleRadians = Math.atan2(dy, dx);
                     longestAngle = angleRadians * (180 / Math.PI);
                 }
             }

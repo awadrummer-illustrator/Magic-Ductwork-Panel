@@ -2,6 +2,7 @@
     'use strict';
 
     const csInterface = new CSInterface();
+    const ENABLE_LEGACY_PROCESS_BUTTON = false;
     const processBtn = document.getElementById('process-btn');
     const processPlacedBtn = document.getElementById('process-placed-btn');
     const processEmoryBtn = document.getElementById('process-emory-btn');
@@ -1234,6 +1235,11 @@
             rotationInput.value = normalized.toString();
             rotationInput.dataset.autoValue = '';
             rotationInput.dataset.multi = 'false';
+            try {
+                await evalScript(`MDUX_cppSetRotationOverride(${normalized})`);
+            } catch (e) {
+                // Ignore bridge failures here; UI still reflects the value.
+            }
             setProcessStatus(finalMessage || ('Angle set to ' + normalized + '°'));
             debugStatus.textContent = 'Angle retrieved: ' + normalized + '°';
         } else {
@@ -1476,6 +1482,8 @@
         teNextPayload = {
             scale: useScale,      // Absolute target scale (e.g., 120 means 120%)
             rotate: useRotate,    // Absolute target rotation (e.g., 45 means 45deg)
+            scaleDirty: teScaleDirty,
+            rotateDirty: teRotateDirty,
             undoPrevious: false   // Not needed with absolute values + debounce
         };
 
@@ -2682,3 +2690,9 @@
 
     document.addEventListener('DOMContentLoaded', init);
 })();
+    if (processBtn) {
+        processBtn.textContent = 'Process Ductwork Legacy';
+        if (!ENABLE_LEGACY_PROCESS_BUTTON) {
+            processBtn.style.display = 'none';
+        }
+    }
