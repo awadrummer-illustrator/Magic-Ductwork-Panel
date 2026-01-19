@@ -1592,8 +1592,8 @@
 
             if (res.ok && res.count > 0) {
                 let statusMsg = [];
-                const preserveScale = teScaleDirty;
-                const preserveRotate = teRotateDirty;
+                const preserveScale = teScaleDirty || teRotateDirty;
+                const preserveRotate = teRotateDirty || teScaleDirty;
 
                 // If either input has focus, blur it so we can update values
                 // This handles the case where user clicks a new object in Illustrator
@@ -2355,9 +2355,13 @@
                 resetPartsScaleBtn.addEventListener('click', async () => {
                     try {
                         await ensureBridgeLoaded();
-                        const result = await evalScript('MDUX_cppResetScale()');
-                        if (selectionStatus) selectionStatus.textContent = result || 'Parts scale reset';
-                    } catch (e) {
+                const result = await evalScript('MDUX_cppResetScale()');
+                if (selectionStatus) selectionStatus.textContent = result || 'Parts scale reset';
+                if (teScaleSlider) teScaleSlider.value = 100;
+                if (teScaleInput) teScaleInput.value = 100;
+                lastSelectionScale = 100;
+                teScaleDirty = false;
+            } catch (e) {
                         if (selectionStatus) selectionStatus.textContent = 'Error: ' + e.message;
                     }
                 });
