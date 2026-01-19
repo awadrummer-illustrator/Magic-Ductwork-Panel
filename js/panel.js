@@ -3,6 +3,7 @@
 
     const csInterface = new CSInterface();
     const processBtn = document.getElementById('process-btn');
+    const processPlacedBtn = document.getElementById('process-placed-btn');
     const processEmoryBtn = document.getElementById('process-emory-btn');
     const processStatus = document.getElementById('process-status');
     const revertBtn = document.getElementById('revert-ortho-btn');
@@ -134,6 +135,164 @@
         var root = csInterface.getSystemPath(CSInterface.SystemPath.EXTENSION);
         return root.replace(/\\/g, '/') + '/jsx/panel-bridge.jsx';
     })();;
+    window.MDUX_SUSPEND_POLL = false;
+    const suspendFlagPath = (function () {
+        var base = csInterface.getSystemPath(CSInterface.SystemPath.USER_DATA);
+        return base.replace(/\\/g, '/') + '/Adobe/CEP/extensions/Magic-Ductwork-Panel/md_cep_suspend.flag';
+    })();
+
+    function isCepSuspended() {
+        if (window.MDUX_SUSPEND_POLL) return true;
+        try {
+            if (window.cep && window.cep.fs && window.cep.fs.exists) {
+                return window.cep.fs.exists(suspendFlagPath) === true;
+            }
+        } catch (e) { }
+        return false;
+    }
+
+    window.MDUX_setSuspendPoll = function (flag) {
+        window.MDUX_SUSPEND_POLL = !!flag;
+    };
+
+    const AUTO_SELECTION_REFRESH_ENABLED = true;
+    const AUTO_SELECTION_REFRESH_MODE = 'all';
+    const AUTO_SELECTION_EVENTS_ENABLED = true;
+    const AUTO_SELECTION_POLL_ENABLED = false;
+    let cepRuntimeSuspended = false;
+    let pollInterval = null;
+    let suspendMonitor = null;
+    let selectionMonitor = null;
+    let pollInProgress = false;
+    let lastSelectionHash = '';
+    let skipSelectionRefresh = false;
+
+    function onAfterSelectionChanged() {
+        if (isCepSuspended()) return;
+        if (!AUTO_SELECTION_REFRESH_ENABLED) return;
+        updateSkipSelectionRefresh().then(() => {
+            if (skipSelectionRefresh) return;
+            scheduleSkipOrthoRefresh();
+        }).catch(() => {});
+    }
+
+    function onDocumentAfterActivate() {
+        if (isCepSuspended()) return;
+        if (!AUTO_SELECTION_REFRESH_ENABLED) return;
+        updateSkipSelectionRefresh().then(() => {
+            if (!skipSelectionRefresh) {
+                scheduleSkipOrthoRefresh();
+            }
+        }).catch(() => {});
+        resetTransformControls(true);
+        lastSelectionHash = '';
+        evalScript('MDUX_onDocumentChange()').then(result => {
+            console.log('[JS] Document change cleanup:', result);
+        }).catch(() => {});
+    }
+
+    function onDocumentChanged() {
+        if (isCepSuspended()) return;
+        if (!AUTO_SELECTION_REFRESH_ENABLED) return;
+        updateSkipSelectionRefresh().then(() => {
+            if (skipSelectionRefresh) return;
+            scheduleSkipOrthoRefresh();
+        }).catch(() => {});
+    }
+
+    function startCepRuntime() {
+        if (!AUTO_SELECTION_REFRESH_ENABLED && !AUTO_SELECTION_POLL_ENABLED) return;
+        if (cepRuntimeSuspended || isCepSuspended()) return;
+        if (AUTO_SELECTION_EVENTS_ENABLED) {
+            csInterface.addEventListener('afterSelectionChanged', onAfterSelectionChanged);
+            csInterface.addEventListener('documentAfterActivate', onDocumentAfterActivate);
+            csInterface.addEventListener('documentChanged', onDocumentChanged);
+        }
+        if (AUTO_SELECTION_POLL_ENABLED && !pollInterval) {
+            pollInterval = setInterval(function() {
+                if (pollInProgress || isCepSuspended()) return;
+                pollInProgress = true;
+                if (skipSelectionRefresh) {
+                    updateSkipSelectionRefresh().then(() => {
+                        pollInProgress = false;
+                    }).catch(() => {
+                        pollInProgress = false;
+                    });
+                    return;
+                }
+                evalScript('(function(){try{var s=app.activeDocument.selection;if(!s||s.length===0)return"empty";var pos=s[0].position||[0,0];return s.length+"|"+(s[0].typename||"")+"|"+Math.round(pos[0])+","+Math.round(pos[1]);}catch(e){return"nodoc";}})()').then(function(hash) {
+                    if (hash === lastSelectionHash) {
+                        pollInProgress = false;
+                        return;
+                    }
+                    lastSelectionHash = hash;
+                    if (!AUTO_SELECTION_REFRESH_ENABLED) {
+                        return;
+                    }
+                    return Promise.all([
+                        refreshSelectionTransformState().catch(function() {}),
+                        refreshRotationOverrideState().catch(function() {})
+                    ]);
+                }).catch(function() {
+                }).finally(function() {
+                    pollInProgress = false;
+                });
+            }, 1000);
+        }
+        cepRuntimeSuspended = false;
+    }
+
+    function stopCepRuntime() {
+        if (cepRuntimeSuspended) return;
+        if (AUTO_SELECTION_EVENTS_ENABLED) {
+            csInterface.removeEventListener('afterSelectionChanged', onAfterSelectionChanged);
+            csInterface.removeEventListener('documentAfterActivate', onDocumentAfterActivate);
+            csInterface.removeEventListener('documentChanged', onDocumentChanged);
+        }
+        if (pollInterval) {
+            clearInterval(pollInterval);
+            pollInterval = null;
+        }
+        cepRuntimeSuspended = true;
+    }
+
+    function ensureSuspendMonitor() {
+        if (suspendMonitor) return;
+        suspendMonitor = setInterval(() => {
+            if (isCepSuspended()) {
+                stopCepRuntime();
+            } else {
+                startCepRuntime();
+            }
+        }, 1000);
+    }
+
+    async function selectionHasPlacedItems() {
+        try {
+            const res = await evalScript('(function(){try{var s=app.selection;if(!s||s.length===0)return\"no\";function hasPlaced(item){if(!item)return false;if(item.typename===\"PlacedItem\")return true;if(item.typename===\"GroupItem\"&&item.pageItems){for(var i=0;i<item.pageItems.length;i++){if(hasPlaced(item.pageItems[i]))return true;}}return false;}if(s.length===undefined&&s.typename){return hasPlaced(s)?\"yes\":\"no\";}for(var i=0;i<s.length;i++){if(hasPlaced(s[i]))return\"yes\";}return\"no\";}catch(e){return\"no\";}})()');
+            return res === 'yes';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function ensureSelectionMonitor() {
+        if (!AUTO_SELECTION_REFRESH_ENABLED) return;
+        if (selectionMonitor) return;
+        selectionMonitor = setInterval(async () => {
+            if (isCepSuspended()) return;
+            const hasPlaced = await selectionHasPlacedItems();
+            if (hasPlaced) {
+                skipSelectionRefresh = true;
+                stopCepRuntime();
+                return;
+            }
+            skipSelectionRefresh = false;
+            if (cepRuntimeSuspended) {
+                startCepRuntime();
+            }
+        }, 750);
+    }
 
     /**
      * Normalize angle to range -90 to 90 (acute angle from axis)
@@ -402,18 +561,41 @@
     function scheduleSkipOrthoRefresh() {
         console.log('[JS] scheduleSkipOrthoRefresh called');
         // PERF: Removed debug logging to prevent blocking ExtendScript calls
+        if (!AUTO_SELECTION_REFRESH_ENABLED) return;
+        if (isCepSuspended()) return;
         if (skipOrthoRefreshTimer) clearTimeout(skipOrthoRefreshTimer);
-        skipOrthoRefreshTimer = setTimeout(() => {
+        skipOrthoRefreshTimer = setTimeout(async () => {
             console.log('[JS] scheduleSkipOrthoRefresh timeout fired, calling refresh functions');
             // PERF: Removed debug logging to prevent blocking ExtendScript calls
+            if (skipSelectionRefresh) return;
+            if (AUTO_SELECTION_REFRESH_MODE === 'skip-ortho') {
+                refreshSkipOrthoState().catch(() => { });
+                return;
+            }
+            if (AUTO_SELECTION_REFRESH_MODE === 'skip-ortho+rotation') {
+                refreshSkipOrthoState().catch(() => { });
+                refreshRotationOverrideState().catch(() => { });
+                return;
+            }
             refreshSkipOrthoState().catch(() => { });
             refreshRotationOverrideState().catch(() => { });
             refreshSelectionTransformState().catch(() => { });
         }, 150);
     }
 
+    async function updateSkipSelectionRefresh() {
+        try {
+            const res = await evalScript('(function(){try{var s=app.selection;if(!s||s.length===0)return\"no\";function hasPlaced(item){if(!item)return false;if(item.typename===\"PlacedItem\")return true;if(item.typename===\"GroupItem\"&&item.pageItems){for(var i=0;i<item.pageItems.length;i++){if(hasPlaced(item.pageItems[i]))return true;}}return false;}if(s.length===undefined&&s.typename){return hasPlaced(s)?\"yes\":\"no\";}for(var i=0;i<s.length;i++){if(hasPlaced(s[i]))return\"yes\";}return\"no\";}catch(e){return\"no\";}})()');
+            skipSelectionRefresh = res === 'yes';
+        } catch (e) {
+            skipSelectionRefresh = false;
+        }
+        return skipSelectionRefresh;
+    }
+
     async function refreshRotationOverrideState() {
         if (!rotationInput) return;
+        if (isCepSuspended()) return;
 
         // NEVER update if user is typing in the input
         var isFocused = document.activeElement === rotationInput;
@@ -668,6 +850,36 @@
         }
     }
 
+    async function handleProcessPlacedApiClick() {
+        if (!processPlacedBtn) return;
+        processPlacedBtn.disabled = true;
+        setProcessStatus('Processing ductwork (Placed)ƒ?İ');
+
+        try {
+            await ensureBridgeLoaded();
+        } catch (e) {
+            setProcessStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
+            processPlacedBtn.disabled = false;
+            return;
+        }
+
+        try {
+            const result = normaliseResult(await evalScript('MDUX_cppProcessPlacedApi()'));
+            if (result.ok) {
+                setProcessStatus('Ready.');
+                debugStatus.textContent = 'Process placed completed';
+            } else {
+                setProcessStatus('Error: ' + result.value, true);
+                debugStatus.textContent = 'Process placed failed: ' + result.value;
+            }
+        } catch (e) {
+            setProcessStatus('Error: ' + e.message, true);
+        } finally {
+            processPlacedBtn.disabled = false;
+            scheduleSkipOrthoRefresh();
+        }
+    }
+
     async function handleProcessEmoryClick() {
         processEmoryBtn.disabled = true;
         setProcessStatus('Running Emory ductwork processing…');
@@ -704,29 +916,14 @@
             setSelectionStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
             return;
         }
-        const result = normaliseResult(await evalScript('MDUX_rotateSelectionBridge(' + angle + ')'));
+        const result = normaliseResult(await evalScript('MDUX_cppQuickRotate(' + angle + ')'));
         if (!result.ok) {
             setSelectionStatus('Error: ' + result.value, true);
             debugStatus.textContent = 'Rotate failed: ' + result.value;
             return;
         }
-        let stats = null;
-        try { stats = result.value ? JSON.parse(result.value) : null; } catch (e) { stats = null; }
-        if (stats && typeof stats.total === 'number') {
-            if (stats.total === 0) {
-                setSelectionStatus('Select units/registers to rotate.', true);
-                debugStatus.textContent = 'Rotate: no eligible items';
-            } else if (stats.rotated > 0) {
-                setSelectionStatus('Rotated ' + stats.rotated + ' item(s).' + (stats.skipped ? ' Skipped ' + stats.skipped + '.' : ''));
-                debugStatus.textContent = 'Rotate result: rotated ' + stats.rotated + ', skipped ' + (stats.skipped || 0);
-            } else {
-                setSelectionStatus('No eligible items were rotated.', true);
-                debugStatus.textContent = 'Rotate: no items rotated';
-            }
-        } else {
-            setSelectionStatus(result.value || 'Rotation complete.');
-            debugStatus.textContent = 'Rotate result: ' + (result.value || 'OK');
-        }
+        setSelectionStatus(result.value || 'Rotation complete.');
+        debugStatus.textContent = 'Rotate result: ' + (result.value || 'OK');
         scheduleSkipOrthoRefresh();
     }
 
@@ -993,40 +1190,56 @@
         clearRotationMetadataBtn.disabled = false;
         scheduleSkipOrthoRefresh();
     }
-
     async function handleGetAngle() {
-        setProcessStatus('Getting angle from selected line…');
+        setProcessStatus('Getting angle from selected line.');
         try {
             await ensureBridgeLoaded();
         } catch (e) {
             setProcessStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
             return;
         }
-        const resultStr = await evalScript('MDUX_getSelectedLineAngleBridge()');
-        const result = normaliseResult(resultStr);
 
-        if (!result.ok) {
-            setProcessStatus(result.value, true);
-            debugStatus.textContent = 'Get angle failed: ' + result.value;
-            return;
+        const resultStr = await evalScript('MDUX_cppGetSelectedLineAngleBridge()');
+        const result = normaliseResult(resultStr);
+        let data = null;
+        if (result.ok) {
+            try { data = JSON.parse(result.value); } catch (eParse) { data = null; }
         }
 
-        try {
-            const data = JSON.parse(result.value);
-            if (data.ok && typeof data.angle === 'number') {
-                const normalized = normalizeAngle(data.angle);
-                rotationInput.value = normalized.toString();
-                rotationInput.dataset.autoValue = '';
-                rotationInput.dataset.multi = 'false';
-                setProcessStatus(data.message || ('Angle set to ' + normalized + '°'));
-                debugStatus.textContent = 'Angle retrieved: ' + normalized + '°';
-            } else {
-                setProcessStatus(data.message || 'Failed to get angle', true);
-                debugStatus.textContent = 'Get angle failed: ' + (data.message || 'Unknown error');
-            }
-        } catch (e) {
-            setProcessStatus('Error parsing angle result', true);
-            debugStatus.textContent = 'Get angle parse error: ' + e;
+        const legacyStr = await evalScript('MDUX_getSelectedLineAngleBridge()');
+        const legacyResult = normaliseResult(legacyStr);
+        let legacy = null;
+        if (legacyResult.ok) {
+            try { legacy = JSON.parse(legacyResult.value); } catch (eLegacy) { legacy = null; }
+        }
+
+        const cppOk = !!(data && data.ok && typeof data.angle === 'number' && !isNaN(data.angle));
+        const legacyOk = !!(legacy && legacy.ok && typeof legacy.angle === 'number' && !isNaN(legacy.angle));
+
+        let finalAngle = null;
+        let finalMessage = '';
+        if (cppOk && legacyOk && Math.abs(data.angle - legacy.angle) > 0.1) {
+            finalAngle = legacy.angle;
+            finalMessage = legacy.message || 'Angle captured (legacy fallback).';
+        } else if (cppOk) {
+            finalAngle = data.angle;
+            finalMessage = data.message || 'Angle captured.';
+        } else if (legacyOk) {
+            finalAngle = legacy.angle;
+            finalMessage = legacy.message || 'Angle captured (legacy fallback).';
+        }
+
+        if (finalAngle != null) {
+            const normalized = normalizeAngle(finalAngle);
+            rotationInput.value = normalized.toString();
+            rotationInput.dataset.autoValue = '';
+            rotationInput.dataset.multi = 'false';
+            setProcessStatus(finalMessage || ('Angle set to ' + normalized + '°'));
+            debugStatus.textContent = 'Angle retrieved: ' + normalized + '°';
+        } else {
+            const errorMsg = (data && data.message) || (legacy && legacy.message) || 'Failed to get angle';
+            setProcessStatus(errorMsg, true);
+            debugStatus.textContent = 'Get angle failed: ' + errorMsg;
         }
     }
 
@@ -1164,6 +1377,10 @@
     // Track start values for the current drag session
     let teDragStartScale = 100;
     let teDragStartRotate = 0;
+    let teScaleDirty = false;
+    let teRotateDirty = false;
+    let lastSelectionScale = 100;
+    let lastSelectionRotation = 0;
 
     // Track committed values (where the slider was left after last drag)
     // We need this because the slider value is absolute (e.g. 110), but we need to calculate
@@ -1178,6 +1395,7 @@
 
         // Capture current payload
         const payload = teNextPayload;
+        console.log('[TRANSFORM] payload', JSON.stringify(payload));
         teNextPayload = null; // Clear it, so we can catch new updates
 
         // Update status for feedback
@@ -1187,7 +1405,7 @@
 
         try {
             // Add a timeout race to prevent hanging if Illustrator doesn't respond
-            const transformPromise = evalScript(`MDUX_transformEach(${payload.scale}, ${payload.rotate}, ${payload.undoPrevious})`);
+            const transformPromise = evalScript(`MDUX_cppTransformEachLive(${payload.scale}, ${payload.rotate})`);
             const timeoutPromise = new Promise(resolve => setTimeout(() => resolve("TIMEOUT"), 1000));
 
             const result = await Promise.race([transformPromise, timeoutPromise]);
@@ -1199,6 +1417,10 @@
                 if (teDragActive) {
                     teTransformAppliedInDrag = true;
                 }
+
+                lastSelectionScale = payload.scale;
+                lastSelectionRotation = payload.rotate;
+                console.log('[TRANSFORM] applied scale/rotate', lastSelectionScale, lastSelectionRotation);
 
                 // DEBUG: Show the result message from JSX
                 try {
@@ -1231,9 +1453,9 @@
 
     // Debounce timer for transform (500ms as per V3 spec)
     let transformDebounceTimer = null;
-    const TRANSFORM_DEBOUNCE_MS = 500;
+    const TRANSFORM_DEBOUNCE_MS = 0;
 
-    function handleLiveTransform() {
+    function handleLiveTransform(source) {
         // Check if Live is enabled
         if (teLiveOption && !teLiveOption.checked) return;
 
@@ -1242,19 +1464,29 @@
 
         const currentScale = parseFloat(teScaleSlider.value);
         const currentRotate = parseFloat(teRotateSlider.value);
+        const useScale = (source === 'rotate' && !teScaleDirty && lastSelectionScale !== null) ? lastSelectionScale : currentScale;
+        const useRotate = (source === 'scale' && !teRotateDirty && lastSelectionRotation !== null) ? lastSelectionRotation : currentRotate;
 
-        if (isNaN(currentScale) || isNaN(currentRotate)) return;
+        if (isNaN(useScale) || isNaN(useRotate)) return;
+        console.log('[TRANSFORM] live', source, 'cur', currentScale, currentRotate, 'use', useScale, useRotate, 'dirty', teScaleDirty, teRotateDirty, 'last', lastSelectionScale, lastSelectionRotation);
 
         // Send ABSOLUTE values - the slider value IS the target scale/rotation
         // MDUX_transformEach calculates the resize factor from current metadata
         // No undo needed - debounce ensures only final value is applied
         teNextPayload = {
-            scale: currentScale,      // Absolute target scale (e.g., 120 means 120%)
-            rotate: currentRotate,    // Absolute target rotation (e.g., 45 means 45°)
-            undoPrevious: false       // Not needed with absolute values + debounce
+            scale: useScale,      // Absolute target scale (e.g., 120 means 120%)
+            rotate: useRotate,    // Absolute target rotation (e.g., 45 means 45deg)
+            undoPrevious: false   // Not needed with absolute values + debounce
         };
 
-        // V3: Apply 500ms debounce - transform only takes effect after user stops dragging
+        if (TRANSFORM_DEBOUNCE_MS <= 0) {
+            processTransformQueue().finally(() => {
+                teDragActive = false;
+            });
+            return;
+        }
+
+        // V3: Apply debounce - transform only takes effect after user stops dragging
         if (transformDebounceTimer) {
             clearTimeout(transformDebounceTimer);
         }
@@ -1281,6 +1513,10 @@
         teNextPayload = null;
         teDragStartScale = 100;
         teDragStartRotate = 0;
+        teScaleDirty = false;
+        teRotateDirty = false;
+        lastSelectionScale = 100;
+        lastSelectionRotation = 0;
     }
 
     async function handleTransformEach() {
@@ -1300,7 +1536,7 @@
 
             setSelectionStatus("Transforming...", false);
             try {
-                await evalScript(`MDUX_transformEach(${s}, ${r}, false)`);
+                await evalScript(`MDUX_cppTransformEach(${s}, ${r})`);
                 setSelectionStatus("Transformation applied.", false);
                 // Reset internal state but NOT input values - let refresh update them from metadata
                 resetTransformControls(false);
@@ -1315,7 +1551,7 @@
     async function handleResetOriginal() {
         setSelectionStatus("Resetting to original...", false);
         try {
-            await evalScript('MDUX_resetTransforms()');
+            await evalScript('MDUX_cppResetOriginal()');
             setSelectionStatus("Reset complete.", false);
             resetTransformControls(true);
         } catch (e) {
@@ -1325,6 +1561,7 @@
 
     async function refreshSelectionTransformState() {
         console.log('[JS] refreshSelectionTransformState called, teDragActive=', teDragActive, 'teIsBusy=', teIsBusy);
+        if (isCepSuspended()) return;
         if (teDragActive || teIsBusy) {
             // PERF: Removed debug logging to prevent blocking ExtendScript calls
             return;
@@ -1355,6 +1592,8 @@
 
             if (res.ok && res.count > 0) {
                 let statusMsg = [];
+                const preserveScale = teScaleDirty;
+                const preserveRotate = teRotateDirty;
 
                 // If either input has focus, blur it so we can update values
                 // This handles the case where user clicks a new object in Illustrator
@@ -1367,34 +1606,53 @@
                 }
 
                 // Update scale
-                if (res.mixedScale) {
-                    console.log('[JS] Mixed scale detected');
-                    teScaleInput.value = '';
-                    teScaleInput.placeholder = 'Mixed';
-                    teScaleSlider.value = 100;
-                    statusMsg.push('Multiple different scales in selection');
+                if (!preserveScale) {
+                    if (res.mixedScale) {
+                        console.log('[JS] Mixed scale detected');
+                        teScaleInput.value = '';
+                        teScaleInput.placeholder = 'Mixed';
+                        teScaleSlider.value = 100;
+                        statusMsg.push('Multiple different scales in selection');
+                        lastSelectionScale = null;
+                    } else {
+                        console.log('[JS] Setting scale to:', res.scale);
+                        teScaleInput.value = res.scale;
+                        teScaleInput.placeholder = '';
+                        teScaleSlider.value = res.scale;
+                        console.log('[JS] Scale slider value now:', teScaleSlider.value);
+                        lastSelectionScale = res.scale;
+                    }
                 } else {
-                    console.log('[JS] Setting scale to:', res.scale);
-                    teScaleInput.value = res.scale;
-                    teScaleInput.placeholder = '';
-                    teScaleSlider.value = res.scale;
-                    console.log('[JS] Scale slider value now:', teScaleSlider.value);
+                    console.log('[JS] Preserve scale UI during live drag');
                 }
 
                 // Update rotation
-                if (res.mixedRotation) {
-                    console.log('[JS] Mixed rotation detected');
-                    teRotateInput.value = '';
-                    teRotateInput.placeholder = 'Mixed';
-                    teRotateSlider.value = 0;
-                    statusMsg.push('Multiple different rotations in selection');
+                if (!preserveRotate) {
+                    if (res.mixedRotation) {
+                        console.log('[JS] Mixed rotation detected');
+                        teRotateInput.value = '';
+                        teRotateInput.placeholder = 'Mixed';
+                        teRotateSlider.value = 0;
+                        statusMsg.push('Multiple different rotations in selection');
+                        lastSelectionRotation = null;
+                    } else {
+                        console.log('[JS] Setting rotation to:', res.rotation);
+                        teRotateInput.value = res.rotation;
+                        teRotateInput.placeholder = '';
+                        teRotateSlider.value = res.rotation;
+                        console.log('[JS] Rotation slider value now:', teRotateSlider.value);
+                        lastSelectionRotation = res.rotation;
+                    }
                 } else {
-                    console.log('[JS] Setting rotation to:', res.rotation);
-                    teRotateInput.value = res.rotation;
-                    teRotateInput.placeholder = '';
-                    teRotateSlider.value = res.rotation;
-                    console.log('[JS] Rotation slider value now:', teRotateSlider.value);
+                    console.log('[JS] Preserve rotation UI during live drag');
                 }
+                if (!preserveScale) {
+                    teScaleDirty = false;
+                }
+                if (!preserveRotate) {
+                    teRotateDirty = false;
+                }
+                console.log('[JS] selection state', { scale: lastSelectionScale, rotation: lastSelectionRotation, mixedScale: res.mixedScale, mixedRotation: res.mixedRotation });
 
                 if (statusEl && statusMsg.length > 0) {
                     statusEl.textContent = statusMsg.join(' • ');
@@ -1408,6 +1666,11 @@
                 teRotateInput.value = 0;
                 teRotateInput.placeholder = '';
                 teRotateSlider.value = 0;
+                lastSelectionScale = 100;
+                lastSelectionRotation = 0;
+                teScaleDirty = false;
+                teRotateDirty = false;
+                console.log('[JS] selection state', { scale: lastSelectionScale, rotation: lastSelectionRotation, mixedScale: res.mixedScale, mixedRotation: res.mixedRotation });
             }
         } catch (e) {
             console.error('Refresh transform state failed:', e);
@@ -1467,6 +1730,7 @@
 
     function attachListeners() {
         if (processBtn) processBtn.addEventListener('click', handleProcessClick);
+        if (processPlacedBtn) processPlacedBtn.addEventListener('click', handleProcessPlacedApiClick);
         if (processEmoryBtn) processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
         if (revertBtn) revertBtn.addEventListener('click', handleRevertPreOrtho);
         if (clearRotationMetadataBtn) clearRotationMetadataBtn.addEventListener('click', handleClearRotationMetadata);
@@ -1484,6 +1748,12 @@
             rotationInput.addEventListener('input', () => {
                 rotationInput.dataset.autoValue = '';
                 rotationInput.dataset.multi = 'false';
+                const val = parseFloat(rotationInput.value);
+                if (!isNaN(val)) {
+                    evalScript(`MDUX_cppSetRotationOverride(${val})`);
+                } else if (!rotationInput.value.trim()) {
+                    evalScript('MDUX_cppClearRotationOverride()');
+                }
             });
             // Handle Enter key to apply rotation
             rotationInput.addEventListener('keydown', (e) => {
@@ -1493,6 +1763,7 @@
                     if (!isNaN(val)) {
                         console.log('[ROTATION] Enter pressed, applying rotation: ' + val);
                         rotateSelection(val);
+                        evalScript(`MDUX_cppSetRotationOverride(${val})`);
                     }
                 }
             });
@@ -1503,8 +1774,11 @@
                     const normalized = normalizeAngle(val);
                     if (normalized !== val) {
                         rotationInput.value = normalized;
-                        console.log('[ROTATION] Normalized ' + val + '° to ' + normalized + '°');
+                        console.log('[ROTATION] Normalized ' + val + '? to ' + normalized + '?');
                     }
+                    evalScript(`MDUX_cppSetRotationOverride(${normalized})`);
+                } else if (!rotationInput.value.trim()) {
+                    evalScript('MDUX_cppClearRotationOverride()');
                 }
             });
         }
@@ -1755,7 +2029,7 @@
             setSelectionStatus('Resetting ductwork parts rotation...');
             try {
                 await ensureBridgeLoaded();
-                const result = await evalScript('MDUX_resetDuctworkPartsRotation()');
+                const result = await evalScript('MDUX_cppResetRotation()');
                 setSelectionStatus(result || 'Parts rotation reset');
                 resetTransformControls(true);
             } catch (e) {
@@ -1769,23 +2043,32 @@
         exportFloorplanBtn.addEventListener('click', () => handleExport('floorplan'));
     }
 
-    if (teScaleSlider && teScaleInput) {
-        teScaleSlider.addEventListener('mousedown', handleDragStart);
+        if (teLiveOption && !teLiveOption.checked) {
+            teLiveOption.checked = true;
+        }
+
+        if (teScaleSlider && teScaleInput) {
+            teScaleSlider.addEventListener('mousedown', handleDragStart);
         // Backup: change event fires on commit (release)
         // teScaleSlider.addEventListener('change', () => resetTransformControls(true)); // REMOVED
 
         teScaleSlider.addEventListener('input', (e) => {
-            let newValue = parseFloat(teScaleSlider.value);
-            // Shift+drag for fine control: move at 10% of normal speed
-            if (e.shiftKey && teDragActive) {
-                const delta = newValue - teDragStartScale;
-                newValue = teDragStartScale + (delta * 0.1);
+            const rawValue = parseFloat(teScaleSlider.value);
+            let newValue = rawValue;
+            const sliderMax = parseFloat(teScaleSlider.max);
+            const sliderMin = parseFloat(teScaleSlider.min);
+            if (teDragActive) {
+                const delta = rawValue - teDragStartScale;
+                const speed = e.shiftKey ? 1.0 : 0.25;
+                newValue = teDragStartScale + (delta * speed);
                 // Clamp to slider range
-                newValue = Math.max(10, Math.min(400, newValue));
-                teScaleSlider.value = newValue;
+                newValue = Math.max(sliderMin, Math.min(sliderMax, newValue));
             }
             teScaleInput.value = Math.round(newValue);
-            handleLiveTransform();
+            lastSelectionScale = newValue;
+            teScaleDirty = true;
+            console.log('[TRANSFORM] scale input', rawValue, '->', newValue);
+            handleLiveTransform('scale');
         });
 
         // Track if Enter was just pressed to skip change event
@@ -1804,10 +2087,12 @@
             teDragStartScale = 100;
             teDragStartRotate = 0;
             teScaleSlider.value = val;
+            lastSelectionScale = val;
 
             teDragActive = true;
             teTransformAppliedInDrag = false;
-            handleLiveTransform();
+            teScaleDirty = true;
+            handleLiveTransform('scale');
 
             teDragActive = false;
             teTransformAppliedInDrag = false;
@@ -1838,17 +2123,22 @@
         // teRotateSlider.addEventListener('change', () => resetTransformControls(true)); // REMOVED
 
         teRotateSlider.addEventListener('input', (e) => {
-            let newValue = parseFloat(teRotateSlider.value);
-            // Shift+drag for fine control: move at 10% of normal speed
-            if (e.shiftKey && teDragActive) {
-                const delta = newValue - teDragStartRotate;
-                newValue = teDragStartRotate + (delta * 0.1);
+            const rawValue = parseFloat(teRotateSlider.value);
+            let newValue = rawValue;
+            const sliderMax = parseFloat(teRotateSlider.max);
+            const sliderMin = parseFloat(teRotateSlider.min);
+            if (teDragActive) {
+                const delta = rawValue - teDragStartRotate;
+                const speed = e.shiftKey ? 1.0 : 0.25;
+                newValue = teDragStartRotate + (delta * speed);
                 // Clamp to slider range
-                newValue = Math.max(-180, Math.min(180, newValue));
-                teRotateSlider.value = newValue;
+                newValue = Math.max(sliderMin, Math.min(sliderMax, newValue));
             }
             teRotateInput.value = Math.round(newValue);
-            handleLiveTransform();
+            lastSelectionRotation = newValue;
+            teRotateDirty = true;
+            console.log('[TRANSFORM] rotate input', rawValue, '->', newValue);
+            handleLiveTransform('rotate');
         });
 
         // Track if Enter was just pressed to skip change event
@@ -1924,10 +2214,27 @@
     });
 
     async function init() {
+        if (window.MDUX_INIT_DONE) {
+            return;
+        }
         // Log immediately using raw csInterface (not Promise wrapper)
         csInterface.evalScript('MDUX_debugLog("[INIT] init() starting...")', function() {});
 
         try {
+            if (isCepSuspended()) {
+                if (!window.MDUX_INIT_WAITING) {
+                    window.MDUX_INIT_WAITING = true;
+                    const resumeTimer = setInterval(() => {
+                        if (!isCepSuspended()) {
+                            clearInterval(resumeTimer);
+                            window.MDUX_INIT_WAITING = false;
+                            init();
+                        }
+                    }, 1000);
+                }
+                return;
+            }
+
             // Re-fetch elements to ensure they exist (in case script ran before DOM)
             teScaleInput = document.getElementById('te-scale');
             teRotateInput = document.getElementById('te-rotate');
@@ -2037,7 +2344,7 @@
                 resetStrokesBtn.addEventListener('click', async () => {
                     try {
                         await ensureBridgeLoaded();
-                        const result = await evalScript('MDUX_resetStrokes()');
+                        const result = await evalScript('MDUX_cppResetStrokes()');
                         if (selectionStatus) selectionStatus.textContent = result || 'Strokes reset';
                     } catch (e) {
                         if (selectionStatus) selectionStatus.textContent = 'Error: ' + e.message;
@@ -2048,7 +2355,7 @@
                 resetPartsScaleBtn.addEventListener('click', async () => {
                     try {
                         await ensureBridgeLoaded();
-                        const result = await evalScript('MDUX_resetDuctworkPartsScale()');
+                        const result = await evalScript('MDUX_cppResetScale()');
                         if (selectionStatus) selectionStatus.textContent = result || 'Parts scale reset';
                     } catch (e) {
                         if (selectionStatus) selectionStatus.textContent = 'Error: ' + e.message;
@@ -2324,17 +2631,9 @@
                 csInterface.evalScript('MDUX_debugLog("[INIT] Bridge load failed: ' + bridgeErrMsg + '")', function() {});
             }
 
-            // Test function to verify event is firing
-            function testSelectionEvent() {
-                evalScript('MDUX_debugLog("[JS] *** afterSelectionChanged EVENT FIRED ***")');
-                scheduleSkipOrthoRefresh();
-            }
-
-            csInterface.addEventListener('afterSelectionChanged', testSelectionEvent);
-            csInterface.addEventListener('documentAfterActivate', scheduleSkipOrthoRefresh);
-            csInterface.addEventListener('documentAfterActivate', () => resetTransformControls(true));
-            csInterface.addEventListener('documentChanged', scheduleSkipOrthoRefresh);
-
+        startCepRuntime();
+        ensureSuspendMonitor();
+        ensureSelectionMonitor();
             csInterface.evalScript('MDUX_debugLog("[INIT] Event listeners registered")', function() {});
 
             refreshSkipOrthoState().catch(function () { });
@@ -2343,58 +2642,19 @@
             refreshYieldToUiState().catch(function () { });
             refreshDocScale().catch(function () { });
 
-            // SMART POLLING: Only refresh when selection actually changes
-            // afterSelectionChanged event doesn't fire reliably in Illustrator CEP
-            // Research shows polling is the standard approach for CEP extensions
-            // OPTIMIZATION: Check selection hash first (fast), only do full refresh if changed
-            let pollInProgress = false;
-            let lastSelectionHash = '';
-
-            // Clean up stale state when switching documents to prevent lockups
-            csInterface.addEventListener('documentAfterActivate', () => {
-                // Reset the selection hash so we re-evaluate on the new document
-                lastSelectionHash = '';
-                // Run cleanup to clear stale debug buffer and other state
-                evalScript('MDUX_onDocumentChange()').then(result => {
-                    console.log('[JS] Document change cleanup:', result);
-                }).catch(() => {});
-            });
-
-            const pollInterval = setInterval(function() {
-                // Don't poll if previous poll still running
-                if (pollInProgress) return;
-
-                pollInProgress = true;
-
-                // FAST CHECK: Get selection signature (count + first item type + position)
-                // This is MUCH faster than full metadata read but still detects different items
-                evalScript('(function(){try{var s=app.activeDocument.selection;if(!s||s.length===0)return"empty";var pos=s[0].position||[0,0];return s.length+"|"+(s[0].typename||"")+"|"+Math.round(pos[0])+","+Math.round(pos[1]);}catch(e){return"nodoc";}})()').then(function(hash) {
-                    if (hash === lastSelectionHash) {
-                        // Selection unchanged, skip expensive refresh
-                        pollInProgress = false;
-                        return;
-                    }
-
-                    // Selection changed! Update hash and do full refresh
-                    lastSelectionHash = hash;
-                    return Promise.all([
-                        refreshSelectionTransformState().catch(function() {}),
-                        refreshRotationOverrideState().catch(function() {})
-                    ]);
-                }).catch(function() {
-                    // Error in check, just skip this poll cycle
-                }).finally(function() {
-                    pollInProgress = false;
-                });
-            }, 1000); // 1 second - fast updates, but only does expensive work if selection changed
-
             // Also refresh when panel gets focus (removed blocking debug log)
             window.addEventListener('focus', function() {
-                refreshSelectionTransformState().catch(function() {});
-                refreshRotationOverrideState().catch(function() {});
+                if (!AUTO_SELECTION_REFRESH_ENABLED) return;
+                if (isCepSuspended()) return;
+                updateSkipSelectionRefresh().then(() => {
+                    if (skipSelectionRefresh) return;
+                    refreshSelectionTransformState().catch(function() {});
+                    refreshRotationOverrideState().catch(function() {});
+                }).catch(function() {});
             });
 
             csInterface.evalScript('MDUX_debugLog("[INIT] Init complete!")', function() {});
+            window.MDUX_INIT_DONE = true;
         } catch (initError) {
             // Escape single quotes in error message to avoid breaking the evalScript string
             var errMsg = String(initError && initError.message ? initError.message : initError);
@@ -2404,9 +2664,15 @@
     }
 
     window.addEventListener('beforeunload', function () {
-        csInterface.removeEventListener('afterSelectionChanged', scheduleSkipOrthoRefresh);
-        csInterface.removeEventListener('documentAfterActivate', scheduleSkipOrthoRefresh);
-        csInterface.removeEventListener('documentChanged', scheduleSkipOrthoRefresh);
+        stopCepRuntime();
+        if (suspendMonitor) {
+            clearInterval(suspendMonitor);
+            suspendMonitor = null;
+        }
+        if (selectionMonitor) {
+            clearInterval(selectionMonitor);
+            selectionMonitor = null;
+        }
         evalScript('MDUX_cleanupBridge()');
     });
 

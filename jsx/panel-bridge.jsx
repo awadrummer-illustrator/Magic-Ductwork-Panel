@@ -1123,6 +1123,153 @@ if (typeof $.global.MDUX_debugBuffer === "undefined") {
     $.global.MDUX_debugBuffer = [];
 }
 
+var MDUX_LIVE_SELECTION_PATH_LIMIT = 300;
+var MDUX_METADATA_NOTE_LIMIT = 500;
+
+function MDUX_selectionExceedsPathLimit(selection, limit) {
+    try {
+        if (!selection) return false;
+        var max = (typeof limit === "number" && isFinite(limit)) ? limit : MDUX_LIVE_SELECTION_PATH_LIMIT;
+        var count = 0;
+
+        function add(n) {
+            count += n;
+            return count > max;
+        }
+
+        function visit(item) {
+            if (!item) return false;
+            var type = item.typename;
+            if (type === "PathItem") {
+                return add(1);
+            }
+            if (type === "CompoundPathItem" && item.pathItems) {
+                return add(item.pathItems.length);
+            }
+            if (type === "GroupItem" && item.pageItems) {
+                for (var g = 0; g < item.pageItems.length; g++) {
+                    if (visit(item.pageItems[g])) return true;
+                }
+                return false;
+            }
+            return add(1);
+        }
+
+        if (selection.length === undefined && selection.typename) {
+            return visit(selection);
+        }
+        for (var i = 0; i < selection.length; i++) {
+            if (visit(selection[i])) return true;
+        }
+    } catch (e) { }
+    return false;
+}
+
+function MDUX_selectionHasPathItems(selection) {
+    try {
+        if (!selection) return false;
+        function visit(item) {
+            if (!item) return false;
+            var type = item.typename;
+            if (type === "PathItem") return true;
+            if (type === "CompoundPathItem" && item.pathItems && item.pathItems.length) return true;
+            if (type === "GroupItem" && item.pageItems) {
+                for (var g = 0; g < item.pageItems.length; g++) {
+                    if (visit(item.pageItems[g])) return true;
+                }
+            }
+            return false;
+        }
+        if (selection.length === undefined && selection.typename) {
+            return visit(selection);
+        }
+        for (var i = 0; i < selection.length; i++) {
+            if (visit(selection[i])) return true;
+        }
+    } catch (e) { }
+    return false;
+}
+
+function MDUX_selectionHasPlacedItems(selection) {
+    try {
+        if (!selection) return false;
+        function visit(item) {
+            if (!item) return false;
+            if (item.typename === "PlacedItem") return true;
+            if (item.typename === "GroupItem" && item.pageItems) {
+                for (var g = 0; g < item.pageItems.length; g++) {
+                    if (visit(item.pageItems[g])) return true;
+                }
+            }
+            return false;
+        }
+        if (selection.length === undefined && selection.typename) {
+            return visit(selection);
+        }
+        for (var i = 0; i < selection.length; i++) {
+            if (visit(selection[i])) return true;
+        }
+    } catch (e) { }
+    return false;
+}
+
+function MDUX_noteIsHeavy(item) {
+    try {
+        if (!item || typeof item.note !== "string") return false;
+        return item.note.length > MDUX_METADATA_NOTE_LIMIT;
+    } catch (e) { }
+    return false;
+}
+
+function MDUX_collectPlacedRotationSummary(selection) {
+    var summary = { available: true, reason: null, rotations: [], formatted: "", count: 0 };
+    var rotationMap = {};
+    var rotationList = [];
+
+    function addRotation(value) {
+        if (typeof value !== "number" || !isFinite(value)) return;
+        var normalized = value;
+        var key = normalized.toFixed(2);
+        if (!rotationMap.hasOwnProperty(key)) {
+            rotationMap[key] = normalized;
+            rotationList.push(normalized);
+        }
+    }
+
+    function visit(item) {
+        if (!item) return;
+        if (item.typename === "PlacedItem") {
+            if (MDUX_noteIsHeavy(item)) return;
+            var meta = MDUX_getMetadata(item);
+            if (meta && meta.MDUX_RotationOverride !== undefined && meta.MDUX_RotationOverride !== null) {
+                var rot = parseFloat(meta.MDUX_RotationOverride);
+                if (isFinite(rot)) addRotation(rot);
+            }
+            return;
+        }
+        if (item.typename === "GroupItem" && item.pageItems) {
+            for (var g = 0; g < item.pageItems.length; g++) visit(item.pageItems[g]);
+        }
+    }
+
+    if (selection.length === undefined && selection.typename) {
+        visit(selection);
+    } else {
+        for (var i = 0; i < selection.length; i++) visit(selection[i]);
+    }
+
+    rotationList.sort(function (a, b) { return a - b; });
+    var formattedList = [];
+    for (var ri = 0; ri < rotationList.length; ri++) {
+        var rounded = Math.round(rotationList[ri] * 100) / 100;
+        formattedList.push(String(rounded));
+    }
+    summary.rotations = rotationList;
+    summary.formatted = formattedList.join(", ");
+    summary.count = rotationList.length;
+    return summary;
+}
+
 function MDUX_debugLog(message) {
     // PERFORMANCE: Skip all logging if debug mode is off
     if (!MDUX_isDebugEnabled()) return;
@@ -1142,6 +1289,15 @@ function MDUX_debugLog(message) {
     } catch (e) {
         // Log the error to help debug
         $.global.MDUX_debugBuffer.push("[ERROR in MDUX_debugLog] " + e.toString());
+    }
+}
+
+function MDUX_isCepSuspended() {
+    try {
+        var flagFile = new File(Folder.userData.fsName + "/Adobe/CEP/extensions/Magic-Ductwork-Panel/md_cep_suspend.flag");
+        return flagFile.exists;
+    } catch (e) {
+        return false;
     }
 }
 
@@ -1304,6 +1460,17 @@ function MDUX_skipOrthoStateBridge() {
         try { sel = doc.selection; } catch (eSel) { sel = null; }
         if (!sel || sel.length === 0) {
             return JSON.stringify({ available: false, reason: "no-selection" });
+        }
+        if (!MDUX_selectionHasPathItems(sel)) {
+            return JSON.stringify({ available: true, hasNote: false, mixed: false, reason: "no-lines" });
+        }
+        if (MDUX_selectionExceedsPathLimit(sel, MDUX_LIVE_SELECTION_PATH_LIMIT)) {
+            return JSON.stringify({
+                available: true,
+                hasNote: false,
+                mixed: true,
+                reason: "large-selection"
+            });
         }
         var ns = (typeof MDUX !== "undefined" && MDUX.checkSkipOrthoState) ? MDUX : ($.global.MDUX || null);
         if (!ns || !ns.checkSkipOrthoState) {
@@ -1530,11 +1697,26 @@ function MDUX_resetScaleBridge() {
 }
 
 function MDUX_rotationStateBridge() {
+    if (MDUX_isCepSuspended()) {
+        return JSON.stringify({ available: false, reason: "suspended", count: 0 });
+    }
     try {
         MDUX_debugLog("[ROT-BRIDGE] MDUX_rotationStateBridge called");
+        if (!MDUX_selectionHasPathItems(app.activeDocument.selection) && MDUX_selectionHasPlacedItems(app.activeDocument.selection)) {
+            return JSON.stringify(MDUX_collectPlacedRotationSummary(app.activeDocument.selection));
+        }
         if (!MDUX_requireMagicFinal()) {
             MDUX_debugLog("[ROT-BRIDGE] MDUX_requireMagicFinal returned false");
             return "ERROR:Rotation function unavailable";
+        }
+        if (app.documents.length && MDUX_selectionExceedsPathLimit(app.activeDocument.selection, MDUX_LIVE_SELECTION_PATH_LIMIT)) {
+            return JSON.stringify({
+                available: true,
+                reason: "large-selection",
+                rotations: [],
+                formatted: "",
+                count: 2
+            });
         }
         MDUX_debugLog("[ROT-BRIDGE] MDUX_requireMagicFinal returned true, checking MDUX.getRotationOverrideSummary...");
         if (typeof MDUX !== "undefined" && MDUX.getRotationOverrideSummary) {
@@ -3614,6 +3796,149 @@ function MDUX_transformEach(scale, rotation, undoPrevious) {
     }
 }
 
+function MDUX_cppTransformEach(scale, rotation) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=transform;scale=" + scale + ";rotation=" + rotation;
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ transform error: " + e });
+    }
+}
+
+function MDUX_cppTransformEachLive(scale, rotation) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=transform;scale=" + scale + ";rotation=" + rotation + ";live=1";
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ live transform error: " + e });
+    }
+}
+
+function MDUX_cppGetSelectedLineAngleBridge() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=get-angle";
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ get angle error: " + e });
+    }
+}
+
+function MDUX_cppSetRotationOverride(value) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=set-override;value=" + value;
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ set override error: " + e });
+    }
+}
+
+function MDUX_cppClearRotationOverride() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=clear-override";
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ clear override error: " + e });
+    }
+}
+
+function MDUX_cppResetStrokes() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=reset-strokes";
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ reset strokes error: " + e });
+    }
+}
+
+function MDUX_cppResetScale() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=reset-scale";
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ reset scale error: " + e });
+    }
+}
+
+function MDUX_cppResetRotation() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=reset-rotation";
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ reset rotation error: " + e });
+    }
+}
+
+function MDUX_cppResetOriginal() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=reset-original";
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ reset original error: " + e });
+    }
+}
+
+function MDUX_cppQuickRotate(value) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=quick-rotate;value=" + value;
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ quick rotate error: " + e });
+    }
+}
+
+function MDUX_cppProcessPlacedApi() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=process-placed-api";
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ process placed error: " + e });
+    }
+}
+
 function MDUX_getSelectedLineAngleBridge() {
     try {
         if (app.documents.length === 0) {
@@ -3814,6 +4139,9 @@ function MDUX_clearDebugLog() {
 var MDUX_LARGE_SELECTION_THRESHOLD = 50;
 
 function MDUX_getSelectionTransformState() {
+    if (MDUX_isCepSuspended()) {
+        return JSON.stringify({ ok: false, reason: "suspended" });
+    }
     try {
         if (app.documents.length === 0) {
             return JSON.stringify({ ok: false });
@@ -3822,6 +4150,31 @@ function MDUX_getSelectionTransformState() {
         var sel = app.selection;
         if (!sel || sel.length === 0) {
             return JSON.stringify({ ok: false });
+        }
+
+        if (!MDUX_selectionHasPathItems(sel) && MDUX_selectionHasPlacedItems(sel)) {
+            return JSON.stringify({
+                ok: true,
+                scale: null,
+                rotation: null,
+                mixedScale: true,
+                mixedRotation: true,
+                count: sel.length,
+                reason: "placed-only"
+            });
+        }
+
+        if (MDUX_selectionExceedsPathLimit(sel, MDUX_LIVE_SELECTION_PATH_LIMIT)) {
+            MDUX_debugLog("[SELECT-STATE] Large selection (pathItems) - returning mixed to avoid lockup");
+            return JSON.stringify({
+                ok: true,
+                scale: null,
+                rotation: null,
+                mixedScale: true,
+                mixedRotation: true,
+                count: sel.length,
+                largeSelection: true
+            });
         }
 
         // PERFORMANCE: For large selections, return "mixed" immediately without scanning metadata
