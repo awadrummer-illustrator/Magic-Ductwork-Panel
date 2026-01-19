@@ -31,11 +31,14 @@
     const yieldToUiOption = document.getElementById('yield-to-ui-option');
     const resetSessionBtn = document.getElementById('reset-session-btn');
     const skipOrthoOption = document.getElementById('skip-ortho-option');
+    const processSkipOrthoOption = document.getElementById('process-skip-ortho-option');
     const rotationInput = document.getElementById('rotation-input');
     const getAngleBtn = document.getElementById('get-angle-btn');
     const clearRotationBtn = document.getElementById('clear-rotation-btn');
     const skipAllBranchesOption = document.getElementById('skip-all-branches-option');
     const skipFinalOption = document.getElementById('skip-final-option');
+    const processSkipAllBranchesOption = document.getElementById('process-skip-all-branches-option');
+    const processSkipFinalOption = document.getElementById('process-skip-final-option');
     const skipRegisterRotationOption = document.getElementById('skip-register-rotation-option');
     const createRegisterWiresOption = document.getElementById('create-register-wires-option');
     const rotate90Btn = document.getElementById('rotate-90-btn');
@@ -494,6 +497,29 @@
         return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     }
 
+    function buildProcessPlacedPayload(options) {
+        const parts = ['action=process-placed-api'];
+        if (typeof options.skipOrtho === 'boolean') {
+            parts.push('skipOrtho=' + (options.skipOrtho ? '1' : '0'));
+        }
+        if (typeof options.skipAllBranchSegments === 'boolean') {
+            parts.push('skipAllBranchSegments=' + (options.skipAllBranchSegments ? '1' : '0'));
+        }
+        if (typeof options.skipFinalRegisterSegment === 'boolean') {
+            parts.push('skipFinalRegisterSegment=' + (options.skipFinalRegisterSegment ? '1' : '0'));
+        }
+        if (typeof options.skipRegisterRotation === 'boolean') {
+            parts.push('skipRegisterRotation=' + (options.skipRegisterRotation ? '1' : '0'));
+        }
+        if (typeof options.enableRegisterCarve === 'boolean') {
+            parts.push('enableRegisterCarve=' + (options.enableRegisterCarve ? '1' : '0'));
+        }
+        if (typeof options.enableOverlapCarve === 'boolean') {
+            parts.push('enableOverlapCarve=' + (options.enableOverlapCarve ? '1' : '0'));
+        }
+        return parts.join(';');
+    }
+
     async function ensureBridgeLoaded() {
         // DEV MODE: always reload JSX if enabled
         const devMode = devModeOption && devModeOption.checked;
@@ -865,7 +891,22 @@
         }
 
         try {
-            const result = normaliseResult(await evalScript('MDUX_cppProcessPlacedApi()'));
+            const processRotateRegistersOption = document.getElementById('process-rotate-registers-option');
+            const processCarveRegistersOption = document.getElementById('process-carve-registers-option');
+            const processCarveOverlapsOption = document.getElementById('process-carve-overlaps-option');
+            const skipOrtho = processSkipOrthoOption ? !!processSkipOrthoOption.checked : (skipOrthoOption ? !!skipOrthoOption.checked : false);
+            const skipAllBranchSegments = processSkipAllBranchesOption ? !!processSkipAllBranchesOption.checked : (skipAllBranchesOption ? !!skipAllBranchesOption.checked : false);
+            const skipFinalRegisterSegment = processSkipFinalOption ? !!processSkipFinalOption.checked : (skipFinalOption ? !!skipFinalOption.checked : false);
+            const payload = buildProcessPlacedPayload({
+                skipOrtho,
+                skipAllBranchSegments,
+                skipFinalRegisterSegment,
+                skipRegisterRotation: !(processRotateRegistersOption && processRotateRegistersOption.checked),
+                enableRegisterCarve: !!(processCarveRegistersOption && processCarveRegistersOption.checked),
+                enableOverlapCarve: !!(processCarveOverlapsOption && processCarveOverlapsOption.checked)
+            });
+            const escaped = escapeForExtendScript(payload);
+            const result = normaliseResult(await evalScript('MDUX_cppProcessPlacedApi("' + escaped + '")'));
             if (result.ok) {
                 setProcessStatus('Ready.');
                 debugStatus.textContent = 'Process placed completed';
@@ -1799,7 +1840,34 @@
 
         // New Mutual Exclusivity Logic
         const orthoToggles = [skipOrthoOption, skipAllBranchesOption, skipFinalOption];
+        const processOrthoToggles = [processSkipOrthoOption, processSkipAllBranchesOption, processSkipFinalOption];
         const orthoGrid = document.getElementById('ortho-toggle-grid');
+
+        function syncProcessOrthoFromMain() {
+            if (processSkipOrthoOption) processSkipOrthoOption.checked = !!(skipOrthoOption && skipOrthoOption.checked);
+            if (processSkipAllBranchesOption) processSkipAllBranchesOption.checked = !!(skipAllBranchesOption && skipAllBranchesOption.checked);
+            if (processSkipFinalOption) processSkipFinalOption.checked = !!(skipFinalOption && skipFinalOption.checked);
+        }
+
+        function syncMainOrthoFromProcess(changedInput) {
+            if (!changedInput) return;
+            if (changedInput === processSkipOrthoOption && skipOrthoOption) {
+                skipOrthoOption.checked = !!changedInput.checked;
+            } else if (changedInput === processSkipAllBranchesOption && skipAllBranchesOption) {
+                skipAllBranchesOption.checked = !!changedInput.checked;
+            } else if (changedInput === processSkipFinalOption && skipFinalOption) {
+                skipFinalOption.checked = !!changedInput.checked;
+            }
+            if (changedInput.checked) {
+                if (changedInput !== processSkipOrthoOption && skipOrthoOption) skipOrthoOption.checked = false;
+                if (changedInput !== processSkipAllBranchesOption && skipAllBranchesOption) skipAllBranchesOption.checked = false;
+                if (changedInput !== processSkipFinalOption && skipFinalOption) skipFinalOption.checked = false;
+            }
+            updateOrthoState(changedInput === processSkipOrthoOption ? skipOrthoOption
+                : changedInput === processSkipAllBranchesOption ? skipAllBranchesOption
+                : skipFinalOption);
+            syncProcessOrthoFromMain();
+        }
 
         function updateOrthoState(changedInput) {
             if (changedInput && changedInput.checked) {
@@ -1817,11 +1885,17 @@
                     orthoGrid.classList.remove('has-selection');
                 }
             }
+            syncProcessOrthoFromMain();
         }
 
         orthoToggles.forEach(t => {
             if (t) {
                 t.addEventListener('change', () => updateOrthoState(t));
+            }
+        });
+        processOrthoToggles.forEach(t => {
+            if (t) {
+                t.addEventListener('change', () => syncMainOrthoFromProcess(t));
             }
         });
 
@@ -2606,6 +2680,7 @@
                 skipOrthoOption.indeterminate = false;
                 skipOrthoOption.checked = false;
             }
+            if (processSkipOrthoOption) processSkipOrthoOption.checked = !!(skipOrthoOption && skipOrthoOption.checked);
             if (rotationInput) {
                 rotationInput.value = '';
                 rotationInput.dataset.autoValue = '';
@@ -2613,6 +2688,8 @@
             }
             if (skipAllBranchesOption) skipAllBranchesOption.checked = false;
             if (skipFinalOption) skipFinalOption.checked = true;  // Default to checked
+            if (processSkipAllBranchesOption) processSkipAllBranchesOption.checked = !!(skipAllBranchesOption && skipAllBranchesOption.checked);
+            if (processSkipFinalOption) processSkipFinalOption.checked = !!(skipFinalOption && skipFinalOption.checked);
             if (createRegisterWiresOption) createRegisterWiresOption.checked = false;
             if (debugLoggingOption) debugLoggingOption.checked = true;
             if (yieldToUiOption) yieldToUiOption.checked = true;

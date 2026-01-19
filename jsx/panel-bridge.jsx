@@ -3926,12 +3926,15 @@ function MDUX_cppQuickRotate(value) {
     }
 }
 
-function MDUX_cppProcessPlacedApi() {
+function MDUX_cppProcessPlacedApi(payloadOverride) {
     try {
         if (app.documents.length === 0) {
             return JSON.stringify({ ok: false, message: "No document open." });
         }
         var payload = "action=process-placed-api";
+        if (payloadOverride && typeof payloadOverride === "string") {
+            payload = payloadOverride;
+        }
         var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
         return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
     } catch (e) {
