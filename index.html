@@ -9,6 +9,33 @@
     <script src="js/geometry-bridge.js"></script>
     <script src="js/python-client.js"></script>
     <script src="js/panel.js" defer></script>
+    <script>
+        (function () {
+            try {
+                var logPath = "C:/Users/Chris/AppData/Roaming/Adobe/CEP/extensions/Magic-Ductwork-Panel/panel-html.log";
+                function writeLog(msg) {
+                    try {
+                        if (window.cep && window.cep.fs && window.cep.fs.writeFile) {
+                            var read = window.cep.fs.readFile(logPath);
+                            var prev = read && read.err === 0 ? read.data : "";
+                            window.cep.fs.writeFile(logPath, prev + msg + "\n");
+                        }
+                    } catch (e) {}
+                }
+                window.MDUX_htmlLog = writeLog;
+                if (window.cep && window.cep.fs && window.cep.fs.writeFile) {
+                    writeLog("[BOOT] index.html loaded " + new Date().toString());
+                }
+                window.addEventListener('error', function (event) {
+                    var msg = String(event && event.message ? event.message : event);
+                    writeLog("[HTML ERROR] " + msg);
+                });
+                setTimeout(function () {
+                    writeLog("[CHECK] panel.js loaded flag=" + (window.MDUX_PANEL_JS_LOADED ? "true" : "false"));
+                }, 1500);
+            } catch (e) {}
+        })();
+    </script>
 </head>
 
 <body>

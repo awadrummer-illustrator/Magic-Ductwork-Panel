@@ -1,19 +1,81 @@
 (function () {
     'use strict';
 
-    const csInterface = new CSInterface();
+    const csInterface = (typeof CSInterface !== 'undefined') ? new CSInterface() : {
+        evalScript: function () {},
+        getSystemPath: function () { return ''; }
+    };
     const ENABLE_LEGACY_PROCESS_BUTTON = false;
-    const processBtn = document.getElementById('process-btn');
-    const processPlacedBtn = document.getElementById('process-placed-btn');
-    const processEmoryBtn = document.getElementById('process-emory-btn');
-    const processStatus = document.getElementById('process-status');
-    const revertBtn = document.getElementById('revert-ortho-btn');
-    const revertStatus = document.getElementById('revert-status');
-    const clearRotationMetadataBtn = document.getElementById('clear-rotation-metadata-btn');
-    const clearRotationMetadataStatus = document.getElementById('clear-rotation-metadata-status');
+    let panelLogPath = null;
+    const fallbackLogPath = 'C:/Users/Chris/AppData/Roaming/Adobe/CEP/extensions/Magic-Ductwork-Panel/panel-ui.log';
+    function getExtensionRoot() {
+        try {
+            if (csInterface && csInterface.getSystemPath) {
+                return csInterface.getSystemPath(CSInterface.SystemPath.EXTENSION);
+            }
+        } catch (e) {}
+        try {
+            const href = window.location && window.location.href ? window.location.href : '';
+            const match = href.match(/^file:\/\/\/(.+?)\/index\.html/i);
+            if (match && match[1]) {
+                return decodeURIComponent(match[1]);
+            }
+        } catch (e) {}
+        return '';
+    }
+    function panelFileLog(message) {
+        try {
+            const text = String(message || '');
+            if (!panelLogPath) {
+                const root = getExtensionRoot();
+                panelLogPath = root ? (root + '/panel-ui.log') : fallbackLogPath;
+            }
+            if (!panelLogPath) {
+                return;
+            }
+            if (typeof require === 'function') {
+                const fs = require('fs');
+                fs.appendFileSync(panelLogPath, text + '\n');
+                return;
+            }
+            if (window.cep && window.cep.fs) {
+                const read = window.cep.fs.readFile(panelLogPath);
+                const prev = read && read.err === 0 ? read.data : '';
+                window.cep.fs.writeFile(panelLogPath, prev + text + '\n');
+            }
+        } catch (e) {}
+    }
+    function htmlLog(message) {
+        try {
+            if (window.MDUX_htmlLog) {
+                window.MDUX_htmlLog(String(message || ''));
+            }
+        } catch (e) {}
+    }
+    window.MDUX_PANEL_JS_LOADED = true;
+    panelFileLog('[BOOT] panel.js loaded; hasCSInterface=' + (typeof CSInterface !== 'undefined'));
+    htmlLog('[BOOT] panel.js loaded; hasCSInterface=' + (typeof CSInterface !== 'undefined'));
+    window.addEventListener('error', (event) => {
+        try {
+            const msg = String(event && event.message ? event.message : event);
+            panelFileLog('[JS ERROR] ' + msg);
+            if (debugStatus) {
+                debugStatus.textContent = '[JS ERROR] ' + msg;
+            }
+            csInterface.evalScript('MDUX_debugLog("[PANEL-ERROR] ' + msg.replace(/'/g, "\\'") + '")', function() {});
+        } catch (e) {}
+    });
+    let processBtn = document.getElementById('process-btn');
+    let processPlacedBtn = document.getElementById('process-placed-btn');
+    let processEmoryBtn = document.getElementById('process-emory-btn');
+    let processStatus = document.getElementById('process-status');
+    let revertBtn = document.getElementById('revert-ortho-btn');
+    let revertStatus = document.getElementById('revert-status');
+    let clearRotationMetadataBtn = document.getElementById('clear-rotation-metadata-btn');
+    let clearRotationMetadataStatus = document.getElementById('clear-rotation-metadata-status');
     // const applyIgnoreBtn = document.getElementById('apply-ignore-btn'); // Removed - button no longer exists
     // const ignoreStatus = document.getElementById('ignore-status'); // Removed - status no longer exists
-    const reloadBtn = document.getElementById('reload-btn');
+    let reloadBtn = document.getElementById('reload-btn');
     const extensionId = 'com.chris.magicductwork.panel';
     function reloadExtensionView() {
         try {
@@ -25,50 +87,103 @@
         }
         window.location.reload();
     }
-    const debugStatus = document.getElementById('debug-status');
-    const debugLoggingOption = document.getElementById('debug-logging-option');
-    const devModeOption = document.getElementById('dev-mode-option');
-    const yieldToUiOption = document.getElementById('yield-to-ui-option');
-    const resetSessionBtn = document.getElementById('reset-session-btn');
-    const skipOrthoOption = document.getElementById('skip-ortho-option');
-    const processSkipOrthoOption = document.getElementById('process-skip-ortho-option');
-    const rotationInput = document.getElementById('rotation-input');
-    const getAngleBtn = document.getElementById('get-angle-btn');
-    const clearRotationBtn = document.getElementById('clear-rotation-btn');
-    const skipAllBranchesOption = document.getElementById('skip-all-branches-option');
-    const skipFinalOption = document.getElementById('skip-final-option');
-    const processSkipAllBranchesOption = document.getElementById('process-skip-all-branches-option');
-    const processSkipFinalOption = document.getElementById('process-skip-final-option');
-    const skipRegisterRotationOption = document.getElementById('skip-register-rotation-option');
-    const createRegisterWiresOption = document.getElementById('create-register-wires-option');
-    const rotate90Btn = document.getElementById('rotate-90-btn');
-    const rotate45Btn = document.getElementById('rotate-45-btn');
-    const rotate180Btn = document.getElementById('rotate-180-btn');
-    const rotateCustomBtn = document.getElementById('rotate-custom-btn');
-    const customRotationInput = document.getElementById('custom-rotation-input');
-    const scaleSlider = document.getElementById('scale-slider');
-    const scaleLabel = document.getElementById('scale-label');
-    const scaleInput = document.getElementById('scale-input');
-    const applyScaleBtn = document.getElementById('apply-scale-btn');
-    const resetScaleBtn = document.getElementById('reset-scale-btn');
-    const selectionStatus = document.getElementById('selection-status');
-    const isolatePartsBtn = document.getElementById('isolate-parts-btn');
-    const isolateLinesBtn = document.getElementById('isolate-lines-btn');
-    const unlockDuctworkBtn = document.getElementById('unlock-ductwork-btn');
-    const createLayersBtn = document.getElementById('create-layers-btn');
-    const layerStatus = document.getElementById('layer-status');
-    const importStylesBtn = document.getElementById('import-styles-btn');
-    const importStatus = document.getElementById('import-status');
-    const exportDuctworkBtn = document.getElementById('export-ductwork-btn');
-    const reexportFloorplanBtn = document.getElementById('reexport-floorplan-btn');
-    const exportStatus = document.getElementById('export-status');
-    const healGapsBtn = document.getElementById('heal-gaps-btn');
-    const recutGapsBtn = document.getElementById('recut-gaps-btn');
-    const mergePathsBtn = document.getElementById('merge-paths-btn');
+    function refreshDomRefs() {
+        processBtn = document.getElementById('process-btn');
+        processPlacedBtn = document.getElementById('process-placed-btn');
+        processEmoryBtn = document.getElementById('process-emory-btn');
+        processStatus = document.getElementById('process-status');
+        revertBtn = document.getElementById('revert-ortho-btn');
+        revertStatus = document.getElementById('revert-status');
+        clearRotationMetadataBtn = document.getElementById('clear-rotation-metadata-btn');
+        clearRotationMetadataStatus = document.getElementById('clear-rotation-metadata-status');
+        reloadBtn = document.getElementById('reload-btn');
+        debugStatus = document.getElementById('debug-status');
+        debugLoggingOption = document.getElementById('debug-logging-option');
+        devModeOption = document.getElementById('dev-mode-option');
+        yieldToUiOption = document.getElementById('yield-to-ui-option');
+        resetSessionBtn = document.getElementById('reset-session-btn');
+        skipOrthoOption = document.getElementById('skip-ortho-option');
+        processSkipOrthoOption = document.getElementById('process-skip-ortho-option');
+        rotationInput = document.getElementById('rotation-input');
+        getAngleBtn = document.getElementById('get-angle-btn');
+        clearRotationBtn = document.getElementById('clear-rotation-btn');
+        skipAllBranchesOption = document.getElementById('skip-all-branches-option');
+        skipFinalOption = document.getElementById('skip-final-option');
+        processSkipAllBranchesOption = document.getElementById('process-skip-all-branches-option');
+        processSkipFinalOption = document.getElementById('process-skip-final-option');
+        skipRegisterRotationOption = document.getElementById('skip-register-rotation-option');
+        createRegisterWiresOption = document.getElementById('create-register-wires-option');
+        rotate90Btn = document.getElementById('rotate-90-btn');
+        rotate45Btn = document.getElementById('rotate-45-btn');
+        rotate180Btn = document.getElementById('rotate-180-btn');
+        rotateCustomBtn = document.getElementById('rotate-custom-btn');
+        customRotationInput = document.getElementById('custom-rotation-input');
+        scaleSlider = document.getElementById('scale-slider');
+        scaleLabel = document.getElementById('scale-label');
+        scaleInput = document.getElementById('scale-input');
+        applyScaleBtn = document.getElementById('apply-scale-btn');
+        resetScaleBtn = document.getElementById('reset-scale-btn');
+        selectionStatus = document.getElementById('selection-status');
+        isolatePartsBtn = document.getElementById('isolate-parts-btn');
+        isolateLinesBtn = document.getElementById('isolate-lines-btn');
+        unlockDuctworkBtn = document.getElementById('unlock-ductwork-btn');
+        createLayersBtn = document.getElementById('create-layers-btn');
+        layerStatus = document.getElementById('layer-status');
+        importStylesBtn = document.getElementById('import-styles-btn');
+        importStatus = document.getElementById('import-status');
+        exportDuctworkBtn = document.getElementById('export-ductwork-btn');
+        reexportFloorplanBtn = document.getElementById('reexport-floorplan-btn');
+        exportStatus = document.getElementById('export-status');
+        healGapsBtn = document.getElementById('heal-gaps-btn');
+        recutGapsBtn = document.getElementById('recut-gaps-btn');
+        mergePathsBtn = document.getElementById('merge-paths-btn');
+        docScaleInput = document.getElementById('doc-scale-input');
+        getDocScaleBtn = document.getElementById('get-doc-scale-btn');
+    }
+    let debugStatus = document.getElementById('debug-status');
+    let debugLoggingOption = document.getElementById('debug-logging-option');
+    let devModeOption = document.getElementById('dev-mode-option');
+    let yieldToUiOption = document.getElementById('yield-to-ui-option');
+    let resetSessionBtn = document.getElementById('reset-session-btn');
+    let skipOrthoOption = document.getElementById('skip-ortho-option');
+    let processSkipOrthoOption = document.getElementById('process-skip-ortho-option');
+    let rotationInput = document.getElementById('rotation-input');
+    let getAngleBtn = document.getElementById('get-angle-btn');
+    let clearRotationBtn = document.getElementById('clear-rotation-btn');
+    let skipAllBranchesOption = document.getElementById('skip-all-branches-option');
+    let skipFinalOption = document.getElementById('skip-final-option');
+    let processSkipAllBranchesOption = document.getElementById('process-skip-all-branches-option');
+    let processSkipFinalOption = document.getElementById('process-skip-final-option');
+    let skipRegisterRotationOption = document.getElementById('skip-register-rotation-option');
+    let createRegisterWiresOption = document.getElementById('create-register-wires-option');
+    let rotate90Btn = document.getElementById('rotate-90-btn');
+    let rotate45Btn = document.getElementById('rotate-45-btn');
+    let rotate180Btn = document.getElementById('rotate-180-btn');
+    let rotateCustomBtn = document.getElementById('rotate-custom-btn');
+    let customRotationInput = document.getElementById('custom-rotation-input');
+    let scaleSlider = document.getElementById('scale-slider');
+    let scaleLabel = document.getElementById('scale-label');
+    let scaleInput = document.getElementById('scale-input');
+    let applyScaleBtn = document.getElementById('apply-scale-btn');
+    let resetScaleBtn = document.getElementById('reset-scale-btn');
+    let selectionStatus = document.getElementById('selection-status');
+    let isolatePartsBtn = document.getElementById('isolate-parts-btn');
+    let isolateLinesBtn = document.getElementById('isolate-lines-btn');
+    let unlockDuctworkBtn = document.getElementById('unlock-ductwork-btn');
+    let createLayersBtn = document.getElementById('create-layers-btn');
+    let layerStatus = document.getElementById('layer-status');
+    let importStylesBtn = document.getElementById('import-styles-btn');
+    let importStatus = document.getElementById('import-status');
+    let exportDuctworkBtn = document.getElementById('export-ductwork-btn');
+    let reexportFloorplanBtn = document.getElementById('reexport-floorplan-btn');
+    let exportStatus = document.getElementById('export-status');
+    let healGapsBtn = document.getElementById('heal-gaps-btn');
+    let recutGapsBtn = document.getElementById('recut-gaps-btn');
+    let mergePathsBtn = document.getElementById('merge-paths-btn');
 
     // Document Scale Controls (read-only anchor display)
-    const docScaleInput = document.getElementById('doc-scale-input');
-    const getDocScaleBtn = document.getElementById('get-doc-scale-btn');
+    let docScaleInput = document.getElementById('doc-scale-input');
+    let getDocScaleBtn = document.getElementById('get-doc-scale-btn');
     // Legacy: Document scaling controls disabled to prevent desync issues
     // const setDocScale100Btn = document.getElementById('set-doc-scale-100-btn');
     // const applyDocScaleBtn = document.getElementById('apply-doc-scale-btn');
@@ -521,14 +636,17 @@
     }
 
     async function ensureBridgeLoaded() {
+        htmlLog('[BRIDGE] ensureBridgeLoaded enter');
         // DEV MODE: always reload JSX if enabled
         const devMode = devModeOption && devModeOption.checked;
         if (devMode) {
+            htmlLog('[BRIDGE] devMode reload');
             await forceReloadScripts();
             return;
         }
         // Normal mode: only load once per session
         if (bridgeReloaded) {
+            htmlLog('[BRIDGE] already loaded');
             return;
         }
         const escapedPath = escapeForExtendScript(bridgePath);
@@ -543,10 +661,12 @@
         if (typeof loadResult === 'string' && loadResult.indexOf('ERROR:') === 0) {
             const msg = loadResult.substring(6);
             debugStatus.textContent = 'Bridge load failed: ' + msg;
+            htmlLog('[BRIDGE] load failed: ' + msg);
             throw new Error(msg);
         }
         bridgeReloaded = true;
         debugStatus.textContent = 'Bridge ready: ' + bridgePath.replace(/\\/g, '/');
+        htmlLog('[BRIDGE] load OK');
     }
 
     async function forceReloadScripts() {
@@ -841,7 +961,7 @@
             return;
         }
 
-        setProcessStatus('Running ductwork script (Python accelerated)…');
+        setProcessStatus('Running ductwork script (Python accelerated)...');
         const result = normaliseResult(await evalScript('MDUX_runMagicDuctwork()'));
 
         if (result.ok) {
@@ -880,12 +1000,24 @@
     async function handleProcessPlacedApiClick() {
         if (!processPlacedBtn) return;
         processPlacedBtn.disabled = true;
-        setProcessStatus('Processing ductwork (Placed)ƒ?İ');
+        if (debugStatus) {
+            debugStatus.textContent = 'Process Ductwork: starting';
+        }
+        panelFileLog('[PANEL] ProcessPlaced click');
+        htmlLog('[PANEL] ProcessPlaced click');
+        csInterface.evalScript('MDUX_debugLog("[PANEL] Process Ductwork button clicked")', function() {});
+        setProcessStatus('Processing ductwork (Placed)...');
 
         try {
+            htmlLog('[PANEL] ensureBridgeLoaded...');
             await ensureBridgeLoaded();
+            htmlLog('[PANEL] ensureBridgeLoaded OK');
         } catch (e) {
             setProcessStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
+            if (debugStatus) {
+                debugStatus.textContent = 'Process Ductwork: bridge load failed';
+            }
+            htmlLog('[PANEL] ensureBridgeLoaded error: ' + (e && e.message ? e.message : e));
             processPlacedBtn.disabled = false;
             return;
         }
@@ -906,7 +1038,10 @@
                 enableOverlapCarve: !!(processCarveOverlapsOption && processCarveOverlapsOption.checked)
             });
             const escaped = escapeForExtendScript(payload);
+            csInterface.evalScript('MDUX_debugLog("[PANEL] Process payload: ' + escaped + '")', function() {});
+            htmlLog('[PANEL] calling MDUX_cppProcessPlacedApi');
             const result = normaliseResult(await evalScript('MDUX_cppProcessPlacedApi("' + escaped + '")'));
+            htmlLog('[PANEL] MDUX_cppProcessPlacedApi result ok=' + (result && result.ok ? 'true' : 'false'));
             if (result.ok) {
                 setProcessStatus('Ready.');
                 debugStatus.textContent = 'Process placed completed';
@@ -916,6 +1051,9 @@
             }
         } catch (e) {
             setProcessStatus('Error: ' + e.message, true);
+            if (debugStatus) {
+                debugStatus.textContent = 'Process Ductwork: exception';
+            }
         } finally {
             processPlacedBtn.disabled = false;
             scheduleSkipOrthoRefresh();
@@ -924,7 +1062,7 @@
 
     async function handleProcessEmoryClick() {
         processEmoryBtn.disabled = true;
-        setProcessStatus('Running Emory ductwork processing…');
+        setProcessStatus('Running Emory ductwork processing...');
 
         try {
             await ensureBridgeLoaded();
@@ -1778,6 +1916,8 @@
     }
 
     function attachListeners() {
+        panelFileLog('[INIT] attachListeners start: processPlacedBtn=' + (processPlacedBtn ? 'yes' : 'no'));
+        htmlLog('[INIT] attachListeners start: processPlacedBtn=' + (processPlacedBtn ? 'yes' : 'no'));
         if (processBtn) processBtn.addEventListener('click', handleProcessClick);
         if (processPlacedBtn) processPlacedBtn.addEventListener('click', handleProcessPlacedApiClick);
         if (processEmoryBtn) processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
@@ -2299,6 +2439,8 @@
         if (window.MDUX_INIT_DONE) {
             return;
         }
+        panelFileLog('[INIT] init() starting');
+        htmlLog('[INIT] init() starting');
         // Log immediately using raw csInterface (not Promise wrapper)
         csInterface.evalScript('MDUX_debugLog("[INIT] init() starting...")', function() {});
 
@@ -2317,6 +2459,7 @@
                 return;
             }
 
+            refreshDomRefs();
             // Re-fetch elements to ensure they exist (in case script ran before DOM)
             teScaleInput = document.getElementById('te-scale');
             teRotateInput = document.getElementById('te-rotate');
@@ -2331,7 +2474,15 @@
             initCollapsibleSections();
             csInterface.evalScript('MDUX_debugLog("[INIT] Collapsible sections initialized")', function() {});
 
-            attachListeners();
+            try {
+                attachListeners();
+            } catch (e) {
+                const msg = String(e && e.message ? e.message : e);
+                if (debugStatus) {
+                    debugStatus.textContent = '[INIT] Listener error: ' + msg;
+                }
+                csInterface.evalScript('MDUX_debugLog("[INIT] Listener error: ' + msg.replace(/'/g, "\\'") + '")', function() {});
+            }
             csInterface.evalScript('MDUX_debugLog("[INIT] Listeners attached")', function() {});
 
             // Attach isolation and export listeners
@@ -2767,9 +2918,3 @@
 
     document.addEventListener('DOMContentLoaded', init);
 })();
-    if (processBtn) {
-        processBtn.textContent = 'Process Ductwork Legacy';
-        if (!ENABLE_LEGACY_PROCESS_BUTTON) {
-            processBtn.style.display = 'none';
-        }
-    }
