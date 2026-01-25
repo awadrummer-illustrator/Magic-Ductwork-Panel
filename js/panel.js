@@ -2334,9 +2334,30 @@
                 teNextPayload = null;
 
                 scaleEnterPressed = true;
+
+                // Get the typed value BEFORE any blur/reset
+                const typedScale = parseFloat(teScaleInput.value) || 100;
+                const currentRotation = parseFloat(teRotateInput.value) || 0;
+
+                console.log('[TRANSFORM] Enter pressed on scale, applying value:', typedScale);
+
+                // Sync the slider to match typed value
+                if (teScaleSlider) teScaleSlider.value = Math.max(10, Math.min(400, typedScale));
+
+                // Apply transform directly regardless of Live mode
+                if (typedScale !== 100 || currentRotation !== 0) {
+                    setSelectionStatus("Transforming...", false);
+                    try {
+                        await evalScript(`MDUX_cppTransformEach(${typedScale}, ${currentRotation})`);
+                        setSelectionStatus("Transformation applied.", false);
+                    } catch (err) {
+                        setSelectionStatus("Error: " + err.message, true);
+                    }
+                }
+
+                // Reset controls after applying
+                resetTransformControls(true);
                 teScaleInput.blur();
-                console.log('[TRANSFORM] Enter pressed on scale, triggering Apply Transform');
-                await handleTransformEach();
             }
         });
     }
@@ -2838,7 +2859,7 @@
                 rotationInput.dataset.multi = 'false';
             }
             if (skipAllBranchesOption) skipAllBranchesOption.checked = false;
-            if (skipFinalOption) skipFinalOption.checked = true;  // Default to checked
+            if (skipFinalOption) skipFinalOption.checked = false;  // Default to unchecked
             if (processSkipAllBranchesOption) processSkipAllBranchesOption.checked = !!(skipAllBranchesOption && skipAllBranchesOption.checked);
             if (processSkipFinalOption) processSkipFinalOption.checked = !!(skipFinalOption && skipFinalOption.checked);
             if (createRegisterWiresOption) createRegisterWiresOption.checked = false;
