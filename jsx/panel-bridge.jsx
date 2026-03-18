@@ -2824,6 +2824,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
         }
 
         // Helper function to remove existing PlacedItems (art) at position from ALL ductwork parts layers
+        // Skips art at positions where new art was just placed in this batch (artPlacedPositions)
         function removeArtFromAllDuctworkLayers(x, y, tolerance) {
             tolerance = tolerance || 10;
             var totalRemoved = 0;
@@ -2843,6 +2844,20 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                         var dy = centerY - y;
                         var dist = Math.sqrt(dx * dx + dy * dy);
                         if (dist <= tolerance) {
+                            // Don't remove art that was JUST placed in this batch
+                            var justPlaced = false;
+                            for (var jpIdx = 0; jpIdx < artPlacedPositions.length; jpIdx++) {
+                                var jpDx = centerX - artPlacedPositions[jpIdx].x;
+                                var jpDy = centerY - artPlacedPositions[jpIdx].y;
+                                if (Math.sqrt(jpDx * jpDx + jpDy * jpDy) <= 5) {
+                                    justPlaced = true;
+                                    break;
+                                }
+                            }
+                            if (justPlaced) {
+                                $.writeln("[MOVE] Preserving just-placed art at [" + centerX.toFixed(2) + ", " + centerY.toFixed(2) + "] on '" + layerName + "'");
+                                continue;
+                            }
                             item.remove();
                             totalRemoved++;
                             $.writeln("[MOVE] Removed existing art at [" + x.toFixed(2) + ", " + y.toFixed(2) + "] from layer '" + layerName + "'");
@@ -3062,14 +3077,16 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             var centerY = (bounds[1] + bounds[3]) / 2;
                             $.writeln("[MOVE]   Item center: " + centerX + ", " + centerY);
 
-                            // Find nearest anchor
+                            // Find nearest anchor that's actually CLOSE to this PlacedItem
+                            // (not an anchor from a completely different position in the selection)
                             var nearestAnchor = null;
                             var minDist = 999999;
+                            var MAX_ANCHOR_MATCH_DIST = 20; // Only match anchors within 20pt of PlacedItem center
                             for (var a = 0; a < anchors.length; a++) {
                                 var dx = anchors[a].x - centerX;
                                 var dy = anchors[a].y - centerY;
                                 var dist = Math.sqrt(dx * dx + dy * dy);
-                                if (dist < minDist) {
+                                if (dist < minDist && dist <= MAX_ANCHOR_MATCH_DIST) {
                                     minDist = dist;
                                     nearestAnchor = anchors[a];
                                 }
@@ -3227,8 +3244,10 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             itemsMoved++;
 
                             // Ensure only one anchor exists at this location
-                            // First remove any existing anchors from OTHER ductwork parts layers
-                            removeExistingAnchorAtPosition(targetX, targetY, 5, targetLayerName);
+                            // Remove anchors at BOTH the target position AND the original PlacedItem center
+                            // (the anchor might be at the original center, not the target position)
+                            removeExistingAnchorAtPosition(targetX, targetY, 10, targetLayerName);
+                            removeExistingAnchorAtPosition(centerX, centerY, 10, targetLayerName);
 
                             // Check if anchor already exists on target layer
                             if (!anchorExistsOnLayer(targetLayer, targetX, targetY, 5)) {
@@ -3338,10 +3357,18 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             itemsSkipped++;
                             continue;
                         }
-                        // For ductwork lines where ALL points appear selected (Illustrator
-                        // can't distinguish direct-click from auto-select on 2-point paths),
-                        // filter out endpoints that connect to other ductwork paths in the document.
-                        // The "free" endpoints (not at junctions) are what the user actually selected.
+                        // For ductwork color layer multi-point paths:
+                        // - ALL points selected = object selection (Selection tool) → SKIP
+                        //   The PlacedItem and 1-point anchor in the selection handle conversion.
+                        // - SOME points selected = direct selection → use those specific points
+                        // - NO points selected = check C++ for accurate detection
+                        if (isFromDuctworkColorLayer && numPoints > 1 && anchorPositions.length === numPoints) {
+                            $.writeln("[MOVE]   SKIPPED: object-selected ductwork line (all " + numPoints + " points selected)");
+                            itemsSkipped++;
+                            continue;
+                        }
+
+                        // Filter connected endpoints for partially-selected ductwork lines
                         if (isFromDuctworkColorLayer && anchorPositions.length === numPoints && numPoints > 1) {
                             $.writeln("[MOVE]   All " + numPoints + " points selected on ductwork line - filtering connected endpoints");
                             var filteredPositions = [];
@@ -3593,7 +3620,8 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             var anchorX = anchorPositions[ai].x;
                             var anchorY = anchorPositions[ai].y;
 
-                            // IMPORTANT: Remove existing anchors from OTHER ductwork parts layers at this position
+                            // Remove existing art AND anchors from ALL ductwork parts layers at this position
+                            removeArtFromAllDuctworkLayers(anchorX, anchorY, 20);
                             removeExistingAnchorAtPosition(anchorX, anchorY, 5, targetLayerName);
 
                             // Check if anchor already exists on target layer - skip if so
