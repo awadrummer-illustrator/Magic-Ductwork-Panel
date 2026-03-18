@@ -2606,6 +2606,21 @@ function MDUX_moveToLayerBridge(optionsJSON) {
             return JSON.stringify({ itemsMoved: 0, anchorsMoved: 0, reason: 'no-selection' });
         }
 
+        // Get accurate selected anchor positions from C++ SDK (handles Direct Selection properly)
+        var cppSelectedAnchors = [];
+        try {
+            var cppResult = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", "action=get-selected-anchors");
+            if (cppResult) {
+                var cppData = JSON.parse(cppResult);
+                if (cppData && cppData.ok && cppData.points && cppData.points.length > 0) {
+                    cppSelectedAnchors = cppData.points;
+                    $.writeln("[MOVE] C++ detected " + cppSelectedAnchors.length + " selected anchor point(s)");
+                }
+            }
+        } catch (eCpp) {
+            $.writeln("[MOVE] C++ anchor detection unavailable: " + eCpp);
+        }
+
         var options = JSON.parse(optionsJSON);
         var targetLayerName = options.layerName;
         var fileBaseName = options.fileBaseName;
@@ -2643,6 +2658,8 @@ function MDUX_moveToLayerBridge(optionsJSON) {
         var itemsSkipped = 0;
         var filePath = null;
         var artPlacedPositions = []; // Track positions where art has been placed to avoid duplicates
+        var newlyCreatedItems = []; // Track all items created during move for re-selection
+        var movedPositions = []; // Track positions where items were moved/created
 
         // Helper to check if art was already placed at a position (within 5px tolerance)
         function wasArtPlacedNear(x, y) {
@@ -2993,8 +3010,29 @@ function MDUX_moveToLayerBridge(optionsJSON) {
 
         for (var i = 0; i < selection.length; i++) {
             var item = selection[i];
-            $.writeln("[MOVE] Item " + i + " typename: " + item.typename);
-            moveLogLines.push("Item " + i + ": typename=" + item.typename + ", layer=" + (item.layer ? item.layer.name : "null"));
+
+            // Validate item is still accessible (previous iterations may have deleted it)
+            try {
+                var testType = item.typename;
+            } catch (eInvalid) {
+                $.writeln("[MOVE] Item " + i + " is invalid/deleted - skipping");
+                continue;
+            }
+
+            var parentType = "none";
+            try { parentType = item.parent ? item.parent.typename : "none"; } catch(eP) {}
+            $.writeln("[MOVE] Item " + i + " typename: " + item.typename + " parent: " + parentType);
+            moveLogLines.push("Item " + i + ": typename=" + item.typename + ", layer=" + (item.layer ? item.layer.name : "null") + ", parent=" + parentType);
+            // Log all point selection states
+            try {
+                if (item.typename === 'PathItem' && item.pathPoints) {
+                    var ptStates = [];
+                    for (var logPi = 0; logPi < item.pathPoints.length; logPi++) {
+                        ptStates.push("[" + item.pathPoints[logPi].anchor[0].toFixed(1) + "," + item.pathPoints[logPi].anchor[1].toFixed(1) + "]=" + item.pathPoints[logPi].selected);
+                    }
+                    moveLogLines.push("  PointStates: " + ptStates.join(", "));
+                }
+            } catch(ePtLog) {}
 
             // Check if item is on a valid source layer
             var itemLayerName = item.layer ? item.layer.name : null;
@@ -3255,55 +3293,101 @@ function MDUX_moveToLayerBridge(optionsJSON) {
 
                     var anchorPositions = [];
 
-                    // CRITICAL: For ductwork color layer paths with multiple points, ALWAYS extract endpoints
-                    // This handles both object-selection and direct-selection cases
-                    if (isFromDuctworkColorLayer && numPoints > 1) {
-                        $.writeln("[MOVE]   Ductwork line detected - extracting ENDPOINTS only (not all points)");
-                        var firstPt = item.pathPoints[0].anchor;
-                        var lastPt = item.pathPoints[numPoints - 1].anchor;
-                        anchorPositions.push({ x: firstPt[0], y: firstPt[1] });
-                        $.writeln("[MOVE]   Endpoint 1: [" + firstPt[0].toFixed(2) + ", " + firstPt[1].toFixed(2) + "]");
-                        var dx = lastPt[0] - firstPt[0];
-                        var dy = lastPt[1] - firstPt[1];
-                        if (Math.sqrt(dx * dx + dy * dy) > 5) {
-                            anchorPositions.push({ x: lastPt[0], y: lastPt[1] });
-                            $.writeln("[MOVE]   Endpoint 2: [" + lastPt[0].toFixed(2) + ", " + lastPt[1].toFixed(2) + "]");
-                        }
+                    if (numPoints === 1) {
+                        // Single-point path (anchor) - always use it
+                        var pos = item.pathPoints[0].anchor;
+                        anchorPositions.push({ x: pos[0], y: pos[1] });
+                        $.writeln("[MOVE]   Single-point path (anchor)");
                     } else {
-                        // Not a ductwork line - check for selected anchor points
+                        // Multi-point path - use C++ SDK anchor positions if available,
+                        // fall back to ExtendScript PathPointSelection check
                         var hasSelectedPoints = false;
-                        for (var pi = 0; pi < numPoints; pi++) {
-                            var pt = item.pathPoints[pi];
-                            if (pt.selected == PathPointSelection.ANCHORPOINT) {
-                                var pos = pt.anchor;
-                                anchorPositions.push({ x: pos[0], y: pos[1] });
-                                hasSelectedPoints = true;
-                                $.writeln("[MOVE]   Found selected anchor at [" + pos[0].toFixed(2) + ", " + pos[1].toFixed(2) + "]");
-                            }
-                        }
-                        $.writeln("[MOVE]   Extracted " + anchorPositions.length + " selected anchor positions");
 
-                        // If no specific points selected, handle based on path type
-                        if (!hasSelectedPoints) {
-                            if (numPoints === 1) {
-                                // Single-point path (anchor) - use that point
-                                var pos = item.pathPoints[0].anchor;
-                                anchorPositions.push({ x: pos[0], y: pos[1] });
-                                $.writeln("[MOVE]   Single-point path (anchor), using that position");
-                            } else {
-                                // Multi-point path from non-ductwork layer with no selected points - skip
-                                $.writeln("[MOVE]   SKIPPED: Multi-point path with no selected anchors from non-ductwork layer");
-                                itemsSkipped++;
-                                continue;
+                        // First try C++ detected positions (accurate for Direct Selection)
+                        if (cppSelectedAnchors.length > 0) {
+                            var CPP_MATCH_TOL = 2;
+                            for (var pi = 0; pi < numPoints; pi++) {
+                                var ptAnchor = item.pathPoints[pi].anchor;
+                                for (var cpi = 0; cpi < cppSelectedAnchors.length; cpi++) {
+                                    var cdx = ptAnchor[0] - cppSelectedAnchors[cpi].x;
+                                    var cdy = ptAnchor[1] - cppSelectedAnchors[cpi].y;
+                                    if (Math.sqrt(cdx * cdx + cdy * cdy) <= CPP_MATCH_TOL) {
+                                        anchorPositions.push({ x: ptAnchor[0], y: ptAnchor[1] });
+                                        hasSelectedPoints = true;
+                                        $.writeln("[MOVE]   C++ matched anchor at [" + ptAnchor[0].toFixed(2) + ", " + ptAnchor[1].toFixed(2) + "]");
+                                        break;
+                                    }
+                                }
                             }
                         }
+
+                        // Fallback to ExtendScript selection check
+                        if (!hasSelectedPoints) {
+                            for (var pi2 = 0; pi2 < numPoints; pi2++) {
+                                var pt = item.pathPoints[pi2];
+                                if (pt.selected === PathPointSelection.ANCHORPOINT || pt.selected === PathPointSelection.LEFTRIGHTPOINT) {
+                                    var pos = pt.anchor;
+                                    anchorPositions.push({ x: pos[0], y: pos[1] });
+                                    hasSelectedPoints = true;
+                                }
+                            }
+                        }
+
+                        if (!hasSelectedPoints) {
+                            $.writeln("[MOVE]   SKIPPED: no selected points detected (C++ or ExtendScript)");
+                            itemsSkipped++;
+                            continue;
+                        }
+                        // For ductwork lines where ALL points appear selected (Illustrator
+                        // can't distinguish direct-click from auto-select on 2-point paths),
+                        // filter out endpoints that connect to other ductwork paths in the document.
+                        // The "free" endpoints (not at junctions) are what the user actually selected.
+                        if (isFromDuctworkColorLayer && anchorPositions.length === numPoints && numPoints > 1) {
+                            $.writeln("[MOVE]   All " + numPoints + " points selected on ductwork line - filtering connected endpoints");
+                            var filteredPositions = [];
+                            var JUNCTION_DIST = 5;
+                            for (var fpIdx = 0; fpIdx < anchorPositions.length; fpIdx++) {
+                                var fpX = anchorPositions[fpIdx].x;
+                                var fpY = anchorPositions[fpIdx].y;
+                                var isAtJunction = false;
+                                // Check against all ductwork paths in the document
+                                for (var lIdx = 0; lIdx < doc.layers.length && !isAtJunction; lIdx++) {
+                                    var chkLayerName = doc.layers[lIdx].name;
+                                    if (!isDuctworkColorLayer(chkLayerName)) continue;
+                                    try {
+                                        for (var pIdx = 0; pIdx < doc.layers[lIdx].pathItems.length && !isAtJunction; pIdx++) {
+                                            var otherPath = doc.layers[lIdx].pathItems[pIdx];
+                                            if (otherPath === item) continue; // skip self
+                                            if (!otherPath.pathPoints || otherPath.pathPoints.length < 2) continue;
+                                            // Check endpoints of other path
+                                            for (var opIdx = 0; opIdx < otherPath.pathPoints.length; opIdx++) {
+                                                var op = otherPath.pathPoints[opIdx].anchor;
+                                                var jdx = fpX - op[0];
+                                                var jdy = fpY - op[1];
+                                                if (Math.sqrt(jdx * jdx + jdy * jdy) <= JUNCTION_DIST) {
+                                                    isAtJunction = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    } catch (eLookup) {}
+                                }
+                                if (!isAtJunction) {
+                                    filteredPositions.push(anchorPositions[fpIdx]);
+                                    $.writeln("[MOVE]   Kept free endpoint at [" + fpX.toFixed(2) + ", " + fpY.toFixed(2) + "]");
+                                } else {
+                                    $.writeln("[MOVE]   Filtered junction endpoint at [" + fpX.toFixed(2) + ", " + fpY.toFixed(2) + "]");
+                                }
+                            }
+                            anchorPositions = filteredPositions.length > 0 ? filteredPositions : anchorPositions;
+                        }
+                        $.writeln("[MOVE]   Using " + anchorPositions.length + " anchor position(s)");
                     }
 
                     // Handle paths with art placement (not Ignore layer, and we have a file)
                     if (filePath && !isIgnoreLayer && anchorPositions.length > 0) {
 
-                        // Keep the original path - just extract selected anchor positions
-                        $.writeln("[MOVE]   Keeping original path intact");
+                        $.writeln("[MOVE]   Processing " + anchorPositions.length + " anchor(s) with art placement");
 
                         // For each anchor position, create an anchor point and place art (if not already placed)
                         for (var ai = 0; ai < anchorPositions.length; ai++) {
@@ -3311,9 +3395,103 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             var anchorY = anchorPositions[ai].y;
                             $.writeln("[MOVE]   Processing anchor " + (ai + 1) + "/" + anchorPositions.length + " at " + anchorX.toFixed(2) + ", " + anchorY.toFixed(2));
 
+                            // Skip if a ductwork part or ignore anchor already exists at this location
+                            // (on ANY part layer or ignore layer, not just the target)
+                            var alreadyHasPart = false;
+                            try {
+                                var PART_CHECK_TOL = 10;
+                                for (var chkIdx = 0; chkIdx < doc.layers.length && !alreadyHasPart; chkIdx++) {
+                                    var chkLayer = doc.layers[chkIdx];
+                                    var chkName = chkLayer.name;
+                                    if (!isValidDuctworkLayer(chkName) && chkName !== 'Ignore' && chkName !== 'Ignored') continue;
+                                    // Check placed items (art)
+                                    for (var chkPi = 0; chkPi < chkLayer.placedItems.length && !alreadyHasPart; chkPi++) {
+                                        try {
+                                            var chkItem = chkLayer.placedItems[chkPi];
+                                            var chkBounds = chkItem.geometricBounds;
+                                            var chkCx = (chkBounds[0] + chkBounds[2]) / 2;
+                                            var chkCy = (chkBounds[1] + chkBounds[3]) / 2;
+                                            var chkDx = chkCx - anchorX;
+                                            var chkDy = chkCy - anchorY;
+                                            if (Math.sqrt(chkDx * chkDx + chkDy * chkDy) <= PART_CHECK_TOL) {
+                                                alreadyHasPart = true;
+                                            }
+                                        } catch (eChk) {}
+                                    }
+                                    // Check single-point anchors
+                                    for (var chkAi = 0; chkAi < chkLayer.pathItems.length && !alreadyHasPart; chkAi++) {
+                                        try {
+                                            var chkPath = chkLayer.pathItems[chkAi];
+                                            if (chkPath.pathPoints && chkPath.pathPoints.length === 1) {
+                                                var chkPt = chkPath.pathPoints[0].anchor;
+                                                var chkAdx = chkPt[0] - anchorX;
+                                                var chkAdy = chkPt[1] - anchorY;
+                                                if (Math.sqrt(chkAdx * chkAdx + chkAdy * chkAdy) <= PART_CHECK_TOL) {
+                                                    alreadyHasPart = true;
+                                                }
+                                            }
+                                        } catch (eChkA) {}
+                                    }
+                                }
+                            } catch (ePartCheck) {}
+                            if (alreadyHasPart) {
+                                $.writeln("[MOVE]   SKIPPED anchor at [" + anchorX.toFixed(2) + ", " + anchorY.toFixed(2) + "] - ductwork part/ignore already exists");
+                                continue;
+                            }
+
+                            // Find the nearest existing PlacedItem near this anchor to preserve its rotation/scale
+                            var nearestArtScale = smallestScale;
+                            var nearestArtRotation = 0;
+                            try {
+                                var ART_SEARCH_TOLERANCE = 20; // wider search for art near anchor
+                                for (var layerIdx = 0; layerIdx < doc.layers.length; layerIdx++) {
+                                    var searchLayer = doc.layers[layerIdx];
+                                    if (!isValidDuctworkLayer(searchLayer.name)) continue;
+                                    for (var piIdx = 0; piIdx < searchLayer.placedItems.length; piIdx++) {
+                                        try {
+                                            var pItem = searchLayer.placedItems[piIdx];
+                                            var pBounds = pItem.geometricBounds;
+                                            var pcx = (pBounds[0] + pBounds[2]) / 2;
+                                            var pcy = (pBounds[1] + pBounds[3]) / 2;
+                                            var pdx = pcx - anchorX;
+                                            var pdy = pcy - anchorY;
+                                            if (Math.sqrt(pdx * pdx + pdy * pdy) <= ART_SEARCH_TOLERANCE) {
+                                                // Preserve scale from existing art
+                                                var existingScale = getItemScale(pItem);
+                                                if (existingScale < nearestArtScale) {
+                                                    nearestArtScale = existingScale;
+                                                }
+                                                // Try to get rotation from metadata
+                                                try {
+                                                    var existingMeta = MDUX_getMetadata(pItem);
+                                                    if (existingMeta && existingMeta.MDUX_CumulativeRotation !== undefined) {
+                                                        nearestArtRotation = parseFloat(existingMeta.MDUX_CumulativeRotation) || 0;
+                                                    } else if (existingMeta && existingMeta.tagRotation !== undefined) {
+                                                        nearestArtRotation = parseFloat(existingMeta.tagRotation) || 0;
+                                                    }
+                                                } catch (eRotMeta) {}
+                                                // Also check MD:PLACED_ROT
+                                                try {
+                                                    if (typeof getPlacedRotation === "function") {
+                                                        var pRot = getPlacedRotation(pItem);
+                                                        if (pRot !== null && isFinite(pRot) && Math.abs(pRot) > 0.1) {
+                                                            nearestArtRotation = pRot;
+                                                        }
+                                                    }
+                                                } catch (ePRot) {}
+                                                $.writeln("[MOVE]   Found nearby art on '" + searchLayer.name + "' - scale=" + existingScale.toFixed(1) + "%, rotation=" + nearestArtRotation);
+                                                break;
+                                            }
+                                        } catch (ePi) {}
+                                    }
+                                }
+                            } catch (eArtSearch) {
+                                $.writeln("[MOVE]   Error searching for nearby art: " + eArtSearch);
+                            }
+
                             // CRITICAL: Remove existing ductwork parts from ALL layers at this position
-                            // Only ONE ductwork part can exist at any location across all ductwork parts layers
-                            removeArtFromAllDuctworkLayers(anchorX, anchorY, 10);
+                            // Use wider tolerance to catch slightly offset art
+                            removeArtFromAllDuctworkLayers(anchorX, anchorY, 20);
                             removeExistingAnchorAtPosition(anchorX, anchorY, 5, targetLayerName);
 
                             // Check if anchor already exists on target layer
@@ -3336,46 +3514,71 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             }
 
                             // Place art at this anchor
-                            var newItem = targetLayer.placedItems.add();
-                            newItem.file = filePath;
-                            MDUX_setPlacedItemName(newItem, filePath);
-
-                            // Get new item bounds
-                            var newBounds = newItem.geometricBounds;
-                            var newWidth = Math.abs(newBounds[2] - newBounds[0]);
-                            var newHeight = Math.abs(newBounds[1] - newBounds[3]);
-
-                            // Scale if needed
-                            if (smallestScale !== 100) {
-                                newItem.resize(smallestScale, smallestScale, true, false, false, false, 100, Transformation.CENTER);
-                                newBounds = newItem.geometricBounds;
-                                newWidth = Math.abs(newBounds[2] - newBounds[0]);
-                                newHeight = Math.abs(newBounds[1] - newBounds[3]);
-                            }
-
-                            // Position centered on anchor
-                            newItem.position = [anchorX - newWidth / 2, anchorY + newHeight / 2];
-
-                            // Record this position as having art placed
-                            artPlacedPositions.push({ x: anchorX, y: anchorY });
-
-                            // Write metadata
                             try {
-                                var metadata = {
-                                    MDUX_OriginalWidth: newItem.width,
-                                    MDUX_OriginalHeight: newItem.height,
-                                    MDUX_OriginalStrokeWidth: 1,
-                                    MDUX_OriginalRotation: "0",
-                                    MDUX_CumulativeRotation: "0",
-                                    MDUX_CurrentScale: String(smallestScale),
-                                    tagScale: smallestScale,
-                                    tagRotation: 0
-                                };
-                                MDUX_setMetadata(newItem, metadata);
-                            } catch (eMetadata) {}
+                                var newItem = targetLayer.placedItems.add();
+                                newItem.file = filePath;
+                                MDUX_setPlacedItemName(newItem, filePath);
 
-                            itemsMoved++;
-                            $.writeln("[MOVE]   Art placed at anchor " + (ai + 1));
+                                // Get new item bounds
+                                var newBounds = newItem.geometricBounds;
+                                var newWidth = Math.abs(newBounds[2] - newBounds[0]);
+                                var newHeight = Math.abs(newBounds[1] - newBounds[3]);
+
+                                // Scale using preserved scale from old art, or smallest on layer
+                                var useScale = nearestArtScale;
+                                if (useScale !== 100) {
+                                    newItem.resize(useScale, useScale, true, false, false, false, 100, Transformation.CENTER);
+                                    newBounds = newItem.geometricBounds;
+                                    newWidth = Math.abs(newBounds[2] - newBounds[0]);
+                                    newHeight = Math.abs(newBounds[1] - newBounds[3]);
+                                }
+
+                                // Position centered on anchor
+                                newItem.position = [anchorX - newWidth / 2, anchorY + newHeight / 2];
+
+                                // Apply rotation from old art if any
+                                if (nearestArtRotation !== 0 && Math.abs(nearestArtRotation) > 0.1) {
+                                    try {
+                                        newItem.rotate(nearestArtRotation, true, true, true, true, Transformation.CENTER);
+                                        // Re-center after rotation
+                                        var rotBounds = newItem.geometricBounds;
+                                        var rotCx = (rotBounds[0] + rotBounds[2]) / 2;
+                                        var rotCy = (rotBounds[1] + rotBounds[3]) / 2;
+                                        var rotDx = anchorX - rotCx;
+                                        var rotDy = anchorY - rotCy;
+                                        if (Math.abs(rotDx) > 0.01 || Math.abs(rotDy) > 0.01) {
+                                            newItem.translate(rotDx, rotDy);
+                                        }
+                                        $.writeln("[MOVE]   Applied rotation: " + nearestArtRotation + " deg");
+                                    } catch (eApplyRot) {
+                                        $.writeln("[MOVE]   Warning: Failed to apply rotation: " + eApplyRot);
+                                    }
+                                }
+
+                                // Record this position as having art placed
+                                artPlacedPositions.push({ x: anchorX, y: anchorY });
+
+                                // Write metadata
+                                try {
+                                    var metadata = {
+                                        MDUX_OriginalWidth: newItem.width,
+                                        MDUX_OriginalHeight: newItem.height,
+                                        MDUX_OriginalStrokeWidth: 1,
+                                        MDUX_OriginalRotation: String(nearestArtRotation),
+                                        MDUX_CumulativeRotation: String(nearestArtRotation),
+                                        MDUX_CurrentScale: String(useScale),
+                                        tagScale: useScale,
+                                        tagRotation: nearestArtRotation
+                                    };
+                                    MDUX_setMetadata(newItem, metadata);
+                                } catch (eMetadata) {}
+
+                                itemsMoved++;
+                                $.writeln("[MOVE]   Art placed at anchor " + (ai + 1));
+                            } catch (eArtPlace) {
+                                $.writeln("[MOVE]   ERROR placing art at anchor: " + eArtPlace);
+                                moveLogLines.push("  ERROR placing art: " + eArtPlace.toString());
+                            }
                         }
 
                     } else if (anchorPositions.length > 0) {
@@ -3564,19 +3767,67 @@ function MDUX_moveToLayerBridge(optionsJSON) {
             $.writeln("[MOVE] Error writing debug log: " + eDebug);
         }
 
-        // Lock and hide Ignore layer if that's the target
+        // Re-select items on the target layer that match positions where we moved/created items
+        try {
+            if (!isIgnoreLayer && artPlacedPositions.length > 0) {
+                doc.selection = null;
+                var reselCount = 0;
+                var RESEL_TOL = 15;
+                for (var rpi = 0; rpi < targetLayer.pageItems.length; rpi++) {
+                    try {
+                        var rItem = targetLayer.pageItems[rpi];
+                        if (!rItem || rItem.locked || rItem.hidden) continue;
+                        // Get item center
+                        var rBounds = rItem.geometricBounds;
+                        var rcx = (rBounds[0] + rBounds[2]) / 2;
+                        var rcy = (rBounds[1] + rBounds[3]) / 2;
+                        // Check if near any moved position
+                        for (var mp = 0; mp < artPlacedPositions.length; mp++) {
+                            var mdx = rcx - artPlacedPositions[mp].x;
+                            var mdy = rcy - artPlacedPositions[mp].y;
+                            if (Math.sqrt(mdx * mdx + mdy * mdy) <= RESEL_TOL) {
+                                rItem.selected = true;
+                                reselCount++;
+                                break;
+                            }
+                        }
+                    } catch (eReSel) {}
+                }
+                // Also select 1-point anchors near moved positions
+                for (var api = 0; api < targetLayer.pathItems.length; api++) {
+                    try {
+                        var aItem = targetLayer.pathItems[api];
+                        if (!aItem || aItem.locked || aItem.pathPoints.length !== 1) continue;
+                        var apt = aItem.pathPoints[0].anchor;
+                        for (var mp2 = 0; mp2 < artPlacedPositions.length; mp2++) {
+                            var adx = apt[0] - artPlacedPositions[mp2].x;
+                            var ady = apt[1] - artPlacedPositions[mp2].y;
+                            if (Math.sqrt(adx * adx + ady * ady) <= RESEL_TOL) {
+                                aItem.selected = true;
+                                reselCount++;
+                                break;
+                            }
+                        }
+                    } catch (eReSel2) {}
+                }
+                $.writeln("[MOVE] Re-selected " + reselCount + " items near " + artPlacedPositions.length + " moved positions");
+            } else if (isIgnoreLayer) {
+                doc.selection = null;
+            }
+        } catch (eReselect) {
+            $.writeln("[MOVE] Error re-selecting: " + eReselect);
+        }
+
+        // NOW restore layer state (lock/hide)
         if (isIgnoreLayer) {
             targetLayer.locked = true;
             targetLayer.visible = false;
             $.writeln("[MOVE] Locked and hid Ignore layer");
         } else {
-            // Restore original state for non-Ignore layers
             targetLayer.locked = wasLocked;
             targetLayer.visible = wasVisible;
             $.writeln("[MOVE] Restored layer state");
         }
-
-        doc.selection = null;
 
         var result = JSON.stringify({
             itemsMoved: itemsMoved,
@@ -3931,14 +4182,164 @@ function MDUX_cppProcessPlacedApi(payloadOverride) {
         if (app.documents.length === 0) {
             return JSON.stringify({ ok: false, message: "No document open." });
         }
+
+        // Before C++ processing, snapshot selected target-layer anchors that need art placement
+        var targetLayerAnchors = MDUX_collectSelectedTargetAnchors();
+
         var payload = "action=process-placed-api";
         if (payloadOverride && typeof payloadOverride === "string") {
             payload = payloadOverride;
         }
         var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+
+        // Post-processing: place art at any selected target-layer anchors that still lack art
+        if (targetLayerAnchors && targetLayerAnchors.length > 0) {
+            MDUX_placeArtAtTargetAnchors(targetLayerAnchors);
+        }
+
         return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
     } catch (e) {
         return JSON.stringify({ ok: false, message: "C++ process placed error: " + e });
+    }
+}
+
+// Collect selected single-point anchor paths on target layers (Units, Registers, Thermostats, etc.)
+function MDUX_collectSelectedTargetAnchors() {
+    var anchors = [];
+    try {
+        var doc = app.activeDocument;
+        var sel = doc.selection;
+        if (!sel || sel.length === 0) return anchors;
+
+        var TARGET_LAYERS = {
+            "Units": "Unit.ai",
+            "Square Registers": "Square Register.ai",
+            "Rectangular Registers": "Rectangular Register.ai",
+            "Circular Registers": "Circular Register.ai",
+            "Exhaust Registers": "Exhaust Register.ai",
+            "Secondary Exhaust Registers": "Secondary Exhaust Register.ai",
+            "Orange Register": "Orange Register.ai",
+            "Thermostats": "Thermostat.ai"
+        };
+
+        for (var i = 0; i < sel.length; i++) {
+            try {
+                var item = sel[i];
+                if (item.typename !== "PathItem") continue;
+                if (!item.pathPoints || item.pathPoints.length !== 1) continue;
+                var layerName = item.layer ? item.layer.name : "";
+                if (!TARGET_LAYERS[layerName]) continue;
+                var anchor = item.pathPoints[0].anchor;
+                anchors.push({
+                    x: anchor[0],
+                    y: anchor[1],
+                    layer: layerName,
+                    file: TARGET_LAYERS[layerName]
+                });
+            } catch (eItem) {}
+        }
+    } catch (e) {}
+    return anchors;
+}
+
+// Place art at target-layer anchor positions that don't already have a PlacedItem nearby
+function MDUX_placeArtAtTargetAnchors(anchors) {
+    try {
+        var doc = app.activeDocument;
+        var COMPONENT_FILES_PATH = "E:/Work/Work/Floorplans/Ductwork Assets/";
+        var ART_TOLERANCE = 15; // distance to consider art "already placed"
+
+        for (var i = 0; i < anchors.length; i++) {
+            var anchor = anchors[i];
+            var ax = anchor.x;
+            var ay = anchor.y;
+            var layerName = anchor.layer;
+            var fileName = anchor.file;
+
+            // Get the target layer
+            var layer = null;
+            try { layer = doc.layers.getByName(layerName); } catch (e) { continue; }
+            if (!layer || layer.locked) continue;
+
+            // Check if art already exists near this position on the target layer
+            var hasArt = false;
+            try {
+                for (var pi = 0; pi < layer.placedItems.length; pi++) {
+                    var pItem = layer.placedItems[pi];
+                    var bounds = pItem.geometricBounds;
+                    var cx = (bounds[0] + bounds[2]) / 2;
+                    var cy = (bounds[1] + bounds[3]) / 2;
+                    var dx = cx - ax;
+                    var dy = cy - ay;
+                    if (Math.sqrt(dx * dx + dy * dy) <= ART_TOLERANCE) {
+                        hasArt = true;
+                        break;
+                    }
+                }
+            } catch (eCheck) {}
+
+            if (hasArt) continue;
+
+            // Place art file
+            var file = new File(COMPONENT_FILES_PATH + fileName);
+            if (!file.exists) continue;
+
+            // Determine scale from existing placed items on the layer
+            var scale = 100;
+            try {
+                for (var si = 0; si < layer.placedItems.length; si++) {
+                    try {
+                        var sItem = layer.placedItems[si];
+                        var matrix = sItem.matrix;
+                        var scaleX = Math.sqrt(matrix.mValueA * matrix.mValueA + matrix.mValueB * matrix.mValueB);
+                        var scaleY = Math.sqrt(matrix.mValueC * matrix.mValueC + matrix.mValueD * matrix.mValueD);
+                        var itemScale = ((scaleX + scaleY) / 2) * 100;
+                        if (itemScale < scale) scale = itemScale;
+                    } catch (eScale) {}
+                }
+            } catch (eScaleScan) {}
+
+            try {
+                var newItem = layer.placedItems.add();
+                newItem.file = file;
+                try { MDUX_setPlacedItemName(newItem, file); } catch (eName) {}
+
+                var newBounds = newItem.geometricBounds;
+                var newWidth = Math.abs(newBounds[2] - newBounds[0]);
+                var newHeight = Math.abs(newBounds[1] - newBounds[3]);
+
+                if (scale !== 100) {
+                    newItem.resize(scale, scale, true, false, false, false, 100, Transformation.CENTER);
+                    newBounds = newItem.geometricBounds;
+                    newWidth = Math.abs(newBounds[2] - newBounds[0]);
+                    newHeight = Math.abs(newBounds[1] - newBounds[3]);
+                }
+
+                // Center on anchor
+                newItem.position = [ax - newWidth / 2, ay + newHeight / 2];
+
+                // Write metadata
+                try {
+                    var metadata = {
+                        MDUX_OriginalWidth: newItem.width,
+                        MDUX_OriginalHeight: newItem.height,
+                        MDUX_OriginalStrokeWidth: 1,
+                        MDUX_OriginalRotation: "0",
+                        MDUX_CumulativeRotation: "0",
+                        MDUX_CurrentScale: String(scale),
+                        tagScale: scale,
+                        tagRotation: 0
+                    };
+                    MDUX_setMetadata(newItem, metadata);
+                } catch (eMeta) {}
+
+                $.writeln("[POST-PROCESS] Placed " + fileName + " at [" + ax.toFixed(1) + "," + ay.toFixed(1) + "] on " + layerName + " (scale=" + scale.toFixed(1) + "%)");
+            } catch (ePlace) {
+                $.writeln("[POST-PROCESS] ERROR placing art: " + ePlace);
+            }
+        }
+    } catch (e) {
+        $.writeln("[POST-PROCESS] ERROR in MDUX_placeArtAtTargetAnchors: " + e);
     }
 }
 

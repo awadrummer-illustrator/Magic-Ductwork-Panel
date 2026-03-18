@@ -11107,7 +11107,7 @@ function isDuctworkLineLayer(name) {
             var ANGLE_THRESHOLD_DEG = 20;
             var MIN_DIST = 0.5; // Minimum distance - paths closer than this are likely duplicates
             var T_JUNCTION_DIST = tTolerance || 3; // Tolerance for T-junction detection (dynamic or default 3pt)
-            var PATH_ANCHOR_TOLERANCE = 1.5; // Distance threshold for path vertex at intersection check (accounts for float drift)
+            var PATH_ANCHOR_TOLERANCE = 2.5; // Distance threshold for path vertex at intersection check (raised from 1.5 to reduce false crossover rejections of T-junctions)
             var DEBUG_CONNECTIONS = $.global.MDUX_DEBUG && $.global.MDUX_DEBUG.CONNECTIONS; // References global config
             ignoredAnchorsOut = ignoredAnchorsOut || []; // Array to collect intersection points to ignore
             existingIgnoredAnchors = existingIgnoredAnchors || []; // Array of existing ignored anchors to skip
@@ -15326,6 +15326,30 @@ function isDuctworkLineLayer(name) {
             }
         } catch (eDupClean) {
             addDebug("[DUPLICATE-CLEANUP] Error: " + eDupClean);
+        }
+
+        // Save target-layer anchor positions BEFORE isPathValid cleanup removes 1-point paths.
+        // isPathValid requires >= 2 points, so single-point anchors on Units/Registers/etc.
+        // get stripped from SELECTED_PATHS. We cache their positions here for component placement.
+        var SELECTED_TARGET_ANCHORS = [];
+        var TARGET_ANCHOR_LAYERS = {
+            "Units": true, "Square Registers": true, "Rectangular Registers": true,
+            "Circular Registers": true, "Exhaust Registers": true, "Orange Register": true,
+            "Secondary Exhaust Registers": true, "Thermostats": true
+        };
+        for (var staIdx = 0; staIdx < SELECTED_PATHS.length; staIdx++) {
+            try {
+                var staPath = SELECTED_PATHS[staIdx];
+                if (!staPath) continue;
+                var staLayer = staPath.layer ? staPath.layer.name : "";
+                if (TARGET_ANCHOR_LAYERS[staLayer] && staPath.pathPoints && staPath.pathPoints.length === 1) {
+                    var staAnchor = staPath.pathPoints[0].anchor;
+                    SELECTED_TARGET_ANCHORS.push({ pos: [staAnchor[0], staAnchor[1]], layer: staLayer });
+                }
+            } catch (eSta) { }
+        }
+        if (SELECTED_TARGET_ANCHORS.length > 0) {
+            addDebug("[TARGET-ANCHORS] Saved " + SELECTED_TARGET_ANCHORS.length + " target-layer anchor position(s) before cleanup");
         }
 
         // CRITICAL: After gap merging, rebuild allPaths to remove invalid references
@@ -21175,15 +21199,16 @@ function isDuctworkLineLayer(name) {
                 var medianStroke = getMedianStrokeWidth(layerPaths);
 
                 if (storedGap && storedGap.connectionDist && storedGap.tTolerance) {
-                    // Use stored values (assumes stroke widths haven't changed significantly)
+                    // Use stored values but ensure minimum T-junction tolerance of 3pt
                     dynamicConnectionDist = storedGap.connectionDist;
-                    dynamicTTolerance = storedGap.tTolerance;
+                    dynamicTTolerance = Math.max(storedGap.tTolerance, 3);
                     addDebug("[TOLERANCE] Using stored values: CONNECTION_DIST=" + dynamicConnectionDist.toFixed(2) +
                              ", T_TOLERANCE=" + dynamicTTolerance.toFixed(2));
                 } else {
                     // Calculate from current stroke widths
+                    // Minimum T-junction tolerance raised to 3pt for consistent T-junction detection
                     dynamicConnectionDist = clamp(medianStroke * 6, 5, 15);
-                    dynamicTTolerance = clamp(medianStroke * 1.5, 0.75, 8);
+                    dynamicTTolerance = clamp(medianStroke * 1.5, 3, 8);
                     addDebug("[TOLERANCE] Calculated from median stroke=" + medianStroke.toFixed(2) +
                              ": CONNECTION_DIST=" + dynamicConnectionDist.toFixed(2) +
                              ", T_TOLERANCE=" + dynamicTTolerance.toFixed(2));
@@ -22163,9 +22188,11 @@ function isDuctworkLineLayer(name) {
                             } catch (eCoc) { }
                         }
                     }
-                    addDebug("[COMPONENT PLACEMENT] Using " + selectedPathsToUse.length + " path(s) for proximity filter (SELECTED_PATHS + CARVE_OUT_COMPOUNDS)");
-                    if (selectedPathsToUse.length === 0) selectedPathsToUse = null;
-                    placeLinkedComponents_local(doc, selectedPathsToUse);
+                    // Pass cached target-layer anchor positions (saved before isPathValid cleanup removed 1-point paths)
+                    var targetAnchorsForPlacement = (typeof SELECTED_TARGET_ANCHORS !== "undefined") ? SELECTED_TARGET_ANCHORS : [];
+                    addDebug("[COMPONENT PLACEMENT] Using " + selectedPathsToUse.length + " ductwork path(s) + " + targetAnchorsForPlacement.length + " target-layer anchor(s) for proximity filter");
+                    if (selectedPathsToUse.length === 0 && targetAnchorsForPlacement.length === 0) selectedPathsToUse = null;
+                    placeLinkedComponents_local(doc, selectedPathsToUse, targetAnchorsForPlacement);
 
                     // DEBUG OUTPUT COMMENTED OUT - uncomment to show unit placement debug info
                     /*
@@ -22317,7 +22344,7 @@ function isDuctworkLineLayer(name) {
                     return bestAnyScale;
                 }
 
-                function placeLinkedComponents_local(docParam, selectedPaths) {
+                function placeLinkedComponents_local(docParam, selectedPaths, targetAnchors) {
                     // *** DEFAULT SCALE FOR NEW DUCTWORK PARTS: 100% ***
                     var DEFAULT_PLACEMENT_SCALE = 100;
 
@@ -22434,12 +22461,12 @@ function isDuctworkLineLayer(name) {
                     }
 
                     for (var i = 0; i < COMPONENT_TYPES.length; i++) {
-                        placeComponentAtAnchorPoints_local(docParam, COMPONENT_TYPES[i], globalScale, selectedPaths, CACHED_IGNORED_ANCHORS, selectionBounds_placement, EXISTING_UNIT_POSITIONS);
+                        placeComponentAtAnchorPoints_local(docParam, COMPONENT_TYPES[i], globalScale, selectedPaths, CACHED_IGNORED_ANCHORS, selectionBounds_placement, EXISTING_UNIT_POSITIONS, targetAnchors);
                         try { yieldToUI(); } catch (e) { }
                     }
                 }
 
-                function placeComponentAtAnchorPoints_local(docParam, type, globalScale, selectedPaths, cachedIgnoredAnchors, selectionBounds, existingUnitPositions) {
+                function placeComponentAtAnchorPoints_local(docParam, type, globalScale, selectedPaths, cachedIgnoredAnchors, selectionBounds, existingUnitPositions, targetAnchors) {
                     var layer = getLayerByName_local(docParam, type.layer);
                     if (!layer || layer.locked) {
                         addDebug("[" + type.name + "] Layer '" + type.layer + "' not found or locked");
@@ -22454,7 +22481,7 @@ function isDuctworkLineLayer(name) {
                     addDebug("");
                     addDebug("========== " + type.name + " ==========");
                     addDebug("[" + type.name + "] Collecting anchors from layer: " + type.layer);
-                    var anchorPts = collectAnchorPoints_local(docParam, layer, selectedPaths, cachedIgnoredAnchors, selectionBounds);
+                    var anchorPts = collectAnchorPoints_local(docParam, layer, selectedPaths, cachedIgnoredAnchors, selectionBounds, targetAnchors, type.layer);
                     addDebug("[" + type.name + "] Collected " + anchorPts.length + " anchor points");
 
                     // UNIT PRIORITY: Check if this is a register type (not Unit/Thermostat)
@@ -23018,7 +23045,7 @@ function isDuctworkLineLayer(name) {
                     }
                 }
 
-                function collectAnchorPoints_local(docParam, layer, selectedPaths, cachedIgnoredAnchors, selectionBounds) {
+                function collectAnchorPoints_local(docParam, layer, selectedPaths, cachedIgnoredAnchors, selectionBounds, targetAnchors, componentLayerName) {
                     var pts = [], seen = {};
                     if (!layer || layer.locked) return pts;
 
@@ -23179,6 +23206,29 @@ function isDuctworkLineLayer(name) {
                         addDebug("[ANCHOR COLLECTION] Built " + selectedEndpoints.length + " vertices from selected paths");
                     } else {
                         addDebug("[ANCHOR COLLECTION] No proximity filter - collecting all anchors from layer");
+                    }
+
+                    // Add cached target-layer anchor positions to the proximity endpoints.
+                    // These were saved before isPathValid cleanup removed 1-point paths from SELECTED_PATHS.
+                    // Only add anchors whose layer matches this component's layer (e.g., Units anchors for Units placement).
+                    if (targetAnchors && targetAnchors.length > 0 && componentLayerName) {
+                        var addedTargetCount = 0;
+                        for (var taIdx = 0; taIdx < targetAnchors.length; taIdx++) {
+                            var ta = targetAnchors[taIdx];
+                            if (ta.layer === componentLayerName) {
+                                selectedEndpoints.push(ta.pos);
+                                addedTargetCount++;
+                            }
+                        }
+                        if (addedTargetCount > 0) {
+                            // Enable proximity filter if it wasn't active (anchor-only selection with no ductwork lines)
+                            if (!useProximityFilter) {
+                                useProximityFilter = true;
+                                addDebug("[ANCHOR COLLECTION] Enabled proximity filter for " + addedTargetCount + " standalone target-layer anchor(s)");
+                            } else {
+                                addDebug("[ANCHOR COLLECTION] Added " + addedTargetCount + " target-layer anchor position(s) to proximity filter");
+                            }
+                        }
                     }
 
                     // Helper to check if a point is near any selected path endpoint
@@ -23375,7 +23425,10 @@ function isDuctworkLineLayer(name) {
                 }
 
                 // Run the embedded main
-                try { embeddedMain(); } catch (e) { /* swallow errors from embedded routine to match previous behavior */ }
+                try { embeddedMain(); } catch (e) {
+                    addDebug("[EMBEDDED-MAIN] ERROR: " + e + " (line: " + (e.line || "?") + ")");
+                    alert("embeddedMain error: " + e + "\nLine: " + (e.line || "?"));
+                }
 
                 // NOTE: Final cleanup pass removed - was causing 30+ second freeze by processing
                 // ALL existing anchors instead of just selection-related ones.

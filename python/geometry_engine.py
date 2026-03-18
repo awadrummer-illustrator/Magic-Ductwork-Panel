@@ -678,17 +678,23 @@ def orthogonalize_paths(paths_data: List[Dict], snap_threshold: float = 5.0,
 
             for path_idx, path in enumerate(paths):
                 pts = path['points']
+                path_layer = path.get('layer', '')
                 for pt_idx in range(len(pts)):
                     # Skip locked points (ignore marker endpoints)
                     if (path_idx, pt_idx) in locked_set:
                         continue
-                        
+
                     point = Point(pts[pt_idx])
                     candidates = tree.query(point.buffer(snap_threshold))
 
                     for seg_idx in candidates:
                         seg_path_idx, _ = segment_info[seg_idx]
                         if seg_path_idx == path_idx:
+                            continue
+                        # Only snap to segments on the SAME layer to prevent
+                        # cross-layer interference (e.g., orange snapping to light orange)
+                        seg_layer = paths[seg_path_idx].get('layer', '')
+                        if path_layer and seg_layer and path_layer != seg_layer:
                             continue
 
                         seg_line = segment_lines[seg_idx]
