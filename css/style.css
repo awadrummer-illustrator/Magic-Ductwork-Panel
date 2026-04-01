@@ -212,6 +212,38 @@ html {
     filter: drop-shadow(0 0 5px var(--accent-color));
 }
 
+.mode-switch {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 6px;
+}
+
+.mode-switch-btn {
+    flex: 1 1 0;
+    padding: 5px 6px;
+    font-size: 8px;
+    text-transform: uppercase;
+    letter-spacing: 0.6px;
+    background: rgba(0, 0, 0, 0.55);
+    color: var(--text-muted);
+    border: 1px solid rgba(0, 170, 255, 0.35);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.mode-switch-btn:hover {
+    color: var(--text-color);
+    border-color: rgba(0, 240, 255, 0.55);
+}
+
+.mode-switch-btn.active {
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+    box-shadow: 0 0 8px rgba(0, 240, 255, 0.25), inset 0 0 8px rgba(0, 240, 255, 0.12);
+    background: rgba(0, 20, 35, 0.9);
+}
+
 /* Status */
 .status {
     font-size: 8px;

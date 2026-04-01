@@ -67,6 +67,29 @@
     });
     let processBtn = document.getElementById('process-btn');
     let processPlacedBtn = document.getElementById('process-placed-btn');
+    let panelModeNormalBtn = document.getElementById('panel-mode-normal-btn');
+    let panelModeEmoryBtn = document.getElementById('panel-mode-emory-btn');
+    let processNormalControls = document.getElementById('process-normal-controls');
+    let processEmoryControls = document.getElementById('process-emory-controls');
+    let revertEmoryCenterlinesBtn = document.getElementById('revert-emory-centerlines-btn');
+    let hideEmoryCenterlinesBtn = document.getElementById('hide-emory-centerlines-btn');
+    let showEmoryCenterlinesBtn = document.getElementById('show-emory-centerlines-btn');
+    let toggleConnectorStyleBtn = document.getElementById('toggle-connector-style-btn');
+    let setEmoryStartBtn = document.getElementById('set-emory-start-btn');
+    let clearEmoryStartBtn = document.getElementById('clear-emory-start-btn');
+    let emoryWidthSlider = document.getElementById('emory-width-slider');
+    let emoryWidthInput = document.getElementById('emory-width-input');
+    let emoryStrokeSlider = document.getElementById('emory-stroke-slider');
+    let emoryStrokeInput = document.getElementById('emory-stroke-input');
+    let emorySelectionStatus = document.getElementById('emory-selection-status');
+    let emoryWidthStatus = document.getElementById('emory-width-status');
+    let emoryStrokeStatus = document.getElementById('emory-stroke-status');
+    let emoryTaperAlignLabel = document.getElementById('emory-taper-align-label');
+    let emoryTaperAlignRow = document.getElementById('emory-taper-align-row');
+    let emoryTaperAlignABtn = document.getElementById('emory-taper-align-a-btn');
+    let emoryTaperAlignBBtn = document.getElementById('emory-taper-align-b-btn');
+    let emoryTaperAlignCBtn = document.getElementById('emory-taper-align-c-btn');
+    let processEmoryNoFinalThicknessOption = document.getElementById('process-emory-no-final-thickness-option');
     let processEmoryBtn = document.getElementById('process-emory-btn');
     let processStatus = document.getElementById('process-status');
     let revertBtn = document.getElementById('revert-ortho-btn');
@@ -77,6 +100,10 @@
     // const ignoreStatus = document.getElementById('ignore-status'); // Removed - status no longer exists
     let reloadBtn = document.getElementById('reload-btn');
     const extensionId = 'com.chris.magicductwork.panel';
+    const PROCESS_MODE_STORAGE_KEY = 'mdux-process-mode';
+    const PROCESS_MODE_NORMAL = 'normal';
+    const PROCESS_MODE_EMORY = 'emory';
+    let currentProcessMode = PROCESS_MODE_NORMAL;
     function reloadExtensionView() {
         try {
             const base = window.location.href.split('?')[0];
@@ -90,6 +117,29 @@
     function refreshDomRefs() {
         processBtn = document.getElementById('process-btn');
         processPlacedBtn = document.getElementById('process-placed-btn');
+        panelModeNormalBtn = document.getElementById('panel-mode-normal-btn');
+        panelModeEmoryBtn = document.getElementById('panel-mode-emory-btn');
+        processNormalControls = document.getElementById('process-normal-controls');
+        processEmoryControls = document.getElementById('process-emory-controls');
+        revertEmoryCenterlinesBtn = document.getElementById('revert-emory-centerlines-btn');
+        hideEmoryCenterlinesBtn = document.getElementById('hide-emory-centerlines-btn');
+        showEmoryCenterlinesBtn = document.getElementById('show-emory-centerlines-btn');
+        toggleConnectorStyleBtn = document.getElementById('toggle-connector-style-btn');
+        setEmoryStartBtn = document.getElementById('set-emory-start-btn');
+        clearEmoryStartBtn = document.getElementById('clear-emory-start-btn');
+        emoryWidthSlider = document.getElementById('emory-width-slider');
+        emoryWidthInput = document.getElementById('emory-width-input');
+        emoryStrokeSlider = document.getElementById('emory-stroke-slider');
+        emoryStrokeInput = document.getElementById('emory-stroke-input');
+        emorySelectionStatus = document.getElementById('emory-selection-status');
+        emoryWidthStatus = document.getElementById('emory-width-status');
+        emoryStrokeStatus = document.getElementById('emory-stroke-status');
+        emoryTaperAlignLabel = document.getElementById('emory-taper-align-label');
+        emoryTaperAlignRow = document.getElementById('emory-taper-align-row');
+        emoryTaperAlignABtn = document.getElementById('emory-taper-align-a-btn');
+        emoryTaperAlignBBtn = document.getElementById('emory-taper-align-b-btn');
+        emoryTaperAlignCBtn = document.getElementById('emory-taper-align-c-btn');
+        processEmoryNoFinalThicknessOption = document.getElementById('process-emory-no-final-thickness-option');
         processEmoryBtn = document.getElementById('process-emory-btn');
         processStatus = document.getElementById('process-status');
         revertBtn = document.getElementById('revert-ortho-btn');
@@ -285,6 +335,18 @@
     let pollInProgress = false;
     let lastSelectionHash = '';
     let skipSelectionRefresh = false;
+    let emorySelectionState = null;
+    let emoryWidthRefreshInFlight = false;
+    let emoryWidthApplyTimer = null;
+    let emoryWidthDragActive = false;
+    let emoryWidthApplyInFlight = false;
+    let emoryWidthLastApplied = null;
+    let emoryWidthRefreshPending = false;
+    let emoryStrokeApplyTimer = null;
+    let emoryStrokeDragActive = false;
+    let emoryStrokeApplyInFlight = false;
+    let emoryStrokeLastApplied = null;
+    let emoryStrokeRefreshPending = false;
 
     function onAfterSelectionChanged() {
         if (isCepSuspended()) return;
@@ -608,6 +670,512 @@
         return { ok: true, value: value };
     }
 
+    function parseBridgeJsonResult(value) {
+        const normalized = normaliseResult(value);
+        if (normalized.ok === false) {
+            return { ok: false, message: normalized.value || 'Unknown error.' };
+        }
+        if (typeof normalized.value === 'string' && normalized.value) {
+            try {
+                const parsed = JSON.parse(normalized.value);
+                if (parsed && typeof parsed.ok !== 'boolean') {
+                    parsed.ok = true;
+                }
+                return parsed || { ok: true, message: normalized.value };
+            } catch (e) {
+                return { ok: true, message: normalized.value, value: normalized.value };
+            }
+        }
+        return { ok: true, message: '' };
+    }
+
+    function readStoredProcessMode() {
+        try {
+            const stored = window.localStorage.getItem(PROCESS_MODE_STORAGE_KEY);
+            if (stored === PROCESS_MODE_EMORY) {
+                return PROCESS_MODE_EMORY;
+            }
+        } catch (e) {}
+        return PROCESS_MODE_NORMAL;
+    }
+
+    function isEmoryModeActive() {
+        return currentProcessMode === PROCESS_MODE_EMORY;
+    }
+
+    function applyProcessMode(mode, savePreference) {
+        currentProcessMode = mode === PROCESS_MODE_EMORY ? PROCESS_MODE_EMORY : PROCESS_MODE_NORMAL;
+        if (panelModeNormalBtn) {
+            panelModeNormalBtn.classList.toggle('active', currentProcessMode === PROCESS_MODE_NORMAL);
+        }
+        if (panelModeEmoryBtn) {
+            panelModeEmoryBtn.classList.toggle('active', currentProcessMode === PROCESS_MODE_EMORY);
+        }
+        if (processNormalControls) {
+            processNormalControls.style.display = currentProcessMode === PROCESS_MODE_NORMAL ? '' : 'none';
+        }
+        if (processEmoryControls) {
+            processEmoryControls.style.display = currentProcessMode === PROCESS_MODE_EMORY ? '' : 'none';
+        }
+        if (savePreference) {
+            try {
+                window.localStorage.setItem(PROCESS_MODE_STORAGE_KEY, currentProcessMode);
+            } catch (e) {}
+        }
+        if (currentProcessMode === PROCESS_MODE_EMORY) {
+            refreshEmorySelectionState(true).catch(function () {});
+        }
+    }
+
+    function setEmorySelectionStatus(message, isError) {
+        if (!emorySelectionStatus) return;
+        emorySelectionStatus.textContent = message || '';
+        emorySelectionStatus.classList.toggle('error', !!isError);
+    }
+
+    function setEmoryWidthStatus(message, isError) {
+        if (!emoryWidthStatus) return;
+        emoryWidthStatus.textContent = message || '';
+        emoryWidthStatus.classList.toggle('error', !!isError);
+    }
+
+    function setEmoryStrokeStatus(message, isError) {
+        if (!emoryStrokeStatus) return;
+        emoryStrokeStatus.textContent = message || '';
+        emoryStrokeStatus.classList.toggle('error', !!isError);
+    }
+
+    function updateEmoryTaperAlignmentControls(state) {
+        if (!emoryTaperAlignRow || !emoryTaperAlignABtn || !emoryTaperAlignBBtn || !emoryTaperAlignCBtn) return;
+        const available = !!(state && state.taperAlignmentAvailable);
+        if (emoryTaperAlignLabel) {
+            emoryTaperAlignLabel.style.display = '';
+        }
+        emoryTaperAlignRow.style.display = '';
+        const orientation = available && state.taperOrientation === 'vertical' ? 'vertical' : 'horizontal';
+        const current = available ? (state.taperAlignment || 'center') : '';
+        const labels = orientation === 'vertical'
+            ? ['Left', 'Center', 'Right']
+            : ['Top', 'Center', 'Bottom'];
+        const values = orientation === 'vertical'
+            ? ['left', 'center', 'right']
+            : ['top', 'center', 'bottom'];
+        const buttons = [emoryTaperAlignABtn, emoryTaperAlignBBtn, emoryTaperAlignCBtn];
+
+        for (let i = 0; i < buttons.length; i += 1) {
+            buttons[i].textContent = labels[i];
+            buttons[i].dataset.alignmentValue = values[i];
+            buttons[i].disabled = !available;
+            buttons[i].classList.toggle('active', current === values[i]);
+        }
+    }
+
+    function getEmoryWidthSliderConfig(width) {
+        const normalized = Math.max(0.25, Number(width) || 0.25);
+        const lowerSpan = Math.max(6, normalized * 0.75);
+        const upperSpan = Math.max(8, normalized * 1.25);
+        let step = 0.1;
+        if (normalized >= 40) {
+            step = 0.25;
+        }
+        if (normalized >= 120) {
+            step = 0.5;
+        }
+        return {
+            min: Math.max(0.25, normalized - lowerSpan),
+            max: normalized + upperSpan,
+            step: step
+        };
+    }
+
+    function getEmoryStrokeSliderConfig(width) {
+        const normalized = Math.max(0.25, Number(width) || 0.25);
+        const lowerSpan = Math.max(1.5, normalized * 0.75);
+        const upperSpan = Math.max(2.5, normalized * 1.25);
+        let step = 0.05;
+        if (normalized >= 3) {
+            step = 0.1;
+        }
+        if (normalized >= 6) {
+            step = 0.25;
+        }
+        return {
+            min: Math.max(0.25, normalized - lowerSpan),
+            max: normalized + upperSpan,
+            step: step
+        };
+    }
+
+    function syncEmoryWidthControls(width, preserveInputValue) {
+        if (!emoryWidthSlider || !emoryWidthInput || !isFinite(width) || width <= 0) return;
+        const normalized = Math.max(0.25, width);
+        const sliderConfig = getEmoryWidthSliderConfig(normalized);
+        const inputMax = Math.max(240, Math.ceil(sliderConfig.max * 2));
+        emoryWidthSlider.min = String(sliderConfig.min);
+        emoryWidthSlider.max = String(sliderConfig.max);
+        emoryWidthSlider.step = String(sliderConfig.step);
+        emoryWidthInput.min = '0.25';
+        emoryWidthInput.step = String(sliderConfig.step);
+        emoryWidthInput.max = String(inputMax);
+        emoryWidthSlider.value = String(normalized);
+        if (!preserveInputValue) {
+            emoryWidthInput.value = normalized.toFixed(2).replace(/\.00$/, '');
+        }
+    }
+
+    function syncEmoryStrokeControls(width, preserveInputValue) {
+        if (!emoryStrokeSlider || !emoryStrokeInput || !isFinite(width) || width <= 0) return;
+        const normalized = Math.max(0.25, width);
+        const sliderConfig = getEmoryStrokeSliderConfig(normalized);
+        const inputMax = Math.max(24, Math.ceil(sliderConfig.max * 2));
+        emoryStrokeSlider.min = String(sliderConfig.min);
+        emoryStrokeSlider.max = String(sliderConfig.max);
+        emoryStrokeSlider.step = String(sliderConfig.step);
+        emoryStrokeInput.min = '0.25';
+        emoryStrokeInput.step = String(sliderConfig.step);
+        emoryStrokeInput.max = String(inputMax);
+        emoryStrokeSlider.value = String(normalized);
+        if (!preserveInputValue) {
+            emoryStrokeInput.value = normalized.toFixed(2).replace(/\.00$/, '');
+        }
+    }
+
+    function flushPendingEmoryWidthRefresh() {
+        if (!emoryWidthRefreshPending) return;
+        emoryWidthRefreshPending = false;
+        refreshEmorySelectionState(true).catch(function () {});
+    }
+
+    function flushPendingEmoryStrokeRefresh() {
+        if (!emoryStrokeRefreshPending) return;
+        emoryStrokeRefreshPending = false;
+        refreshEmorySelectionState(true).catch(function () {});
+    }
+
+    function finishEmoryWidthDrag(commitFinalWidth) {
+        if (!emoryWidthDragActive) return;
+        emoryWidthDragActive = false;
+
+        const numericWidth = emoryWidthSlider ? Number(emoryWidthSlider.value) : NaN;
+        if (commitFinalWidth && isFinite(numericWidth) && numericWidth > 0) {
+            queueEmoryWidthApply(numericWidth, true);
+            return;
+        }
+
+        flushPendingEmoryWidthRefresh();
+    }
+
+    function finishEmoryStrokeDrag(commitFinalWidth) {
+        if (!emoryStrokeDragActive) return;
+        emoryStrokeDragActive = false;
+
+        const numericWidth = emoryStrokeSlider ? Number(emoryStrokeSlider.value) : NaN;
+        if (commitFinalWidth && isFinite(numericWidth) && numericWidth > 0) {
+            queueEmoryStrokeApply(numericWidth, true);
+            return;
+        }
+
+        flushPendingEmoryStrokeRefresh();
+    }
+
+    function setEmoryControlsEnabled(enabled, options) {
+        const opts = options || {};
+        const strokeEnabled = Object.prototype.hasOwnProperty.call(opts, 'strokeEnabled')
+            ? !!opts.strokeEnabled
+            : !!enabled;
+        if (setEmoryStartBtn) setEmoryStartBtn.disabled = !enabled;
+        if (clearEmoryStartBtn) clearEmoryStartBtn.disabled = !enabled;
+        if (emoryWidthSlider) emoryWidthSlider.disabled = !enabled;
+        if (emoryWidthInput) emoryWidthInput.disabled = !enabled;
+        if (emoryStrokeSlider) emoryStrokeSlider.disabled = !strokeEnabled;
+        if (emoryStrokeInput) emoryStrokeInput.disabled = !strokeEnabled;
+        if (hideEmoryCenterlinesBtn) hideEmoryCenterlinesBtn.disabled = !enabled;
+        if (showEmoryCenterlinesBtn) showEmoryCenterlinesBtn.disabled = !enabled;
+    }
+
+    async function refreshEmorySelectionState(force) {
+        if (!isEmoryModeActive()) return;
+        if (!setEmoryStartBtn || !emoryWidthSlider || !emoryWidthInput || !emoryStrokeSlider || !emoryStrokeInput) return;
+        if (isCepSuspended()) return;
+        if (emoryWidthRefreshInFlight) return;
+        if (!force) {
+            if (emoryWidthApplyInFlight || emoryWidthDragActive || emoryStrokeApplyInFlight || emoryStrokeDragActive) return;
+            if (document.activeElement === emoryWidthInput || document.activeElement === emoryStrokeInput) return;
+        }
+
+        emoryWidthRefreshInFlight = true;
+        try {
+            await ensureBridgeLoaded();
+            const state = parseBridgeJsonResult(await evalScript('MDUX_cppGetSelectedEmorySegmentState()'));
+            emorySelectionState = state;
+            updateEmoryTaperAlignmentControls(state);
+
+            if (!state || state.ok === false) {
+                setEmoryControlsEnabled(false);
+                setEmorySelectionStatus('');
+                setEmoryWidthStatus((state && state.message) ? state.message : 'Unable to read Emory selection.', true);
+                setEmoryStrokeStatus('', false);
+                if (hideEmoryCenterlinesBtn) hideEmoryCenterlinesBtn.disabled = true;
+                if (showEmoryCenterlinesBtn) showEmoryCenterlinesBtn.disabled = true;
+                return;
+            }
+
+            const canApplyStroke = !!state.canApplyStroke;
+            if (!state.available) {
+                setEmoryControlsEnabled(false, { strokeEnabled: canApplyStroke });
+                if (state.reason === 'multiple-runs') {
+                    setEmorySelectionStatus('Select segments from only one Emory run at a time.', true);
+                } else if (state.reason === 'no-segment-selection') {
+                    setEmorySelectionStatus('Select a generated Emory duct segment to edit width.', false);
+                } else {
+                    setEmorySelectionStatus('');
+                }
+                setEmoryWidthStatus('');
+                if (canApplyStroke) {
+                    const referenceStrokeWidth = Number(state.referenceStrokeWidth || state.selectedStrokeWidth || 0);
+                    if (referenceStrokeWidth > 0) {
+                        syncEmoryStrokeControls(referenceStrokeWidth, false);
+                        emoryStrokeLastApplied = referenceStrokeWidth;
+                    }
+                    if (Number(state.selectedThermostatCount || 0) > 0) {
+                        setEmoryStrokeStatus(state.mixedStrokeWidths
+                            ? 'Mixed stroke widths selected. Dragging the slider will set the selected thermostat lines to one stroke width.'
+                            : 'Dragging the slider will set the selected thermostat lines to one stroke width.', false);
+                    } else if (Number(state.runCount || 0) > 0) {
+                        setEmoryStrokeStatus(state.mixedStrokeWidths
+                            ? 'Mixed stroke widths selected. Dragging the slider will set the selected Emory runs to one stroke width.'
+                            : 'Dragging the slider will set the selected Emory runs to one stroke width.', false);
+                    } else {
+                        setEmoryStrokeStatus('', false);
+                    }
+                } else {
+                    setEmoryStrokeStatus('', false);
+                }
+                if (hideEmoryCenterlinesBtn) hideEmoryCenterlinesBtn.disabled = false;
+                if (showEmoryCenterlinesBtn) showEmoryCenterlinesBtn.disabled = false;
+                return;
+            }
+
+            const selectedCount = Number(state.selectedCount || 0);
+            const runCount = Number(state.runCount || 0);
+            const segmentCount = Number(state.segmentCount || 0);
+            const startSegmentIndex = Number(state.startSegmentIndex || 0);
+            const selectedSegmentIndex = Number(state.selectedSegmentIndex);
+            const hasExplicitStart = !!state.hasExplicitStart;
+            const startLabel = (hasExplicitStart ? 'Start: segment ' : 'Start: default segment ') + (startSegmentIndex + 1) + ' of ' + segmentCount;
+
+            if (runCount > 1) {
+                let multiRunMessage = selectedCount + ' segments selected across ' + runCount + ' runs';
+                if (state.mixedWidths) {
+                    multiRunMessage += ' | Mixed widths selected';
+                }
+                setEmorySelectionStatus(multiRunMessage, false);
+            } else if (selectedCount === 1 && isFinite(selectedSegmentIndex) && selectedSegmentIndex >= 0) {
+                const selectedLabel = 'Selected: segment ' + (selectedSegmentIndex + 1) + ' of ' + segmentCount;
+                setEmorySelectionStatus(selectedLabel + ' | ' + startLabel, false);
+            } else {
+                let msg = selectedCount + ' segments selected | ' + startLabel;
+                if (state.mixedWidths) {
+                    msg += ' | Mixed widths selected';
+                }
+                setEmorySelectionStatus(msg, false);
+            }
+
+            const canApplyWidth = !!state.canApplyWidth;
+            if (setEmoryStartBtn) {
+                setEmoryStartBtn.disabled = selectedCount !== 1;
+            }
+            if (clearEmoryStartBtn) {
+                clearEmoryStartBtn.disabled = !state.canClearStart;
+            }
+            if (emoryWidthSlider) emoryWidthSlider.disabled = !canApplyWidth;
+            if (emoryWidthInput) emoryWidthInput.disabled = !canApplyWidth;
+            if (emoryStrokeSlider) emoryStrokeSlider.disabled = !canApplyStroke;
+            if (emoryStrokeInput) emoryStrokeInput.disabled = !canApplyStroke;
+            if (hideEmoryCenterlinesBtn) {
+                hideEmoryCenterlinesBtn.disabled = !!state.centerlinesHidden;
+            }
+            if (showEmoryCenterlinesBtn) {
+                showEmoryCenterlinesBtn.disabled = !state.centerlinesHidden;
+            }
+
+            if (canApplyWidth && runCount > 1) {
+                const referenceWidth = Number(state.sharedWidth || state.referenceWidth || 0);
+                if (referenceWidth > 0) {
+                    syncEmoryWidthControls(referenceWidth, false);
+                }
+                setEmoryWidthStatus(state.mixedWidths
+                    ? 'Mixed widths selected across multiple runs. Dragging the slider will set all selected segments to one width and cascade each run away from its marked start.'
+                    : 'Dragging the slider will set all selected segments to one width and cascade each run away from its marked start.', false);
+            } else if (canApplyWidth && selectedCount === 1) {
+                const selectedWidth = Number(state.selectedWidth || 0);
+                if (selectedWidth > 0) {
+                    syncEmoryWidthControls(selectedWidth, false);
+                    emoryWidthLastApplied = selectedWidth;
+                }
+                setEmoryWidthStatus('', false);
+            } else if (canApplyWidth && selectedCount > 1) {
+                const referenceWidth = Number(state.sharedWidth || state.referenceWidth || 0);
+                if (referenceWidth > 0) {
+                    syncEmoryWidthControls(referenceWidth, false);
+                }
+                setEmoryWidthStatus(state.mixedWidths
+                    ? 'Mixed widths selected. Dragging the slider will set all selected segments to one width and cascade each selected branch outward.'
+                    : 'Dragging the slider will set all selected segments to one width and cascade each selected branch outward.', false);
+            } else {
+                setEmoryWidthStatus('', false);
+            }
+
+            if (canApplyStroke) {
+                const referenceStrokeWidth = Number(state.referenceStrokeWidth || state.selectedStrokeWidth || 0);
+                if (referenceStrokeWidth > 0) {
+                    syncEmoryStrokeControls(referenceStrokeWidth, false);
+                    emoryStrokeLastApplied = referenceStrokeWidth;
+                }
+
+                const selectedThermostatCount = Number(state.selectedThermostatCount || 0);
+                if (selectedThermostatCount > 0 && runCount > 0) {
+                    setEmoryStrokeStatus(state.mixedStrokeWidths
+                        ? 'Mixed stroke widths selected. Dragging the slider will set the selected Emory runs and thermostat lines to one stroke width.'
+                        : 'Dragging the slider will set the selected Emory runs and thermostat lines to one stroke width.', false);
+                } else if (selectedThermostatCount > 0) {
+                    setEmoryStrokeStatus(state.mixedStrokeWidths
+                        ? 'Mixed stroke widths selected. Dragging the slider will set the selected thermostat lines to one stroke width.'
+                        : 'Dragging the slider will set the selected thermostat lines to one stroke width.', false);
+                } else if (runCount > 0) {
+                    setEmoryStrokeStatus(state.mixedStrokeWidths
+                        ? 'Mixed stroke widths selected. Dragging the slider will set the selected Emory runs to one stroke width.'
+                        : '', false);
+                } else {
+                    setEmoryStrokeStatus('', false);
+                }
+            } else {
+                setEmoryStrokeStatus('', false);
+            }
+        } catch (e) {
+            setEmoryControlsEnabled(false);
+            setEmorySelectionStatus('');
+            setEmoryWidthStatus('Unable to refresh Emory selection state: ' + e.message, true);
+            setEmoryStrokeStatus('', false);
+        } finally {
+            emoryWidthRefreshInFlight = false;
+        }
+    }
+
+    async function applySelectedEmorySegmentWidth(width, options) {
+        const opts = options || {};
+        const numericWidth = Number(width);
+        if (!isFinite(numericWidth) || numericWidth <= 0) {
+            setEmoryWidthStatus('Width must be greater than zero.', true);
+            return;
+        }
+        if (emoryWidthApplyInFlight) {
+            return;
+        }
+
+        emoryWidthApplyInFlight = true;
+        try {
+            await ensureBridgeLoaded();
+            if (!opts.silent) {
+                setEmoryWidthStatus('Applying width...', false);
+            }
+            const payloadWidth = Math.max(0.25, numericWidth);
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppApplySelectedEmorySegmentWidth(' + payloadWidth + ')'));
+            if (!result || result.ok === false) {
+                setEmoryWidthStatus((result && result.message) ? result.message : 'Failed to apply width.', true);
+                return;
+            }
+            emoryWidthLastApplied = payloadWidth;
+            setEmoryWidthStatus(result.message || 'Width updated.', false);
+            scheduleSkipOrthoRefresh();
+            if (emoryWidthDragActive && !opts.forceRefresh) {
+                emoryWidthRefreshPending = true;
+            } else {
+                emoryWidthRefreshPending = false;
+                await refreshEmorySelectionState(true);
+            }
+        } catch (e) {
+            setEmoryWidthStatus('Failed to apply width: ' + e.message, true);
+        } finally {
+            emoryWidthApplyInFlight = false;
+            if (!emoryWidthDragActive) {
+                flushPendingEmoryWidthRefresh();
+            }
+        }
+    }
+
+    async function applySelectedEmoryStrokeWidth(width, options) {
+        const opts = options || {};
+        const numericWidth = Number(width);
+        if (!isFinite(numericWidth) || numericWidth <= 0) {
+            setEmoryStrokeStatus('Stroke width must be greater than zero.', true);
+            return;
+        }
+        if (emoryStrokeApplyInFlight) {
+            return;
+        }
+
+        emoryStrokeApplyInFlight = true;
+        try {
+            await ensureBridgeLoaded();
+            if (!opts.silent) {
+                setEmoryStrokeStatus('Applying stroke width...', false);
+            }
+            const payloadWidth = Math.max(0.25, numericWidth);
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppApplySelectedEmoryStrokeWidth(' + payloadWidth + ')'));
+            if (!result || result.ok === false) {
+                setEmoryStrokeStatus((result && result.message) ? result.message : 'Failed to apply stroke width.', true);
+                return;
+            }
+            emoryStrokeLastApplied = payloadWidth;
+            setEmoryStrokeStatus(result.message || 'Stroke width updated.', false);
+            scheduleSkipOrthoRefresh();
+            if (emoryStrokeDragActive && !opts.forceRefresh) {
+                emoryStrokeRefreshPending = true;
+            } else {
+                emoryStrokeRefreshPending = false;
+                await refreshEmorySelectionState(true);
+            }
+        } catch (e) {
+            setEmoryStrokeStatus('Failed to apply stroke width: ' + e.message, true);
+        } finally {
+            emoryStrokeApplyInFlight = false;
+            if (!emoryStrokeDragActive) {
+                flushPendingEmoryStrokeRefresh();
+            }
+        }
+    }
+
+    function queueEmoryWidthApply(width, immediate) {
+        if (emoryWidthApplyTimer) {
+            clearTimeout(emoryWidthApplyTimer);
+            emoryWidthApplyTimer = null;
+        }
+        const fn = function () {
+            applySelectedEmorySegmentWidth(width, { silent: false }).catch(function () {});
+        };
+        if (immediate) {
+            fn();
+            return;
+        }
+        emoryWidthApplyTimer = setTimeout(fn, 90);
+    }
+
+    function queueEmoryStrokeApply(width, immediate) {
+        if (emoryStrokeApplyTimer) {
+            clearTimeout(emoryStrokeApplyTimer);
+            emoryStrokeApplyTimer = null;
+        }
+        const fn = function () {
+            applySelectedEmoryStrokeWidth(width, { silent: false }).catch(function () {});
+        };
+        if (immediate) {
+            fn();
+            return;
+        }
+        emoryStrokeApplyTimer = setTimeout(fn, 90);
+    }
+
     function escapeForExtendScript(str) {
         return str.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
     }
@@ -622,6 +1190,9 @@
         }
         if (typeof options.skipFinalRegisterSegment === 'boolean') {
             parts.push('skipFinalRegisterSegment=' + (options.skipFinalRegisterSegment ? '1' : '0'));
+        }
+        if (typeof options.skipFinalSegmentThickness === 'boolean') {
+            parts.push('skipFinalSegmentThickness=' + (options.skipFinalSegmentThickness ? '1' : '0'));
         }
         if (typeof options.skipRegisterRotation === 'boolean') {
             parts.push('skipRegisterRotation=' + (options.skipRegisterRotation ? '1' : '0'));
@@ -727,6 +1298,9 @@
             refreshSkipOrthoState().catch(() => { });
             refreshRotationOverrideState().catch(() => { });
             refreshSelectionTransformState().catch(() => { });
+            if (isEmoryModeActive()) {
+                refreshEmorySelectionState(false).catch(() => { });
+            }
         }, 150);
     }
 
@@ -1061,6 +1635,7 @@
     }
 
     async function handleProcessEmoryClick() {
+        if (!processEmoryBtn) return;
         processEmoryBtn.disabled = true;
         setProcessStatus('Running Emory ductwork processing...');
 
@@ -1072,16 +1647,173 @@
             return;
         }
 
-        const createWires = !!createRegisterWiresOption.checked;
-        const result = normaliseResult(await evalScript('MDUX_runEmoryDuctwork(' + createWires + ')'));
-        if (result.ok) {
-            setProcessStatus('Ready.');
-            debugStatus.textContent = 'Emory process completed';
+        const skipOrtho = processSkipOrthoOption ? !!processSkipOrthoOption.checked : (skipOrthoOption ? !!skipOrthoOption.checked : false);
+        const skipAllBranchSegments = processSkipAllBranchesOption ? !!processSkipAllBranchesOption.checked : (skipAllBranchesOption ? !!skipAllBranchesOption.checked : false);
+        const skipFinalRegisterSegment = processSkipFinalOption ? !!processSkipFinalOption.checked : (skipFinalOption ? !!skipFinalOption.checked : false);
+        const skipFinalSegmentThickness = !!(processEmoryNoFinalThicknessOption && processEmoryNoFinalThicknessOption.checked);
+        const payload = buildProcessPlacedPayload({
+            skipOrtho,
+            skipAllBranchSegments,
+            skipFinalRegisterSegment,
+            skipFinalSegmentThickness
+        });
+        const escaped = escapeForExtendScript(payload);
+        const result = parseBridgeJsonResult(await evalScript('MDUX_cppProcessEmoryPlacedApi("' + escaped + '")'));
+        if (result && result.ok !== false) {
+            setProcessStatus(result.message || 'Emory ductwork completed.');
+            if (debugStatus) {
+                debugStatus.textContent = 'Emory process completed';
+            }
+            refreshEmorySelectionState(true).catch(function () {});
         } else {
-            setProcessStatus('Error: ' + result.value, true);
-            debugStatus.textContent = 'Emory process failed: ' + result.value;
+            const message = (result && (result.message || result.value)) ? (result.message || result.value) : 'Unable to process Emory ductwork.';
+            setProcessStatus('Error: ' + message, true);
+            if (debugStatus) {
+                debugStatus.textContent = 'Emory process failed: ' + message;
+            }
         }
         processEmoryBtn.disabled = false;
+        scheduleSkipOrthoRefresh();
+    }
+
+    async function handleToggleConnectorStyleClick() {
+        if (!toggleConnectorStyleBtn) return;
+        toggleConnectorStyleBtn.disabled = true;
+        setProcessStatus('Toggling selected connector style...');
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppToggleSelectedEmoryConnector()'));
+            if (result && result.ok !== false) {
+                setProcessStatus(result.message || 'Connector style updated.');
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to update connector style.'), true);
+            }
+        } catch (e) {
+            setProcessStatus('Error: ' + e.message, true);
+        } finally {
+            toggleConnectorStyleBtn.disabled = false;
+            scheduleSkipOrthoRefresh();
+        }
+    }
+
+    async function handleRevertEmoryCenterlinesClick() {
+        if (!revertEmoryCenterlinesBtn) return;
+        revertEmoryCenterlinesBtn.disabled = true;
+        setProcessStatus('Reverting selected Emory ductwork to centerlines...');
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppRevertSelectedEmoryToCenterlines()'));
+            if (result && result.ok !== false) {
+                setProcessStatus(result.message || 'Reverted selected Emory ductwork to centerlines.');
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to revert selected Emory ductwork.'), true);
+            }
+        } catch (e) {
+            setProcessStatus('Error: ' + e.message, true);
+        } finally {
+            scheduleSkipOrthoRefresh();
+            revertEmoryCenterlinesBtn.disabled = false;
+        }
+    }
+
+    async function handleSetEmoryCenterlinesVisibility(hidden) {
+        const targetButton = hidden ? hideEmoryCenterlinesBtn : showEmoryCenterlinesBtn;
+        if (!targetButton) return;
+        targetButton.disabled = true;
+        setProcessStatus((hidden ? 'Hiding' : 'Showing') + ' Emory centerlines...');
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript(hidden
+                ? 'MDUX_cppHideSelectedEmoryCenterlines()'
+                : 'MDUX_cppShowSelectedEmoryCenterlines()'));
+            if (result && result.ok !== false) {
+                setProcessStatus(result.message || 'Updated Emory centerline visibility.');
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to update Emory centerlines.'), true);
+            }
+        } catch (e) {
+            setProcessStatus('Error: ' + e.message, true);
+        } finally {
+            scheduleSkipOrthoRefresh();
+            targetButton.disabled = false;
+        }
+    }
+
+    async function handleHideEmoryCenterlinesClick() {
+        await handleSetEmoryCenterlinesVisibility(true);
+    }
+
+    async function handleShowEmoryCenterlinesClick() {
+        await handleSetEmoryCenterlinesVisibility(false);
+    }
+
+    async function handleSetEmoryTaperAlignmentClick(event) {
+        const button = event && event.currentTarget ? event.currentTarget : null;
+        if (!button) return;
+        const alignmentValue = button.dataset.alignmentValue || '';
+        if (!alignmentValue) return;
+        setProcessStatus('Updating taper alignment...');
+        button.disabled = true;
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppSetSelectedEmoryTaperAlignment("' + alignmentValue + '")'));
+            if (result && result.ok !== false) {
+                setProcessStatus(result.message || 'Updated taper alignment.');
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to update taper alignment.'), true);
+            }
+        } catch (e) {
+            setProcessStatus('Error: ' + e.message, true);
+        } finally {
+            scheduleSkipOrthoRefresh();
+            button.disabled = false;
+        }
+    }
+
+    async function handleSetEmoryStartClick() {
+        if (!setEmoryStartBtn) return;
+        setEmoryStartBtn.disabled = true;
+        setEmoryWidthStatus('Marking selected segment as the cascade start...', false);
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppSetSelectedEmoryStartSegment()'));
+            if (result && result.ok !== false) {
+                setEmoryWidthStatus(result.message || 'Cascade start updated.', false);
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                setEmoryWidthStatus((result && result.message) ? result.message : 'Unable to mark the cascade start.', true);
+            }
+        } catch (e) {
+            setEmoryWidthStatus('Unable to mark the cascade start: ' + e.message, true);
+        } finally {
+            scheduleSkipOrthoRefresh();
+            setEmoryStartBtn.disabled = false;
+        }
+    }
+
+    async function handleClearEmoryStartClick() {
+        if (!clearEmoryStartBtn) return;
+        clearEmoryStartBtn.disabled = true;
+        setEmoryWidthStatus('Clearing the marked start segment...', false);
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppClearSelectedEmoryStartSegment()'));
+            if (result && result.ok !== false) {
+                setEmoryWidthStatus(result.message || 'Cleared the marked start.', false);
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                setEmoryWidthStatus((result && result.message) ? result.message : 'Unable to clear the marked start.', true);
+            }
+        } catch (e) {
+            setEmoryWidthStatus('Unable to clear the marked start: ' + e.message, true);
+        } finally {
+            scheduleSkipOrthoRefresh();
+            clearEmoryStartBtn.disabled = false;
+        }
     }
 
     async function rotateSelection(angle) {
@@ -1918,9 +2650,154 @@
     function attachListeners() {
         panelFileLog('[INIT] attachListeners start: processPlacedBtn=' + (processPlacedBtn ? 'yes' : 'no'));
         htmlLog('[INIT] attachListeners start: processPlacedBtn=' + (processPlacedBtn ? 'yes' : 'no'));
+        if (panelModeNormalBtn) {
+            panelModeNormalBtn.addEventListener('click', function () {
+                applyProcessMode(PROCESS_MODE_NORMAL, true);
+            });
+        }
+        if (panelModeEmoryBtn) {
+            panelModeEmoryBtn.addEventListener('click', function () {
+                applyProcessMode(PROCESS_MODE_EMORY, true);
+            });
+        }
         if (processBtn) processBtn.addEventListener('click', handleProcessClick);
         if (processPlacedBtn) processPlacedBtn.addEventListener('click', handleProcessPlacedApiClick);
         if (processEmoryBtn) processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
+        if (revertEmoryCenterlinesBtn) revertEmoryCenterlinesBtn.addEventListener('click', handleRevertEmoryCenterlinesClick);
+        if (hideEmoryCenterlinesBtn) hideEmoryCenterlinesBtn.addEventListener('click', handleHideEmoryCenterlinesClick);
+        if (showEmoryCenterlinesBtn) showEmoryCenterlinesBtn.addEventListener('click', handleShowEmoryCenterlinesClick);
+        if (toggleConnectorStyleBtn) toggleConnectorStyleBtn.addEventListener('click', handleToggleConnectorStyleClick);
+        if (setEmoryStartBtn) setEmoryStartBtn.addEventListener('click', handleSetEmoryStartClick);
+        if (clearEmoryStartBtn) clearEmoryStartBtn.addEventListener('click', handleClearEmoryStartClick);
+        if (emoryTaperAlignABtn) emoryTaperAlignABtn.addEventListener('click', handleSetEmoryTaperAlignmentClick);
+        if (emoryTaperAlignBBtn) emoryTaperAlignBBtn.addEventListener('click', handleSetEmoryTaperAlignmentClick);
+        if (emoryTaperAlignCBtn) emoryTaperAlignCBtn.addEventListener('click', handleSetEmoryTaperAlignmentClick);
+        if (emoryWidthSlider && emoryWidthInput) {
+            const beginEmoryWidthDrag = function () {
+                emoryWidthDragActive = true;
+                emoryWidthRefreshPending = false;
+            };
+            emoryWidthSlider.addEventListener('mousedown', function () {
+                beginEmoryWidthDrag();
+            });
+            emoryWidthSlider.addEventListener('touchstart', function () {
+                beginEmoryWidthDrag();
+            }, { passive: true });
+            window.addEventListener('mouseup', function () {
+                finishEmoryWidthDrag(false);
+            });
+            window.addEventListener('touchend', function () {
+                finishEmoryWidthDrag(false);
+            }, { passive: true });
+            window.addEventListener('touchcancel', function () {
+                finishEmoryWidthDrag(false);
+            }, { passive: true });
+            emoryWidthSlider.addEventListener('input', function () {
+                const numericWidth = Number(emoryWidthSlider.value);
+                if (!isFinite(numericWidth) || numericWidth <= 0) return;
+                beginEmoryWidthDrag();
+                emoryWidthInput.value = emoryWidthSlider.value;
+                queueEmoryWidthApply(numericWidth, false);
+            });
+            emoryWidthSlider.addEventListener('change', function () {
+                const numericWidth = Number(emoryWidthSlider.value);
+                if (!isFinite(numericWidth) || numericWidth <= 0) return;
+                emoryWidthInput.value = emoryWidthSlider.value;
+                finishEmoryWidthDrag(true);
+            });
+        }
+        if (emoryWidthInput && emoryWidthSlider) {
+            emoryWidthInput.addEventListener('input', function () {
+                const numericWidth = Number(emoryWidthInput.value);
+                if (!isFinite(numericWidth) || numericWidth <= 0) return;
+                syncEmoryWidthControls(numericWidth, true);
+            });
+            emoryWidthInput.addEventListener('change', function () {
+                const numericWidth = Number(emoryWidthInput.value);
+                if (!isFinite(numericWidth) || numericWidth <= 0) {
+                    setEmoryWidthStatus('Width must be greater than zero.', true);
+                    return;
+                }
+                emoryWidthDragActive = false;
+                syncEmoryWidthControls(numericWidth, true);
+                queueEmoryWidthApply(numericWidth, true);
+            });
+            emoryWidthInput.addEventListener('keydown', function (e) {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                const numericWidth = Number(emoryWidthInput.value);
+                if (!isFinite(numericWidth) || numericWidth <= 0) {
+                    setEmoryWidthStatus('Width must be greater than zero.', true);
+                    return;
+                }
+                emoryWidthDragActive = false;
+                syncEmoryWidthControls(numericWidth, true);
+                queueEmoryWidthApply(numericWidth, true);
+            });
+        }
+        if (emoryStrokeSlider && emoryStrokeInput) {
+            const beginEmoryStrokeDrag = function () {
+                emoryStrokeDragActive = true;
+                emoryStrokeRefreshPending = false;
+            };
+            emoryStrokeSlider.addEventListener('mousedown', function () {
+                beginEmoryStrokeDrag();
+            });
+            emoryStrokeSlider.addEventListener('touchstart', function () {
+                beginEmoryStrokeDrag();
+            }, { passive: true });
+            window.addEventListener('mouseup', function () {
+                finishEmoryStrokeDrag(false);
+            });
+            window.addEventListener('touchend', function () {
+                finishEmoryStrokeDrag(false);
+            }, { passive: true });
+            window.addEventListener('touchcancel', function () {
+                finishEmoryStrokeDrag(false);
+            }, { passive: true });
+            emoryStrokeSlider.addEventListener('input', function () {
+                const numericWidth = Number(emoryStrokeSlider.value);
+                if (!isFinite(numericWidth) || numericWidth <= 0) return;
+                beginEmoryStrokeDrag();
+                emoryStrokeInput.value = emoryStrokeSlider.value;
+                queueEmoryStrokeApply(numericWidth, false);
+            });
+            emoryStrokeSlider.addEventListener('change', function () {
+                const numericWidth = Number(emoryStrokeSlider.value);
+                if (!isFinite(numericWidth) || numericWidth <= 0) return;
+                emoryStrokeInput.value = emoryStrokeSlider.value;
+                finishEmoryStrokeDrag(true);
+            });
+        }
+        if (emoryStrokeInput && emoryStrokeSlider) {
+            emoryStrokeInput.addEventListener('input', function () {
+                const numericWidth = Number(emoryStrokeInput.value);
+                if (!isFinite(numericWidth) || numericWidth <= 0) return;
+                syncEmoryStrokeControls(numericWidth, true);
+            });
+            emoryStrokeInput.addEventListener('change', function () {
+                const numericWidth = Number(emoryStrokeInput.value);
+                if (!isFinite(numericWidth) || numericWidth <= 0) {
+                    setEmoryStrokeStatus('Stroke width must be greater than zero.', true);
+                    return;
+                }
+                emoryStrokeDragActive = false;
+                syncEmoryStrokeControls(numericWidth, true);
+                queueEmoryStrokeApply(numericWidth, true);
+            });
+            emoryStrokeInput.addEventListener('keydown', function (e) {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                const numericWidth = Number(emoryStrokeInput.value);
+                if (!isFinite(numericWidth) || numericWidth <= 0) {
+                    setEmoryStrokeStatus('Stroke width must be greater than zero.', true);
+                    return;
+                }
+                emoryStrokeDragActive = false;
+                syncEmoryStrokeControls(numericWidth, true);
+                queueEmoryStrokeApply(numericWidth, true);
+            });
+        }
         if (revertBtn) revertBtn.addEventListener('click', handleRevertPreOrtho);
         if (clearRotationMetadataBtn) clearRotationMetadataBtn.addEventListener('click', handleClearRotationMetadata);
         if (getAngleBtn) getAngleBtn.addEventListener('click', handleGetAngle);
@@ -2880,6 +3757,12 @@
             setSelectionStatus('');
             setLayerStatus('');
             setImportStatus('');
+            setEmorySelectionStatus('');
+            setEmoryWidthStatus('');
+            setEmoryStrokeStatus('');
+            setEmoryControlsEnabled(false);
+            updateEmoryTaperAlignmentControls(null);
+            applyProcessMode(readStoredProcessMode(), false);
 
             csInterface.evalScript('MDUX_debugLog("[INIT] About to load bridge...")', function() {});
 
@@ -2911,6 +3794,9 @@
                     if (skipSelectionRefresh) return;
                     refreshSelectionTransformState().catch(function() {});
                     refreshRotationOverrideState().catch(function() {});
+                    if (isEmoryModeActive()) {
+                        refreshEmorySelectionState(true).catch(function() {});
+                    }
                 }).catch(function() {});
             });
 

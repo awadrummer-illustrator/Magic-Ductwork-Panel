@@ -10,10 +10,14 @@
     const moveToSecondaryExhaustBtn = document.getElementById('move-to-secondary-exhaust-btn');
     const moveToThermostatsBtn = document.getElementById('move-to-thermostats-btn');
     const moveToIgnoreBtn = document.getElementById('move-to-ignore-btn');
+    const moveUseEmoryAssetsOption = document.getElementById('move-use-emory-assets-option');
     const moveStatus = document.getElementById('move-status');
     const debugStatus = document.getElementById('debug-status');
     const reloadBtn = document.getElementById('reload-btn');
     const extensionId = 'com.chris.magicductwork.movepanel';
+    const PROCESS_MODE_STORAGE_KEY = 'mdux-process-mode';
+    const PROCESS_MODE_EMORY = 'emory';
+    const MOVE_PANEL_EMORY_ASSETS_KEY = 'mdux-move-use-emory-assets';
     function reloadExtensionView() {
         try {
             const base = window.location.href.split('?')[0];
@@ -23,6 +27,46 @@
             console.error('View reload failed:', e);
         }
         window.location.reload();
+    }
+
+    function readCurrentProcessMode() {
+        try {
+            return window.localStorage.getItem(PROCESS_MODE_STORAGE_KEY) || '';
+        } catch (e) {
+            return '';
+        }
+    }
+
+    function readMovePanelEmoryAssetsPreference() {
+        try {
+            const stored = window.localStorage.getItem(MOVE_PANEL_EMORY_ASSETS_KEY);
+            if (stored === '1') return true;
+            if (stored === '0') return false;
+        } catch (e) {}
+        return readCurrentProcessMode() === PROCESS_MODE_EMORY;
+    }
+
+    function writeMovePanelEmoryAssetsPreference(enabled) {
+        try {
+            window.localStorage.setItem(MOVE_PANEL_EMORY_ASSETS_KEY, enabled ? '1' : '0');
+        } catch (e) {}
+    }
+
+    function useEmoryAssetsEnabled() {
+        return !!(moveUseEmoryAssetsOption && moveUseEmoryAssetsOption.checked);
+    }
+
+    function resolveMoveAsset(layerName, defaultFileBaseName) {
+        if (!useEmoryAssetsEnabled()) {
+            return defaultFileBaseName;
+        }
+        if (layerName === 'Units') {
+            return 'Unit Emory.ai';
+        }
+        if (layerName === 'Rectangular Registers') {
+            return 'Rectangular Register Emory.ai';
+        }
+        return defaultFileBaseName;
     }
 
     let bridgeReloaded = false;
@@ -130,13 +174,13 @@
 
     function attachEventListeners() {
         moveToUnitsBtn.addEventListener('click', () => {
-            moveToLayer('Units', 'Unit.ai');
+            moveToLayer('Units', resolveMoveAsset('Units', 'Unit.ai'));
         });
         moveToSquareBtn.addEventListener('click', () => {
             moveToLayer('Square Registers', 'Square Register.ai');
         });
         moveToRectBtn.addEventListener('click', () => {
-            moveToLayer('Rectangular Registers', 'Rectangular Register.ai');
+            moveToLayer('Rectangular Registers', resolveMoveAsset('Rectangular Registers', 'Rectangular Register.ai'));
         });
         moveToCircularBtn.addEventListener('click', () => {
             moveToLayer('Circular Registers', 'Circular Register.ai');
@@ -153,6 +197,11 @@
         moveToIgnoreBtn.addEventListener('click', () => {
             moveToLayer('Ignored', null);
         });
+        if (moveUseEmoryAssetsOption) {
+            moveUseEmoryAssetsOption.addEventListener('change', () => {
+                writeMovePanelEmoryAssetsPreference(!!moveUseEmoryAssetsOption.checked);
+            });
+        }
         reloadBtn.addEventListener('click', () => {
             reloadExtensionView();
         });
@@ -160,6 +209,9 @@
 
     async function initialise() {
         setMoveStatus('');
+        if (moveUseEmoryAssetsOption) {
+            moveUseEmoryAssetsOption.checked = readMovePanelEmoryAssetsPreference();
+        }
         try {
             await ensureBridgeLoaded();
         } catch (e) {
