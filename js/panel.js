@@ -75,6 +75,7 @@
     let hideEmoryCenterlinesBtn = document.getElementById('hide-emory-centerlines-btn');
     let showEmoryCenterlinesBtn = document.getElementById('show-emory-centerlines-btn');
     let toggleConnectorStyleBtn = document.getElementById('toggle-connector-style-btn');
+    let toggleTerminalSegmentStyleBtn = document.getElementById('toggle-terminal-segment-style-btn');
     let setEmoryStartBtn = document.getElementById('set-emory-start-btn');
     let clearEmoryStartBtn = document.getElementById('clear-emory-start-btn');
     let emoryWidthSlider = document.getElementById('emory-width-slider');
@@ -96,6 +97,12 @@
     let revertStatus = document.getElementById('revert-status');
     let clearRotationMetadataBtn = document.getElementById('clear-rotation-metadata-btn');
     let clearRotationMetadataStatus = document.getElementById('clear-rotation-metadata-status');
+    let emoryRotationInput = document.getElementById('emory-rotation-input');
+    let emoryGetAngleBtn = document.getElementById('emory-get-angle-btn');
+    let emoryClearRotationBtn = document.getElementById('emory-clear-rotation-btn');
+    let emoryClearRotationMetadataBtn = document.getElementById('emory-clear-rotation-metadata-btn');
+    let emoryClearRotationMetadataStatus = document.getElementById('emory-clear-rotation-metadata-status');
+    let toggleSelectedNoOrthoBtn = document.getElementById('toggle-selected-no-ortho-btn');
     // const applyIgnoreBtn = document.getElementById('apply-ignore-btn'); // Removed - button no longer exists
     // const ignoreStatus = document.getElementById('ignore-status'); // Removed - status no longer exists
     let reloadBtn = document.getElementById('reload-btn');
@@ -125,6 +132,7 @@
         hideEmoryCenterlinesBtn = document.getElementById('hide-emory-centerlines-btn');
         showEmoryCenterlinesBtn = document.getElementById('show-emory-centerlines-btn');
         toggleConnectorStyleBtn = document.getElementById('toggle-connector-style-btn');
+        toggleTerminalSegmentStyleBtn = document.getElementById('toggle-terminal-segment-style-btn');
         setEmoryStartBtn = document.getElementById('set-emory-start-btn');
         clearEmoryStartBtn = document.getElementById('clear-emory-start-btn');
         emoryWidthSlider = document.getElementById('emory-width-slider');
@@ -146,6 +154,12 @@
         revertStatus = document.getElementById('revert-status');
         clearRotationMetadataBtn = document.getElementById('clear-rotation-metadata-btn');
         clearRotationMetadataStatus = document.getElementById('clear-rotation-metadata-status');
+        emoryRotationInput = document.getElementById('emory-rotation-input');
+        emoryGetAngleBtn = document.getElementById('emory-get-angle-btn');
+        emoryClearRotationBtn = document.getElementById('emory-clear-rotation-btn');
+        emoryClearRotationMetadataBtn = document.getElementById('emory-clear-rotation-metadata-btn');
+        emoryClearRotationMetadataStatus = document.getElementById('emory-clear-rotation-metadata-status');
+        toggleSelectedNoOrthoBtn = document.getElementById('toggle-selected-no-ortho-btn');
         reloadBtn = document.getElementById('reload-btn');
         debugStatus = document.getElementById('debug-status');
         debugLoggingOption = document.getElementById('debug-logging-option');
@@ -328,7 +342,7 @@
     const AUTO_SELECTION_REFRESH_MODE = 'all';
     const AUTO_SELECTION_EVENTS_ENABLED = true;
     const AUTO_SELECTION_POLL_ENABLED = false;
-    let cepRuntimeSuspended = false;
+    let cepRuntimeActive = false;
     let pollInterval = null;
     let suspendMonitor = null;
     let selectionMonitor = null;
@@ -383,7 +397,7 @@
 
     function startCepRuntime() {
         if (!AUTO_SELECTION_REFRESH_ENABLED && !AUTO_SELECTION_POLL_ENABLED) return;
-        if (cepRuntimeSuspended || isCepSuspended()) return;
+        if (cepRuntimeActive || isCepSuspended()) return;
         if (AUTO_SELECTION_EVENTS_ENABLED) {
             csInterface.addEventListener('afterSelectionChanged', onAfterSelectionChanged);
             csInterface.addEventListener('documentAfterActivate', onDocumentAfterActivate);
@@ -420,11 +434,11 @@
                 });
             }, 1000);
         }
-        cepRuntimeSuspended = false;
+        cepRuntimeActive = true;
     }
 
     function stopCepRuntime() {
-        if (cepRuntimeSuspended) return;
+        if (!cepRuntimeActive) return;
         if (AUTO_SELECTION_EVENTS_ENABLED) {
             csInterface.removeEventListener('afterSelectionChanged', onAfterSelectionChanged);
             csInterface.removeEventListener('documentAfterActivate', onDocumentAfterActivate);
@@ -434,7 +448,7 @@
             clearInterval(pollInterval);
             pollInterval = null;
         }
-        cepRuntimeSuspended = true;
+        cepRuntimeActive = false;
     }
 
     function ensureSuspendMonitor() {
@@ -469,7 +483,7 @@
                 return;
             }
             skipSelectionRefresh = false;
-            if (cepRuntimeSuspended) {
+            if (!cepRuntimeActive) {
                 startCepRuntime();
             }
         }, 750);
@@ -622,9 +636,12 @@
     }
 
     function setClearRotationMetadataStatus(message, isError) {
-        if (!clearRotationMetadataStatus) return;
-        clearRotationMetadataStatus.textContent = message || '';
-        clearRotationMetadataStatus.classList.toggle('error', !!isError);
+        const targets = [clearRotationMetadataStatus, emoryClearRotationMetadataStatus];
+        for (let i = 0; i < targets.length; i++) {
+            if (!targets[i]) continue;
+            targets[i].textContent = message || '';
+            targets[i].classList.toggle('error', !!isError);
+        }
     }
 
     function setSelectionStatus(message, isError) {
@@ -701,6 +718,65 @@
 
     function isEmoryModeActive() {
         return currentProcessMode === PROCESS_MODE_EMORY;
+    }
+
+    function getRotationInputs() {
+        const inputs = [];
+        if (rotationInput) inputs.push(rotationInput);
+        if (emoryRotationInput) inputs.push(emoryRotationInput);
+        return inputs;
+    }
+
+    function getActiveRotationInput() {
+        if (isEmoryModeActive() && emoryRotationInput) {
+            return emoryRotationInput;
+        }
+        return rotationInput || emoryRotationInput;
+    }
+
+    function syncRotationInputsFrom(sourceInput) {
+        if (!sourceInput) return;
+        const inputs = getRotationInputs();
+        for (let i = 0; i < inputs.length; i++) {
+            if (!inputs[i] || inputs[i] === sourceInput) continue;
+            inputs[i].value = sourceInput.value;
+            inputs[i].dataset.autoValue = sourceInput.dataset.autoValue || '';
+            inputs[i].dataset.multi = sourceInput.dataset.multi || 'false';
+            inputs[i].placeholder = sourceInput.placeholder || 'Leave blank to skip';
+        }
+    }
+
+    function setRotationInputsState(value, autoValue, multi, placeholder) {
+        const inputs = getRotationInputs();
+        for (let i = 0; i < inputs.length; i++) {
+            if (!inputs[i]) continue;
+            inputs[i].value = value;
+            inputs[i].dataset.autoValue = autoValue;
+            inputs[i].dataset.multi = multi;
+            inputs[i].placeholder = placeholder;
+        }
+    }
+
+    function readActiveRotationOverride() {
+        const activeInput = getActiveRotationInput();
+        if (!activeInput) {
+            return { ok: true, value: null };
+        }
+
+        const rotationText = activeInput.value.trim();
+        const autoValue = (activeInput.dataset.autoValue || '').trim();
+        if (!rotationText) {
+            return { ok: true, value: null };
+        }
+
+        if (!/^-?\d+(\.\d+)?$/.test(rotationText)) {
+            if (rotationText !== autoValue) {
+                return { ok: false, message: 'Rotation override must be a valid number.' };
+            }
+            return { ok: true, value: null };
+        }
+
+        return { ok: true, value: parseFloat(rotationText) };
     }
 
     function applyProcessMode(mode, savePreference) {
@@ -915,6 +991,10 @@
                 setEmorySelectionStatus('');
                 setEmoryWidthStatus((state && state.message) ? state.message : 'Unable to read Emory selection.', true);
                 setEmoryStrokeStatus('', false);
+                if (toggleTerminalSegmentStyleBtn) {
+                    toggleTerminalSegmentStyleBtn.disabled = true;
+                    toggleTerminalSegmentStyleBtn.textContent = 'Toggle Selected Final Segment Curve';
+                }
                 if (hideEmoryCenterlinesBtn) hideEmoryCenterlinesBtn.disabled = true;
                 if (showEmoryCenterlinesBtn) showEmoryCenterlinesBtn.disabled = true;
                 return;
@@ -931,6 +1011,18 @@
                     setEmorySelectionStatus('');
                 }
                 setEmoryWidthStatus('');
+                if (toggleTerminalSegmentStyleBtn) {
+                    const canToggleTerminalStyle = !!state.canToggleTerminalStyle;
+                    toggleTerminalSegmentStyleBtn.disabled = false;
+                    if (canToggleTerminalStyle) {
+                        const currentTerminalStyle = String(state.terminalStyle || 'straight').toLowerCase();
+                        toggleTerminalSegmentStyleBtn.textContent = currentTerminalStyle === 'curved'
+                            ? 'Set Selected Final Segment Straight'
+                            : 'Set Selected Final Segment Curved';
+                    } else {
+                        toggleTerminalSegmentStyleBtn.textContent = 'Toggle Selected Final Segment Curve';
+                    }
+                }
                 if (canApplyStroke) {
                     const referenceStrokeWidth = Number(state.referenceStrokeWidth || state.selectedStrokeWidth || 0);
                     if (referenceStrokeWidth > 0) {
@@ -983,10 +1075,22 @@
 
             const canApplyWidth = !!state.canApplyWidth;
             if (setEmoryStartBtn) {
-                setEmoryStartBtn.disabled = selectedCount !== 1;
+                setEmoryStartBtn.disabled = !state.canSetStart;
             }
             if (clearEmoryStartBtn) {
                 clearEmoryStartBtn.disabled = !state.canClearStart;
+            }
+            if (toggleTerminalSegmentStyleBtn) {
+                const canToggleTerminalStyle = !!state.canToggleTerminalStyle;
+                toggleTerminalSegmentStyleBtn.disabled = false;
+                if (canToggleTerminalStyle) {
+                    const currentTerminalStyle = String(state.terminalStyle || 'straight').toLowerCase();
+                    toggleTerminalSegmentStyleBtn.textContent = currentTerminalStyle === 'curved'
+                        ? 'Set Selected Final Segment Straight'
+                        : 'Set Selected Final Segment Curved';
+                } else {
+                    toggleTerminalSegmentStyleBtn.textContent = 'Toggle Selected Final Segment Curve';
+                }
             }
             if (emoryWidthSlider) emoryWidthSlider.disabled = !canApplyWidth;
             if (emoryWidthInput) emoryWidthInput.disabled = !canApplyWidth;
@@ -1315,11 +1419,12 @@
     }
 
     async function refreshRotationOverrideState() {
-        if (!rotationInput) return;
+        const activeInput = getActiveRotationInput();
+        if (!activeInput) return;
         if (isCepSuspended()) return;
 
         // NEVER update if user is typing in the input
-        var isFocused = document.activeElement === rotationInput;
+        var isFocused = document.activeElement === rotationInput || document.activeElement === emoryRotationInput;
         if (isFocused) return;
 
         try {
@@ -1341,18 +1446,12 @@
         var nextPlaceholder = 'Leave blank to skip';
 
         if (summary.reason === 'no-document') {
-            rotationInput.value = '';
-            rotationInput.dataset.autoValue = '';
-            rotationInput.dataset.multi = 'false';
-            rotationInput.placeholder = 'No document';
+            setRotationInputsState('', '', 'false', 'No document');
             return;
         }
 
         if (summary.reason === 'no-selection') {
-            rotationInput.value = '';
-            rotationInput.dataset.autoValue = '';
-            rotationInput.dataset.multi = 'false';
-            rotationInput.placeholder = nextPlaceholder;
+            setRotationInputsState('', '', 'false', nextPlaceholder);
             return;
         }
 
@@ -1367,17 +1466,13 @@
             var normalized = normalizeAngle(numVal);
             formatted = normalized.toString();
         }
-        rotationInput.value = formatted;
-        rotationInput.dataset.autoValue = formatted;
-
+        var multi = 'false';
         if (summary.count > 1) {
-            rotationInput.dataset.multi = 'true';
+            multi = 'true';
             nextPlaceholder = 'Mixed rotations';
-        } else {
-            rotationInput.dataset.multi = 'false';
         }
 
-        rotationInput.placeholder = nextPlaceholder;
+        setRotationInputsState(formatted, formatted, multi, nextPlaceholder);
     }
 
     async function refreshDebugLoggingState() {
@@ -1637,43 +1732,64 @@
     async function handleProcessEmoryClick() {
         if (!processEmoryBtn) return;
         processEmoryBtn.disabled = true;
+        panelFileLog('[PANEL] ProcessEmory click');
+        htmlLog('[PANEL] ProcessEmory click');
         setProcessStatus('Running Emory ductwork processing...');
 
         try {
             await ensureBridgeLoaded();
-        } catch (e) {
-            setProcessStatus('Bridge load failed: ' + (e && e.message ? e.message : e), true);
-            processEmoryBtn.disabled = false;
-            return;
-        }
-
-        const skipOrtho = processSkipOrthoOption ? !!processSkipOrthoOption.checked : (skipOrthoOption ? !!skipOrthoOption.checked : false);
-        const skipAllBranchSegments = processSkipAllBranchesOption ? !!processSkipAllBranchesOption.checked : (skipAllBranchesOption ? !!skipAllBranchesOption.checked : false);
-        const skipFinalRegisterSegment = processSkipFinalOption ? !!processSkipFinalOption.checked : (skipFinalOption ? !!skipFinalOption.checked : false);
-        const skipFinalSegmentThickness = !!(processEmoryNoFinalThicknessOption && processEmoryNoFinalThicknessOption.checked);
-        const payload = buildProcessPlacedPayload({
-            skipOrtho,
-            skipAllBranchSegments,
-            skipFinalRegisterSegment,
-            skipFinalSegmentThickness
-        });
-        const escaped = escapeForExtendScript(payload);
-        const result = parseBridgeJsonResult(await evalScript('MDUX_cppProcessEmoryPlacedApi("' + escaped + '")'));
-        if (result && result.ok !== false) {
-            setProcessStatus(result.message || 'Emory ductwork completed.');
-            if (debugStatus) {
-                debugStatus.textContent = 'Emory process completed';
+            const rotationOverride = readActiveRotationOverride();
+            if (!rotationOverride.ok) {
+                setProcessStatus(rotationOverride.message, true);
+                return;
             }
-            refreshEmorySelectionState(true).catch(function () {});
-        } else {
-            const message = (result && (result.message || result.value)) ? (result.message || result.value) : 'Unable to process Emory ductwork.';
+
+            const skipOrtho = processSkipOrthoOption ? !!processSkipOrthoOption.checked : (skipOrthoOption ? !!skipOrthoOption.checked : false);
+            const skipAllBranchSegments = processSkipAllBranchesOption ? !!processSkipAllBranchesOption.checked : (skipAllBranchesOption ? !!skipAllBranchesOption.checked : false);
+            const skipFinalRegisterSegment = processSkipFinalOption ? !!processSkipFinalOption.checked : (skipFinalOption ? !!skipFinalOption.checked : false);
+            const skipFinalSegmentThickness = !!(processEmoryNoFinalThicknessOption && processEmoryNoFinalThicknessOption.checked);
+            const processRotateRegistersOption = document.getElementById('process-rotate-registers-option');
+            const processCarveRegistersOption = document.getElementById('process-carve-registers-option');
+            const processCarveOverlapsOption = document.getElementById('process-carve-overlaps-option');
+            let payload = buildProcessPlacedPayload({
+                skipOrtho,
+                skipAllBranchSegments,
+                skipFinalRegisterSegment,
+                skipFinalSegmentThickness,
+                skipRegisterRotation: !(processRotateRegistersOption && processRotateRegistersOption.checked),
+                enableRegisterCarve: !!(processCarveRegistersOption && processCarveRegistersOption.checked),
+                enableOverlapCarve: !!(processCarveOverlapsOption && processCarveOverlapsOption.checked)
+            });
+            if (rotationOverride.value !== null) {
+                payload += ';rotationOverride=' + rotationOverride.value;
+            }
+            const escaped = escapeForExtendScript(payload);
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppProcessEmoryPlacedApi("' + escaped + '")'));
+            if (result && result.ok !== false) {
+                setProcessStatus(result.message || 'Emory ductwork completed.');
+                if (debugStatus) {
+                    debugStatus.textContent = 'Emory process completed';
+                }
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                const message = (result && (result.message || result.value)) ? (result.message || result.value) : 'Unable to process Emory ductwork.';
+                setProcessStatus('Error: ' + message, true);
+                if (debugStatus) {
+                    debugStatus.textContent = 'Emory process failed: ' + message;
+                }
+            }
+        } catch (e) {
+            const message = e && e.message ? e.message : String(e);
+            panelFileLog('[PANEL] ProcessEmory exception: ' + message);
+            htmlLog('[PANEL] ProcessEmory exception: ' + message);
             setProcessStatus('Error: ' + message, true);
             if (debugStatus) {
-                debugStatus.textContent = 'Emory process failed: ' + message;
+                debugStatus.textContent = 'Emory process exception: ' + message;
             }
+        } finally {
+            processEmoryBtn.disabled = false;
+            scheduleSkipOrthoRefresh();
         }
-        processEmoryBtn.disabled = false;
-        scheduleSkipOrthoRefresh();
     }
 
     async function handleToggleConnectorStyleClick() {
@@ -1694,6 +1810,30 @@
         } finally {
             toggleConnectorStyleBtn.disabled = false;
             scheduleSkipOrthoRefresh();
+        }
+    }
+
+    async function handleToggleTerminalSegmentStyleClick() {
+        if (!toggleTerminalSegmentStyleBtn) return;
+        htmlLog('[PANEL] ToggleTerminalSegmentStyle click');
+        toggleTerminalSegmentStyleBtn.disabled = true;
+        setProcessStatus('Updating selected final segment style...');
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppToggleSelectedEmoryTerminalSegmentStyle()'));
+            htmlLog('[PANEL] ToggleTerminalSegmentStyle result ok=' + (result && result.ok !== false ? 'true' : 'false') + ' message=' + (result && result.message ? result.message : ''));
+            if (result && result.ok !== false) {
+                setProcessStatus(result.message || 'Updated selected final segment style.');
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to update final segment style.'), true);
+            }
+        } catch (e) {
+            htmlLog('[PANEL] ToggleTerminalSegmentStyle exception=' + (e && e.message ? e.message : e));
+            setProcessStatus('Error: ' + e.message, true);
+        } finally {
+            scheduleSkipOrthoRefresh();
+            toggleTerminalSegmentStyleBtn.disabled = false;
         }
     }
 
@@ -2143,9 +2283,7 @@
 
         if (finalAngle != null) {
             const normalized = normalizeAngle(finalAngle);
-            rotationInput.value = normalized.toString();
-            rotationInput.dataset.autoValue = '';
-            rotationInput.dataset.multi = 'false';
+            setRotationInputsState(normalized.toString(), '', 'false', 'Leave blank to skip');
             try {
                 await evalScript(`MDUX_cppSetRotationOverride(${normalized})`);
             } catch (e) {
@@ -2667,6 +2805,7 @@
         if (hideEmoryCenterlinesBtn) hideEmoryCenterlinesBtn.addEventListener('click', handleHideEmoryCenterlinesClick);
         if (showEmoryCenterlinesBtn) showEmoryCenterlinesBtn.addEventListener('click', handleShowEmoryCenterlinesClick);
         if (toggleConnectorStyleBtn) toggleConnectorStyleBtn.addEventListener('click', handleToggleConnectorStyleClick);
+        if (toggleTerminalSegmentStyleBtn) toggleTerminalSegmentStyleBtn.addEventListener('click', handleToggleTerminalSegmentStyleClick);
         if (setEmoryStartBtn) setEmoryStartBtn.addEventListener('click', handleSetEmoryStartClick);
         if (clearEmoryStartBtn) clearEmoryStartBtn.addEventListener('click', handleClearEmoryStartClick);
         if (emoryTaperAlignABtn) emoryTaperAlignABtn.addEventListener('click', handleSetEmoryTaperAlignmentClick);
@@ -2801,31 +2940,39 @@
         if (revertBtn) revertBtn.addEventListener('click', handleRevertPreOrtho);
         if (clearRotationMetadataBtn) clearRotationMetadataBtn.addEventListener('click', handleClearRotationMetadata);
         if (getAngleBtn) getAngleBtn.addEventListener('click', handleGetAngle);
-        if (clearRotationBtn && rotationInput) {
-            clearRotationBtn.addEventListener('click', () => {
-                rotationInput.value = '';
-                rotationInput.dataset.autoValue = '';
-                rotationInput.dataset.multi = 'false';
-                rotationInput.placeholder = 'Leave blank to skip';
-                setProcessStatus('');
-            });
-        }
-        if (rotationInput) {
-            rotationInput.addEventListener('input', () => {
-                rotationInput.dataset.autoValue = '';
-                rotationInput.dataset.multi = 'false';
-                const val = parseFloat(rotationInput.value);
+        if (emoryClearRotationMetadataBtn) emoryClearRotationMetadataBtn.addEventListener('click', handleClearRotationMetadata);
+        if (emoryGetAngleBtn) emoryGetAngleBtn.addEventListener('click', handleGetAngle);
+        const resetRotationInputUi = function(inputEl) {
+            if (!inputEl) return;
+            inputEl.value = '';
+            inputEl.dataset.autoValue = '';
+            inputEl.dataset.multi = 'false';
+            inputEl.placeholder = 'Leave blank to skip';
+            syncRotationInputsFrom(inputEl);
+            setProcessStatus('');
+        };
+        const bindRotationInput = function(inputEl, clearBtnEl) {
+            if (clearBtnEl && inputEl) {
+                clearBtnEl.addEventListener('click', () => {
+                    resetRotationInputUi(inputEl);
+                });
+            }
+            if (!inputEl) return;
+            inputEl.addEventListener('input', () => {
+                inputEl.dataset.autoValue = '';
+                inputEl.dataset.multi = 'false';
+                syncRotationInputsFrom(inputEl);
+                const val = parseFloat(inputEl.value);
                 if (!isNaN(val)) {
                     evalScript(`MDUX_cppSetRotationOverride(${val})`);
-                } else if (!rotationInput.value.trim()) {
+                } else if (!inputEl.value.trim()) {
                     evalScript('MDUX_cppClearRotationOverride()');
                 }
             });
-            // Handle Enter key to apply rotation
-            rotationInput.addEventListener('keydown', (e) => {
+            inputEl.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
-                    const val = parseFloat(rotationInput.value);
+                    const val = parseFloat(inputEl.value);
                     if (!isNaN(val)) {
                         console.log('[ROTATION] Enter pressed, applying rotation: ' + val);
                         rotateSelection(val);
@@ -2833,18 +2980,37 @@
                     }
                 }
             });
-            // Normalize angle on blur (when user leaves the field)
-            rotationInput.addEventListener('blur', () => {
-                const val = parseFloat(rotationInput.value);
+            inputEl.addEventListener('blur', () => {
+                const val = parseFloat(inputEl.value);
                 if (!isNaN(val)) {
                     const normalized = normalizeAngle(val);
                     if (normalized !== val) {
-                        rotationInput.value = normalized;
+                        inputEl.value = normalized;
                         console.log('[ROTATION] Normalized ' + val + '? to ' + normalized + '?');
                     }
+                    syncRotationInputsFrom(inputEl);
                     evalScript(`MDUX_cppSetRotationOverride(${normalized})`);
-                } else if (!rotationInput.value.trim()) {
+                } else if (!inputEl.value.trim()) {
+                    syncRotationInputsFrom(inputEl);
                     evalScript('MDUX_cppClearRotationOverride()');
+                }
+            });
+        };
+        bindRotationInput(rotationInput, clearRotationBtn);
+        bindRotationInput(emoryRotationInput, emoryClearRotationBtn);
+        if (toggleSelectedNoOrthoBtn) {
+            toggleSelectedNoOrthoBtn.addEventListener('click', async () => {
+                setOrthoStatus('Toggling selected lines no-ortho...');
+                try {
+                    await ensureBridgeLoaded();
+                    const result = normaliseResult(await evalScript('MDUX_toggleSelectedNoOrthoBridge()'));
+                    if (!result.ok) {
+                        setOrthoStatus('Error: ' + result.value, true);
+                    } else {
+                        setOrthoStatus(result.value || 'Updated selected lines.');
+                    }
+                } catch (e) {
+                    setOrthoStatus('Error: ' + e.message, true);
                 }
             });
         }

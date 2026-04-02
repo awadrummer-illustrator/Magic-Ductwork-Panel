@@ -79,40 +79,36 @@
                         <button type="button" id="panel-mode-normal-btn" class="mode-switch-btn active">Normal Mode</button>
                         <button type="button" id="panel-mode-emory-btn" class="mode-switch-btn">Emory Mode</button>
                     </div>
-                    <div class="process-options-row" id="process-ortho-options">
+                    <div class="process-options-grid" id="process-shared-options">
                         <label class="process-option">
                             <input type="checkbox" id="process-skip-ortho-option">
                             <span>No Ortho</span>
+                        </label>
+                        <label class="process-option">
+                            <input type="checkbox" id="process-rotate-registers-option">
+                            <span>Rotate Registers</span>
                         </label>
                         <label class="process-option">
                             <input type="checkbox" id="process-skip-all-branches-option">
                             <span>No Ortho Branches</span>
                         </label>
                         <label class="process-option">
-                            <input type="checkbox" id="process-skip-final-option">
-                            <span>No Ortho Final</span>
-                        </label>
-                    </div>
-                    <div id="process-normal-controls">
-                    <!-- Process Ductwork Button (100% width) -->
-                    <button id="process-btn" class="btn-primary-glow" style="display:none;">Process Ductwork Legacy</button>
-                    <button id="process-placed-btn" class="btn-primary-glow">Process Ductwork</button>
-
-                    <!-- Process options checkboxes (all OFF by default) -->
-                    <div class="process-options-row">
-                        <label class="process-option">
-                            <input type="checkbox" id="process-rotate-registers-option">
-                            <span>Rotate Registers</span>
-                        </label>
-                        <label class="process-option">
                             <input type="checkbox" id="process-carve-registers-option">
                             <span>Carve Registers</span>
+                        </label>
+                        <label class="process-option">
+                            <input type="checkbox" id="process-skip-final-option">
+                            <span>No Ortho Final</span>
                         </label>
                         <label class="process-option">
                             <input type="checkbox" id="process-carve-overlaps-option">
                             <span>Carve Overlaps</span>
                         </label>
                     </div>
+                    <div id="process-normal-controls">
+                    <!-- Process Ductwork Button (100% width) -->
+                    <button id="process-btn" class="btn-primary-glow" style="display:none;">Process Ductwork Legacy</button>
+                    <button id="process-placed-btn" class="btn-primary-glow">Process Ductwork</button>
 
                     <!-- Secondary buttons row -->
                     <div class="btn-row-thirds">
@@ -155,6 +151,7 @@
                             <button id="show-emory-centerlines-btn">Show Centerlines</button>
                         </div>
                         <button id="toggle-connector-style-btn" style="width: 100%; margin-top: 4px;">Toggle Selected Connector Style</button>
+                        <button id="toggle-terminal-segment-style-btn" style="width: 100%; margin-top: 4px;">Toggle Selected Final Segment Curve</button>
                         <button id="set-emory-start-btn" style="width: 100%; margin-top: 4px;">Mark Selected Segment As Start</button>
                         <button id="clear-emory-start-btn" style="width: 100%; margin-top: 4px;">Unmark Selected Segment As Start</button>
                         <div class="control-group" style="margin-top: 6px;">
@@ -178,6 +175,18 @@
                             <button id="emory-taper-align-b-btn">Center</button>
                             <button id="emory-taper-align-c-btn">Bottom</button>
                         </div>
+                        <div class="rotation-override" style="margin-top: 8px;">
+                            <label for="emory-rotation-input">Rotation override (Â°):</label>
+                            <div class="rotation-input-group">
+                                <input type="text" id="emory-rotation-input" class="rotation-input" placeholder="Auto" inputmode="decimal">
+                                <button type="button" id="emory-get-angle-btn">Get Angle</button>
+                                <button type="button" id="emory-clear-rotation-btn">Clear</button>
+                            </div>
+                        </div>
+                        <div class="btn-row" style="margin-top: 4px;">
+                            <button id="emory-clear-rotation-metadata-btn">Clear Rotation Metadata</button>
+                        </div>
+                        <p id="emory-clear-rotation-metadata-status" class="status"></p>
                         <p id="emory-scaffold-note" class="status" style="display:none;">Emory mode uses the native Emory ductwork engine for separate segment and connector geometry.</p>
                     </div>
 
@@ -232,6 +241,7 @@
                         <button id="ortho-final-btn">Ortho Final Segment</button>
                         <button id="ortho-all-btn" class="btn-accent">Ortho All</button>
                     </div>
+                    <button id="toggle-selected-no-ortho-btn" style="width: 100%; margin-top: 4px;">Toggle Selected Lines No Ortho</button>
 
                     <p id="ortho-status" class="status"></p>
                 </div>

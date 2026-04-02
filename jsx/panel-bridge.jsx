@@ -1509,6 +1509,94 @@ function MDUX_applyIgnoreBridge() {
     }
 }
 
+function MDUX_toggleSelectedNoOrthoBridge() {
+    function collectEligibleOpenPaths(item, outPaths) {
+        if (!item) return;
+        try {
+            if (item.typename === "PathItem") {
+                if (!item.closed && item.pathPoints && item.pathPoints.length >= 2) {
+                    outPaths.push(item);
+                }
+                return;
+            }
+            if (item.typename === "CompoundPathItem" && item.pathItems) {
+                for (var pi = 0; pi < item.pathItems.length; pi++) {
+                    collectEligibleOpenPaths(item.pathItems[pi], outPaths);
+                }
+                return;
+            }
+            if (item.typename === "GroupItem" && item.pageItems) {
+                for (var gi = 0; gi < item.pageItems.length; gi++) {
+                    collectEligibleOpenPaths(item.pageItems[gi], outPaths);
+                }
+            }
+        } catch (eInner) { }
+    }
+
+    function updateNoOrthoNote(note, enabled) {
+        note = note || "";
+        var parts = note ? note.split(";") : [];
+        var filtered = [];
+        for (var i = 0; i < parts.length; i++) {
+            var token = parts[i];
+            if (!token || token === "MD:NO_ORTHO") {
+                continue;
+            }
+            filtered.push(token);
+        }
+        if (enabled) {
+            filtered.push("MD:NO_ORTHO");
+        }
+        return filtered.join(";");
+    }
+
+    try {
+        if (!app.documents.length) {
+            return "ERROR:No document open";
+        }
+        var doc = app.activeDocument;
+        var selection = doc.selection;
+        if (!selection || selection.length === 0) {
+            return "ERROR:Select one or more open duct lines first.";
+        }
+
+        var paths = [];
+        for (var i = 0; i < selection.length; i++) {
+            collectEligibleOpenPaths(selection[i], paths);
+        }
+        if (!paths.length) {
+            return "ERROR:Select one or more open duct lines first.";
+        }
+
+        var allTagged = true;
+        for (var pi = 0; pi < paths.length; pi++) {
+            var currentNote = "";
+            try { currentNote = paths[pi].note || ""; } catch (eNote) { currentNote = ""; }
+            if (currentNote.indexOf("MD:NO_ORTHO") === -1) {
+                allTagged = false;
+                break;
+            }
+        }
+
+        var enableNoOrtho = !allTagged;
+        var updated = 0;
+        for (var pathIndex = 0; pathIndex < paths.length; pathIndex++) {
+            try {
+                paths[pathIndex].note = updateNoOrthoNote(paths[pathIndex].note || "", enableNoOrtho);
+                updated++;
+            } catch (eWrite) { }
+        }
+
+        if (!updated) {
+            return "ERROR:Unable to update the selected lines.";
+        }
+
+        return (enableNoOrtho ? "Applied" : "Cleared") + " No Ortho on " + updated + " line" + (updated === 1 ? "" : "s") + ".";
+    } catch (e) {
+        return "ERROR:" + e;
+    }
+}
+
 function MDUX_cleanupBridge() {
     try {
         MDUX_cleanup();
@@ -4265,6 +4353,19 @@ function MDUX_cppToggleSelectedEmoryConnector() {
         return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
     } catch (e) {
         return JSON.stringify({ ok: false, message: "C++ toggle connector error: " + e });
+    }
+}
+
+function MDUX_cppToggleSelectedEmoryTerminalSegmentStyle() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=toggle-terminal-segment-style";
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ toggle terminal segment style error: " + e });
     }
 }
 
