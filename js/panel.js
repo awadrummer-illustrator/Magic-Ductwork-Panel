@@ -72,6 +72,7 @@
     let processNormalControls = document.getElementById('process-normal-controls');
     let processEmoryControls = document.getElementById('process-emory-controls');
     let revertEmoryCenterlinesBtn = document.getElementById('revert-emory-centerlines-btn');
+    let purgeEmoryStateBtn = document.getElementById('purge-emory-state-btn');
     let hideEmoryCenterlinesBtn = document.getElementById('hide-emory-centerlines-btn');
     let showEmoryCenterlinesBtn = document.getElementById('show-emory-centerlines-btn');
     let toggleConnectorStyleBtn = document.getElementById('toggle-connector-style-btn');
@@ -129,6 +130,7 @@
         processNormalControls = document.getElementById('process-normal-controls');
         processEmoryControls = document.getElementById('process-emory-controls');
         revertEmoryCenterlinesBtn = document.getElementById('revert-emory-centerlines-btn');
+        purgeEmoryStateBtn = document.getElementById('purge-emory-state-btn');
         hideEmoryCenterlinesBtn = document.getElementById('hide-emory-centerlines-btn');
         showEmoryCenterlinesBtn = document.getElementById('show-emory-centerlines-btn');
         toggleConnectorStyleBtn = document.getElementById('toggle-connector-style-btn');
@@ -313,6 +315,7 @@
 
     let scaleDebounce = null;
     let bridgeReloaded = false;
+    let bridgeLoadPromise = null;
     let skipOrthoRefreshTimer = null;
     const bridgePath = (function () {
         var root = csInterface.getSystemPath(CSInterface.SystemPath.EXTENSION);
@@ -347,8 +350,12 @@
     let suspendMonitor = null;
     let selectionMonitor = null;
     let pollInProgress = false;
+    let selectionMonitorInFlight = false;
     let lastSelectionHash = '';
     let skipSelectionRefresh = false;
+    let selectionRefreshInFlight = false;
+    let selectionRefreshQueued = false;
+    let processingInProgress = false; // PERF: suppresses CEP event storms during C++ processing
     let emorySelectionState = null;
     let emoryWidthRefreshInFlight = false;
     let emoryWidthApplyTimer = null;
@@ -363,34 +370,41 @@
     let emoryStrokeRefreshPending = false;
 
     function onAfterSelectionChanged() {
-        if (isCepSuspended()) return;
+        console.log('[PERF] onAfterSelectionChanged fired, processingInProgress=' + processingInProgress + ' cepSuspended=' + isCepSuspended());
+        if (isCepSuspended() || processingInProgress) return;
         if (!AUTO_SELECTION_REFRESH_ENABLED) return;
         updateSkipSelectionRefresh().then(() => {
             if (skipSelectionRefresh) return;
+            console.log('[PERF] onAfterSelectionChanged -> scheduleSkipOrthoRefresh');
             scheduleSkipOrthoRefresh();
         }).catch(() => {});
     }
 
     function onDocumentAfterActivate() {
-        if (isCepSuspended()) return;
+        console.log('[PERF] onDocumentAfterActivate fired, processingInProgress=' + processingInProgress);
+        if (isCepSuspended() || processingInProgress) return;
         if (!AUTO_SELECTION_REFRESH_ENABLED) return;
         updateSkipSelectionRefresh().then(() => {
             if (!skipSelectionRefresh) {
+                console.log('[PERF] onDocumentAfterActivate -> scheduleSkipOrthoRefresh');
                 scheduleSkipOrthoRefresh();
             }
         }).catch(() => {});
         resetTransformControls(true);
         lastSelectionHash = '';
+        console.log('[PERF] onDocumentAfterActivate -> evalScript MDUX_onDocumentChange');
         evalScript('MDUX_onDocumentChange()').then(result => {
-            console.log('[JS] Document change cleanup:', result);
+            console.log('[PERF] MDUX_onDocumentChange returned: ' + result);
         }).catch(() => {});
     }
 
     function onDocumentChanged() {
-        if (isCepSuspended()) return;
+        console.log('[PERF] onDocumentChanged fired, processingInProgress=' + processingInProgress);
+        if (isCepSuspended() || processingInProgress) return;
         if (!AUTO_SELECTION_REFRESH_ENABLED) return;
         updateSkipSelectionRefresh().then(() => {
             if (skipSelectionRefresh) return;
+            console.log('[PERF] onDocumentChanged -> scheduleSkipOrthoRefresh');
             scheduleSkipOrthoRefresh();
         }).catch(() => {});
     }
@@ -424,10 +438,8 @@
                     if (!AUTO_SELECTION_REFRESH_ENABLED) {
                         return;
                     }
-                    return Promise.all([
-                        refreshSelectionTransformState().catch(function() {}),
-                        refreshRotationOverrideState().catch(function() {})
-                    ]);
+                    // PERF: Skip refreshSelectionTransformState — takes 48s+ on large docs
+                    return refreshRotationOverrideState().catch(function() {});
                 }).catch(function() {
                 }).finally(function() {
                     pollInProgress = false;
@@ -462,7 +474,28 @@
         }, 1000);
     }
 
+    // =========================================================================
+    // DIRECT C++ → CEP EVENT LISTENER (bypasses ExtendScript entirely)
+    // The C++ plugin dispatches 'com.emory.operation.complete' after operations.
+    // This replaces the old pattern of relying on CEP event storms + scheduleSkipOrthoRefresh.
+    // =========================================================================
+    csInterface.addEventListener('com.emory.operation.complete', function(event) {
+        console.log('[CSXS-DIRECT] Received com.emory.operation.complete from C++ plugin');
+        // Don't refresh if we're still in a processingInProgress cooldown
+        if (processingInProgress) {
+            console.log('[CSXS-DIRECT] processingInProgress still true, deferring to cooldown');
+            return;
+        }
+        // Single controlled refresh — no storm, no parallel evalScript floods
+        if (isEmoryModeActive()) {
+            withTimeout(refreshEmorySelectionState(true), 5000);
+        }
+    });
+
     async function selectionHasPlacedItems() {
+        // PERF: Skip the expensive placed-items scan in Emory mode — Emory ductwork
+        // never uses PlacedItems, so the answer is always false. This saves 6+ seconds.
+        if (isEmoryModeActive()) return false;
         try {
             const res = await evalScript('(function(){try{var s=app.selection;if(!s||s.length===0)return\"no\";function hasPlaced(item){if(!item)return false;if(item.typename===\"PlacedItem\")return true;if(item.typename===\"GroupItem\"&&item.pageItems){for(var i=0;i<item.pageItems.length;i++){if(hasPlaced(item.pageItems[i]))return true;}}return false;}if(s.length===undefined&&s.typename){return hasPlaced(s)?\"yes\":\"no\";}for(var i=0;i<s.length;i++){if(hasPlaced(s[i]))return\"yes\";}return\"no\";}catch(e){return\"no\";}})()');
             return res === 'yes';
@@ -475,18 +508,23 @@
         if (!AUTO_SELECTION_REFRESH_ENABLED) return;
         if (selectionMonitor) return;
         selectionMonitor = setInterval(async () => {
-            if (isCepSuspended()) return;
-            const hasPlaced = await selectionHasPlacedItems();
-            if (hasPlaced) {
-                skipSelectionRefresh = true;
-                stopCepRuntime();
-                return;
+            if (isCepSuspended() || selectionMonitorInFlight) return;
+            selectionMonitorInFlight = true;
+            try {
+                const hasPlaced = await selectionHasPlacedItems();
+                if (hasPlaced) {
+                    skipSelectionRefresh = true;
+                    stopCepRuntime();
+                    return;
+                }
+                skipSelectionRefresh = false;
+                if (!cepRuntimeActive) {
+                    startCepRuntime();
+                }
+            } finally {
+                selectionMonitorInFlight = false;
             }
-            skipSelectionRefresh = false;
-            if (!cepRuntimeActive) {
-                startCepRuntime();
-            }
-        }, 750);
+        }, 2000);
     }
 
     /**
@@ -508,9 +546,19 @@
         return Math.round(angle * 100) / 100;
     }
 
+    let _evalScriptCounter = 0;
     function evalScript(script) {
+        const id = ++_evalScriptCounter;
+        const shortScript = script.length > 80 ? script.substring(0, 80) + '...' : script;
+        console.log('[PERF] evalScript #' + id + ' START: ' + shortScript);
+        const startTime = Date.now();
         return new Promise((resolve, reject) => {
             csInterface.evalScript(script, (result) => {
+                const elapsed = Date.now() - startTime;
+                console.log('[PERF] evalScript #' + id + ' DONE in ' + elapsed + 'ms');
+                if (elapsed > 500) {
+                    htmlLog('[PERF-SLOW] evalScript #' + id + ' took ' + elapsed + 'ms: ' + shortScript);
+                }
                 if (typeof result === 'undefined' || result === null) {
                     resolve('');
                 } else {
@@ -1174,9 +1222,16 @@
             return;
         }
         if (emoryWidthApplyInFlight) {
+            htmlLog('[WIDTH] applySelectedEmorySegmentWidth BLOCKED — applyInFlight=true, width=' + width);
             return;
         }
 
+        htmlLog('[WIDTH] applySelectedEmorySegmentWidth START width=' + width + ' refreshInFlight=' + emoryWidthRefreshInFlight + ' selectionRefreshInFlight=' + selectionRefreshInFlight);
+        // PERF: Cancel any pending refresh timer — width apply takes priority
+        if (skipOrthoRefreshTimer) {
+            clearTimeout(skipOrthoRefreshTimer);
+            skipOrthoRefreshTimer = null;
+        }
         emoryWidthApplyInFlight = true;
         try {
             await ensureBridgeLoaded();
@@ -1262,7 +1317,7 @@
             fn();
             return;
         }
-        emoryWidthApplyTimer = setTimeout(fn, 90);
+        emoryWidthApplyTimer = setTimeout(fn, 200);
     }
 
     function queueEmoryStrokeApply(width, immediate) {
@@ -1311,37 +1366,47 @@
     }
 
     async function ensureBridgeLoaded() {
-        htmlLog('[BRIDGE] ensureBridgeLoaded enter');
         // DEV MODE: always reload JSX if enabled
         const devMode = devModeOption && devModeOption.checked;
         if (devMode) {
-            htmlLog('[BRIDGE] devMode reload');
-            await forceReloadScripts();
+            if (!bridgeLoadPromise) {
+                htmlLog('[BRIDGE] devMode reload');
+                bridgeLoadPromise = forceReloadScripts().finally(function () {
+                    bridgeLoadPromise = null;
+                });
+            }
+            await bridgeLoadPromise;
             return;
         }
         // Normal mode: only load once per session
         if (bridgeReloaded) {
-            htmlLog('[BRIDGE] already loaded');
             return;
         }
-        const escapedPath = escapeForExtendScript(bridgePath);
-        const loadScript = '(function(){' +
-            'delete $.global.MDUX_JSX_FOLDER;' +  // Force clear stale cached folder path
-            'delete $.global.MDUX;' +  // Force clear stale MDUX namespace to ensure fresh initialization
-            '$.global.MDUX_LAST_BRIDGE_PATH = "' + escapedPath + '";' +
-            'try { $.evalFile("' + escapedPath + '"); return "OK"; } ' +
-            'catch (e) { $.global.MDUX_LAST_BRIDGE_ERROR = e.toString(); return "ERROR:" + e; }' +
-            '})()';
-        const loadResult = await evalScript(loadScript);
-        if (typeof loadResult === 'string' && loadResult.indexOf('ERROR:') === 0) {
-            const msg = loadResult.substring(6);
-            debugStatus.textContent = 'Bridge load failed: ' + msg;
-            htmlLog('[BRIDGE] load failed: ' + msg);
-            throw new Error(msg);
+        if (!bridgeLoadPromise) {
+            bridgeLoadPromise = (async function () {
+                const escapedPath = escapeForExtendScript(bridgePath);
+                const loadScript = '(function(){' +
+                    'delete $.global.MDUX_JSX_FOLDER;' +  // Force clear stale cached folder path
+                    'delete $.global.MDUX;' +  // Force clear stale MDUX namespace to ensure fresh initialization
+                    '$.global.MDUX_LAST_BRIDGE_PATH = "' + escapedPath + '";' +
+                    'try { $.evalFile("' + escapedPath + '"); return "OK"; } ' +
+                    'catch (e) { $.global.MDUX_LAST_BRIDGE_ERROR = e.toString(); return "ERROR:" + e; }' +
+                    '})()';
+                const loadResult = await evalScript(loadScript);
+                if (typeof loadResult === 'string' && loadResult.indexOf('ERROR:') === 0) {
+                    const msg = loadResult.substring(6);
+                    debugStatus.textContent = 'Bridge load failed: ' + msg;
+                    htmlLog('[BRIDGE] load failed: ' + msg);
+                    throw new Error(msg);
+                }
+                bridgeReloaded = true;
+                debugStatus.textContent = 'Bridge ready: ' + bridgePath.replace(/\\/g, '/');
+                htmlLog('[BRIDGE] load OK');
+            })().finally(function () {
+                bridgeLoadPromise = null;
+            });
         }
-        bridgeReloaded = true;
-        debugStatus.textContent = 'Bridge ready: ' + bridgePath.replace(/\\/g, '/');
-        htmlLog('[BRIDGE] load OK');
+        await bridgeLoadPromise;
     }
 
     async function forceReloadScripts() {
@@ -1380,42 +1445,94 @@
         return result;
     }
 
-    function scheduleSkipOrthoRefresh() {
-        console.log('[JS] scheduleSkipOrthoRefresh called');
-        // PERF: Removed debug logging to prevent blocking ExtendScript calls
-        if (!AUTO_SELECTION_REFRESH_ENABLED) return;
-        if (isCepSuspended()) return;
-        if (skipOrthoRefreshTimer) clearTimeout(skipOrthoRefreshTimer);
-        skipOrthoRefreshTimer = setTimeout(async () => {
-            console.log('[JS] scheduleSkipOrthoRefresh timeout fired, calling refresh functions');
-            // PERF: Removed debug logging to prevent blocking ExtendScript calls
-            if (skipSelectionRefresh) return;
-            if (AUTO_SELECTION_REFRESH_MODE === 'skip-ortho') {
-                refreshSkipOrthoState().catch(() => { });
-                return;
-            }
-            if (AUTO_SELECTION_REFRESH_MODE === 'skip-ortho+rotation') {
-                refreshSkipOrthoState().catch(() => { });
-                refreshRotationOverrideState().catch(() => { });
-                return;
-            }
-            refreshSkipOrthoState().catch(() => { });
-            refreshRotationOverrideState().catch(() => { });
-            refreshSelectionTransformState().catch(() => { });
-            if (isEmoryModeActive()) {
-                refreshEmorySelectionState(false).catch(() => { });
-            }
-        }, 150);
+    // PERF: Wrap evalScript-based calls with a timeout so a hung call can't freeze the panel
+    function withTimeout(promise, ms) {
+        return Promise.race([
+            promise,
+            new Promise(function(_, reject) { setTimeout(function() { reject(new Error('refresh timeout')); }, ms); })
+        ]).catch(function() {});
     }
 
+    function scheduleSkipOrthoRefresh() {
+        console.log('[PERF] scheduleSkipOrthoRefresh called, processingInProgress=' + processingInProgress + ' cepSuspended=' + isCepSuspended() + ' selectionRefreshInFlight=' + selectionRefreshInFlight);
+        if (!AUTO_SELECTION_REFRESH_ENABLED) return;
+        if (isCepSuspended() || processingInProgress) return;
+        if (skipOrthoRefreshTimer) clearTimeout(skipOrthoRefreshTimer);
+        skipOrthoRefreshTimer = setTimeout(async () => {
+            console.log('[PERF] scheduleSkipOrthoRefresh TIMER FIRED, processingInProgress=' + processingInProgress + ' skipSelectionRefresh=' + skipSelectionRefresh + ' selectionRefreshInFlight=' + selectionRefreshInFlight);
+            if (skipSelectionRefresh || processingInProgress) return;
+            if (selectionRefreshInFlight) {
+                selectionRefreshQueued = true;
+                console.log('[PERF] scheduleSkipOrthoRefresh QUEUED (already in flight)');
+                return;
+            }
+            selectionRefreshInFlight = true;
+            selectionRefreshQueued = false;
+            try {
+                // PERF: In Emory mode, skip ALL ExtendScript refresh calls — only refresh
+                // via the fast C++ Emory selection state query
+                if (isEmoryModeActive()) {
+                    htmlLog('[PERF] refresh: Emory-fast path START @ ' + new Date().toISOString());
+                    await withTimeout(refreshEmorySelectionState(false), 5000);
+                    htmlLog('[PERF] refresh: Emory-fast path DONE @ ' + new Date().toISOString());
+                    return;
+                }
+                if (AUTO_SELECTION_REFRESH_MODE === 'skip-ortho') {
+                    console.log('[PERF] refresh: skip-ortho mode');
+                    await withTimeout(refreshSkipOrthoState(), 5000);
+                    return;
+                }
+                if (AUTO_SELECTION_REFRESH_MODE === 'skip-ortho+rotation') {
+                    console.log('[PERF] refresh: skip-ortho+rotation mode');
+                    await Promise.all([
+                        withTimeout(refreshSkipOrthoState(), 5000),
+                        withTimeout(refreshRotationOverrideState(), 5000)
+                    ]);
+                    return;
+                }
+                if (false) { // dead code — Emory handled above
+                    // PERF: In Emory mode, ONLY refresh Emory selection state (fast C++ call).
+                    // Skip refreshSkipOrthoState and refreshRotationOverrideState — they're
+                    // ExtendScript functions that take 10+ seconds each on large documents.
+                    console.log('[PERF] refresh: Emory-only mode');
+                    await withTimeout(refreshEmorySelectionState(false), 5000);
+                } else {
+                    console.log('[PERF] refresh: Normal mode');
+                    await Promise.all([
+                        withTimeout(refreshSkipOrthoState(), 5000),
+                        withTimeout(refreshRotationOverrideState(), 5000),
+                        withTimeout(refreshSelectionTransformState(), 5000)
+                    ]);
+                }
+                console.log('[PERF] refresh: completed');
+            } finally {
+                selectionRefreshInFlight = false;
+                if (selectionRefreshQueued && !isCepSuspended() && !skipSelectionRefresh && !processingInProgress) {
+                    selectionRefreshQueued = false;
+                    scheduleSkipOrthoRefresh();
+                }
+            }
+        }, 400);
+    }
+
+    let _skipRefreshInFlight = null;
     async function updateSkipSelectionRefresh() {
+        // PERF: Coalesce concurrent calls — reuse in-flight promise instead of spawning duplicate evalScript
+        if (_skipRefreshInFlight) return _skipRefreshInFlight;
+        _skipRefreshInFlight = (async () => {
+            try {
+                const hasPlaced = await selectionHasPlacedItems();
+                skipSelectionRefresh = hasPlaced;
+            } catch (e) {
+                skipSelectionRefresh = false;
+            }
+            return skipSelectionRefresh;
+        })();
         try {
-            const res = await evalScript('(function(){try{var s=app.selection;if(!s||s.length===0)return\"no\";function hasPlaced(item){if(!item)return false;if(item.typename===\"PlacedItem\")return true;if(item.typename===\"GroupItem\"&&item.pageItems){for(var i=0;i<item.pageItems.length;i++){if(hasPlaced(item.pageItems[i]))return true;}}return false;}if(s.length===undefined&&s.typename){return hasPlaced(s)?\"yes\":\"no\";}for(var i=0;i<s.length;i++){if(hasPlaced(s[i]))return\"yes\";}return\"no\";}catch(e){return\"no\";}})()');
-            skipSelectionRefresh = res === 'yes';
-        } catch (e) {
-            skipSelectionRefresh = false;
+            return await _skipRefreshInFlight;
+        } finally {
+            _skipRefreshInFlight = null;
         }
-        return skipSelectionRefresh;
     }
 
     async function refreshRotationOverrideState() {
@@ -1668,6 +1785,7 @@
 
     async function handleProcessPlacedApiClick() {
         if (!processPlacedBtn) return;
+        processingInProgress = true;
         processPlacedBtn.disabled = true;
         if (debugStatus) {
             debugStatus.textContent = 'Process Ductwork: starting';
@@ -1725,20 +1843,28 @@
             }
         } finally {
             processPlacedBtn.disabled = false;
-            scheduleSkipOrthoRefresh();
+            // PERF: Short cooldown to absorb delayed CEP events
+            setTimeout(function() {
+                processingInProgress = false;
+                scheduleSkipOrthoRefresh();
+            }, 200);
         }
     }
 
     async function handleProcessEmoryClick() {
         if (!processEmoryBtn) return;
+        processingInProgress = true;
         processEmoryBtn.disabled = true;
         panelFileLog('[PANEL] ProcessEmory click');
         htmlLog('[PANEL] ProcessEmory click');
         setProcessStatus('Running Emory ductwork processing...');
 
         try {
+            htmlLog('[LOCKUP-TRACE] ensureBridgeLoaded...');
             await ensureBridgeLoaded();
+            htmlLog('[LOCKUP-TRACE] ensureBridgeLoaded OK');
             const rotationOverride = readActiveRotationOverride();
+            htmlLog('[LOCKUP-TRACE] rotationOverride ok=' + rotationOverride.ok);
             if (!rotationOverride.ok) {
                 setProcessStatus(rotationOverride.message, true);
                 return;
@@ -1764,13 +1890,15 @@
                 payload += ';rotationOverride=' + rotationOverride.value;
             }
             const escaped = escapeForExtendScript(payload);
+            htmlLog('[LOCKUP-TRACE] >>> EMORY PROCESS START @ ' + new Date().toISOString());
+            const emoryStartTime = Date.now();
             const result = parseBridgeJsonResult(await evalScript('MDUX_cppProcessEmoryPlacedApi("' + escaped + '")'));
+            htmlLog('[LOCKUP-TRACE] <<< EMORY PROCESS RETURNED in ' + (Date.now() - emoryStartTime) + 'ms, ok=' + (result && result.ok !== false));
             if (result && result.ok !== false) {
                 setProcessStatus(result.message || 'Emory ductwork completed.');
                 if (debugStatus) {
                     debugStatus.textContent = 'Emory process completed';
                 }
-                refreshEmorySelectionState(true).catch(function () {});
             } else {
                 const message = (result && (result.message || result.value)) ? (result.message || result.value) : 'Unable to process Emory ductwork.';
                 setProcessStatus('Error: ' + message, true);
@@ -1787,13 +1915,19 @@
                 debugStatus.textContent = 'Emory process exception: ' + message;
             }
         } finally {
+            htmlLog('[LOCKUP-TRACE] FINALLY block @ ' + new Date().toISOString() + ', setting 800ms cooldown');
             processEmoryBtn.disabled = false;
-            scheduleSkipOrthoRefresh();
+            // PERF: Short cooldown to absorb delayed CEP events
+            setTimeout(function() {
+                processingInProgress = false;
+                scheduleSkipOrthoRefresh();
+            }, 200);
         }
     }
 
     async function handleToggleConnectorStyleClick() {
         if (!toggleConnectorStyleBtn) return;
+        processingInProgress = true;
         toggleConnectorStyleBtn.disabled = true;
         setProcessStatus('Toggling selected connector style...');
         try {
@@ -1801,7 +1935,6 @@
             const result = parseBridgeJsonResult(await evalScript('MDUX_cppToggleSelectedEmoryConnector()'));
             if (result && result.ok !== false) {
                 setProcessStatus(result.message || 'Connector style updated.');
-                refreshEmorySelectionState(true).catch(function () {});
             } else {
                 setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to update connector style.'), true);
             }
@@ -1809,12 +1942,16 @@
             setProcessStatus('Error: ' + e.message, true);
         } finally {
             toggleConnectorStyleBtn.disabled = false;
-            scheduleSkipOrthoRefresh();
+            setTimeout(function() {
+                processingInProgress = false;
+                scheduleSkipOrthoRefresh();
+            }, 200);
         }
     }
 
     async function handleToggleTerminalSegmentStyleClick() {
         if (!toggleTerminalSegmentStyleBtn) return;
+        processingInProgress = true;
         htmlLog('[PANEL] ToggleTerminalSegmentStyle click');
         toggleTerminalSegmentStyleBtn.disabled = true;
         setProcessStatus('Updating selected final segment style...');
@@ -1824,7 +1961,6 @@
             htmlLog('[PANEL] ToggleTerminalSegmentStyle result ok=' + (result && result.ok !== false ? 'true' : 'false') + ' message=' + (result && result.message ? result.message : ''));
             if (result && result.ok !== false) {
                 setProcessStatus(result.message || 'Updated selected final segment style.');
-                refreshEmorySelectionState(true).catch(function () {});
             } else {
                 setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to update final segment style.'), true);
             }
@@ -1832,13 +1968,17 @@
             htmlLog('[PANEL] ToggleTerminalSegmentStyle exception=' + (e && e.message ? e.message : e));
             setProcessStatus('Error: ' + e.message, true);
         } finally {
-            scheduleSkipOrthoRefresh();
             toggleTerminalSegmentStyleBtn.disabled = false;
+            setTimeout(function() {
+                processingInProgress = false;
+                scheduleSkipOrthoRefresh();
+            }, 200);
         }
     }
 
     async function handleRevertEmoryCenterlinesClick() {
         if (!revertEmoryCenterlinesBtn) return;
+        processingInProgress = true;
         revertEmoryCenterlinesBtn.disabled = true;
         setProcessStatus('Reverting selected Emory ductwork to centerlines...');
         try {
@@ -1846,15 +1986,42 @@
             const result = parseBridgeJsonResult(await evalScript('MDUX_cppRevertSelectedEmoryToCenterlines()'));
             if (result && result.ok !== false) {
                 setProcessStatus(result.message || 'Reverted selected Emory ductwork to centerlines.');
-                refreshEmorySelectionState(true).catch(function () {});
             } else {
                 setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to revert selected Emory ductwork.'), true);
             }
         } catch (e) {
             setProcessStatus('Error: ' + e.message, true);
         } finally {
-            scheduleSkipOrthoRefresh();
             revertEmoryCenterlinesBtn.disabled = false;
+            // PERF: Short cooldown to absorb delayed CEP events
+            setTimeout(function() {
+                processingInProgress = false;
+                scheduleSkipOrthoRefresh();
+            }, 200);
+        }
+    }
+
+    async function handlePurgeEmoryStateClick() {
+        if (!purgeEmoryStateBtn) return;
+        processingInProgress = true;
+        purgeEmoryStateBtn.disabled = true;
+        setProcessStatus('Purging Emory metadata and hidden backups from selection...');
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppPurgeSelectedEmoryState()'));
+            if (result && result.ok !== false) {
+                setProcessStatus(result.message || 'Purged Emory state from selected centerlines.');
+            } else {
+                setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to purge Emory state.'), true);
+            }
+        } catch (e) {
+            setProcessStatus('Error: ' + e.message, true);
+        } finally {
+            purgeEmoryStateBtn.disabled = false;
+            setTimeout(function() {
+                processingInProgress = false;
+                scheduleSkipOrthoRefresh();
+            }, 200);
         }
     }
 
@@ -2598,7 +2765,7 @@
                 // Reset internal state but NOT input values - let refresh update them from metadata
                 resetTransformControls(false);
                 // Refresh selection state to load the metadata we just saved
-                await refreshSelectionTransformState();
+                if (!isEmoryModeActive()) await refreshSelectionTransformState();
             } catch (e) {
                 setSelectionStatus("Error: " + e.message, true);
             }
@@ -2617,7 +2784,6 @@
     }
 
     async function refreshSelectionTransformState() {
-        console.log('[JS] refreshSelectionTransformState called, teDragActive=', teDragActive, 'teIsBusy=', teIsBusy);
         if (isCepSuspended()) return;
         if (teDragActive || teIsBusy) {
             // PERF: Removed debug logging to prevent blocking ExtendScript calls
@@ -2636,13 +2802,11 @@
 
         try {
             const raw = await evalScript('MDUX_getSelectionTransformState()');
-            console.log('[JS] refreshSelectionTransformState raw:', raw);
             if (!raw) {
                 // PERF: Removed debug logging to prevent blocking ExtendScript calls
                 return;
             }
             const res = JSON.parse(raw);
-            console.log('[JS] refreshSelectionTransformState parsed:', res);
 
             const statusEl = document.getElementById('selection-status');
             if (statusEl) statusEl.textContent = '';
@@ -2665,43 +2829,35 @@
                 // Update scale
                 if (!preserveScale) {
                     if (res.mixedScale) {
-                        console.log('[JS] Mixed scale detected');
                         teScaleInput.value = '';
                         teScaleInput.placeholder = 'Mixed';
                         teScaleSlider.value = 100;
                         statusMsg.push('Multiple different scales in selection');
                         lastSelectionScale = null;
                     } else {
-                        console.log('[JS] Setting scale to:', res.scale);
                         teScaleInput.value = res.scale;
                         teScaleInput.placeholder = '';
                         teScaleSlider.value = res.scale;
-                        console.log('[JS] Scale slider value now:', teScaleSlider.value);
                         lastSelectionScale = res.scale;
                     }
                 } else {
-                    console.log('[JS] Preserve scale UI during live drag');
                 }
 
                 // Update rotation
                 if (!preserveRotate) {
                     if (res.mixedRotation) {
-                        console.log('[JS] Mixed rotation detected');
                         teRotateInput.value = '';
                         teRotateInput.placeholder = 'Mixed';
                         teRotateSlider.value = 0;
                         statusMsg.push('Multiple different rotations in selection');
                         lastSelectionRotation = null;
                     } else {
-                        console.log('[JS] Setting rotation to:', res.rotation);
                         teRotateInput.value = res.rotation;
                         teRotateInput.placeholder = '';
                         teRotateSlider.value = res.rotation;
-                        console.log('[JS] Rotation slider value now:', teRotateSlider.value);
                         lastSelectionRotation = res.rotation;
                     }
                 } else {
-                    console.log('[JS] Preserve rotation UI during live drag');
                 }
                 if (!preserveScale) {
                     teScaleDirty = false;
@@ -2709,13 +2865,11 @@
                 if (!preserveRotate) {
                     teRotateDirty = false;
                 }
-                console.log('[JS] selection state', { scale: lastSelectionScale, rotation: lastSelectionRotation, mixedScale: res.mixedScale, mixedRotation: res.mixedRotation });
 
                 if (statusEl && statusMsg.length > 0) {
                     statusEl.textContent = statusMsg.join(' • ');
                 }
             } else {
-                console.log('[JS] No selection or not ok, resetting to defaults');
                 // No selection or no tagged items
                 teScaleInput.value = 100;
                 teScaleInput.placeholder = '';
@@ -2727,7 +2881,6 @@
                 lastSelectionRotation = 0;
                 teScaleDirty = false;
                 teRotateDirty = false;
-                console.log('[JS] selection state', { scale: lastSelectionScale, rotation: lastSelectionRotation, mixedScale: res.mixedScale, mixedRotation: res.mixedRotation });
             }
         } catch (e) {
             console.error('Refresh transform state failed:', e);
@@ -2738,7 +2891,7 @@
     async function handleDragStart() {
         // Load current state from metadata BEFORE setting teDragActive
         // (refreshSelectionTransformState skips if teDragActive is true)
-        await refreshSelectionTransformState();
+        if (!isEmoryModeActive()) await refreshSelectionTransformState();
 
         // Now set drag active
         teDragActive = true;
@@ -2802,6 +2955,7 @@
         if (processPlacedBtn) processPlacedBtn.addEventListener('click', handleProcessPlacedApiClick);
         if (processEmoryBtn) processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
         if (revertEmoryCenterlinesBtn) revertEmoryCenterlinesBtn.addEventListener('click', handleRevertEmoryCenterlinesClick);
+        if (purgeEmoryStateBtn) purgeEmoryStateBtn.addEventListener('click', handlePurgeEmoryStateClick);
         if (hideEmoryCenterlinesBtn) hideEmoryCenterlinesBtn.addEventListener('click', handleHideEmoryCenterlinesClick);
         if (showEmoryCenterlinesBtn) showEmoryCenterlinesBtn.addEventListener('click', handleShowEmoryCenterlinesClick);
         if (toggleConnectorStyleBtn) toggleConnectorStyleBtn.addEventListener('click', handleToggleConnectorStyleClick);
@@ -2822,21 +2976,25 @@
             emoryWidthSlider.addEventListener('touchstart', function () {
                 beginEmoryWidthDrag();
             }, { passive: true });
+            // PERF: Use a short delay on mouseup to let the 'change' event fire first.
+            // Without this, mouseup clears emoryWidthDragActive before 'change' can commit.
             window.addEventListener('mouseup', function () {
-                finishEmoryWidthDrag(false);
+                setTimeout(function() { finishEmoryWidthDrag(false); }, 50);
             });
             window.addEventListener('touchend', function () {
-                finishEmoryWidthDrag(false);
+                setTimeout(function() { finishEmoryWidthDrag(false); }, 50);
             }, { passive: true });
             window.addEventListener('touchcancel', function () {
-                finishEmoryWidthDrag(false);
+                setTimeout(function() { finishEmoryWidthDrag(false); }, 50);
             }, { passive: true });
             emoryWidthSlider.addEventListener('input', function () {
                 const numericWidth = Number(emoryWidthSlider.value);
                 if (!isFinite(numericWidth) || numericWidth <= 0) return;
                 beginEmoryWidthDrag();
                 emoryWidthInput.value = emoryWidthSlider.value;
-                queueEmoryWidthApply(numericWidth, false);
+                // PERF: Don't fire C++ calls during drag — only update the display.
+                // The C++ width apply takes ~9s, so intermediate calls during drag
+                // cause bounce-back artifacts. The 'change' event fires on release.
             });
             emoryWidthSlider.addEventListener('change', function () {
                 const numericWidth = Number(emoryWidthSlider.value);
@@ -3958,7 +4116,7 @@
                 if (isCepSuspended()) return;
                 updateSkipSelectionRefresh().then(() => {
                     if (skipSelectionRefresh) return;
-                    refreshSelectionTransformState().catch(function() {});
+                    // PERF: Skip refreshSelectionTransformState — takes 48s+ on large docs
                     refreshRotationOverrideState().catch(function() {});
                     if (isEmoryModeActive()) {
                         refreshEmorySelectionState(true).catch(function() {});

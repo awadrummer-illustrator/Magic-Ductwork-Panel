@@ -1,6 +1,30 @@
 # Urgent AI Instructions!
 
+Before making or deploying changes, read this file, `DEPLOYMENT_INSTRUCTIONS.md`, and `cpp-plugin/AI Info.md` before claiming deployment is complete. Do not assume another project uses the same deploy path.
+
 After revisions automatically copy all changed files from this project folder to the extension folder located at C:\Users\Chris\AppData\Roaming\Adobe\CEP\extensions\Magic-Ductwork-Panel
+
+If the change touches the Emory/C++ plugin path, `cpp-plugin/`, or anything that affects `ProcessDuctwork.aip`, do not stop after editing or building. You must run the scheduled task `Reload Illustrator Ductwork` so the elevated reload script rebuilds the plugin, copies the `.aip` into `C:\Program Files\Adobe\Adobe Illustrator 2024\Plug-ins\DuctworkMenu\`, syncs the CEP extension, and launches Illustrator for testing.
+
+Important: the `Process Emory Ductwork` button in this panel does not use `ProcessDuctwork.aip`. It calls the separate `EmoryDuctwork` plugin from the `Emory-Ductwork-Panel` project and deploys `C:\Program Files\Adobe\Adobe Illustrator 2024\Plug-ins\DuctworkMenu\EmoryDuctwork.aip`. Do not debug Emory Mode by patching `Process Ductwork` only.
+
+RUN THIS AFTER PLUGIN CHANGES:
+
+```powershell
+schtasks /run /tn "Reload Illustrator Ductwork"
+```
+
+Wrapper script:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\tools\reload-illustrator-ductwork.ps1"
+```
+
+Deployment is not complete until all of these are true:
+- The task `Reload Illustrator Ductwork` finished with `Last Result: 0`
+- `C:\Program Files\Adobe\Adobe Illustrator 2024\Plug-ins\DuctworkMenu\ProcessDuctwork.aip` was updated
+- The installed plugin hash matches `E:\Work\Work\Custom Sketchup, Illustrator and Photoshop Scripts and Extensions\Illustrator\Extensions\Process Ductwork\build\win\x64\Release\ProcessDuctwork.aip`
+- Illustrator relaunched after the task ran
 
 ---
 
@@ -37,6 +61,12 @@ Manually copy files from this folder to:
 ```
 C:\Users\Chris\AppData\Roaming\Adobe\CEP\extensions\Magic-Ductwork-Panel
 ```
+
+### Required Deployment Rule
+
+- For panel/JSX/HTML/CSS changes only: copy the changed files to the CEP extension folder.
+- For any C++ plugin or Emory workflow change: run `schtasks /run /tn "Reload Illustrator Ductwork"` instead of trying to copy the plugin into `Program Files` directly.
+- Do not claim the plugin is deployed until the scheduled task finishes with `Last Result: 0` and the installed `ProcessDuctwork.aip` timestamp/hash matches the newly built file.
 
 **Files excluded from deployment:**
 - `.git/` - Git repository

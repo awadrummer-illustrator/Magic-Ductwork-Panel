@@ -113,6 +113,83 @@ namespace
 		return false;
 	}
 
+	bool IsInteriorPointOnPath(const DuctworkPoint& point, const DuctworkPath& path, double clearance)
+	{
+		if (path.points.size() < 2) {
+			return false;
+		}
+		return DuctworkMath::Dist(point, path.points.front()) > clearance &&
+			DuctworkMath::Dist(point, path.points.back()) > clearance;
+	}
+
+	bool HasInteriorBranchGeometry(size_t pathIndex,
+		const DuctworkPath& path,
+		const std::vector<DuctworkPath>& paths,
+		double endpointTolerance,
+		double clearance)
+	{
+		if (path.points.size() < 2) {
+			return false;
+		}
+
+		const double endpointToleranceSq = endpointTolerance * endpointTolerance;
+		const double tEpsilon = 1e-4;
+		for (size_t otherIndex = 0; otherIndex < paths.size(); ++otherIndex) {
+			if (otherIndex == pathIndex) {
+				continue;
+			}
+
+			const DuctworkPath& other = paths[otherIndex];
+			if (other.closed || other.points.size() < 2) {
+				continue;
+			}
+			if (other.layerName != path.layerName) {
+				continue;
+			}
+
+			const DuctworkPoint otherEndpoints[2] = { other.points.front(), other.points.back() };
+			for (int endpointSlot = 0; endpointSlot < 2; ++endpointSlot) {
+				for (size_t segIndex = 0; segIndex + 1 < path.points.size(); ++segIndex) {
+					double t = 0.0;
+					const DuctworkPoint branchPoint = DuctworkMath::ClosestPointOnSegment(
+						path.points[segIndex],
+						path.points[segIndex + 1],
+						otherEndpoints[endpointSlot],
+						t);
+					if (t <= tEpsilon || t >= (1.0 - tEpsilon)) {
+						continue;
+					}
+					if (DuctworkMath::Dist2(branchPoint, otherEndpoints[endpointSlot]) > endpointToleranceSq) {
+						continue;
+					}
+					if (IsInteriorPointOnPath(branchPoint, path, clearance)) {
+						return true;
+					}
+				}
+			}
+
+			for (size_t pathSeg = 0; pathSeg + 1 < path.points.size(); ++pathSeg) {
+				for (size_t otherSeg = 0; otherSeg + 1 < other.points.size(); ++otherSeg) {
+					DuctworkPoint intersection;
+					if (!DuctworkMath::SegmentIntersection(
+						path.points[pathSeg],
+						path.points[pathSeg + 1],
+						other.points[otherSeg],
+						other.points[otherSeg + 1],
+						intersection)) {
+						continue;
+					}
+					if (!IsInteriorPointOnPath(intersection, path, clearance)) {
+						continue;
+					}
+					return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
 	double ComputeAngleDegrees(const DuctworkPoint* prev, const DuctworkPoint& current, const DuctworkPoint* next)
 	{
 		double dx = 0.0;
@@ -773,7 +850,7 @@ namespace
 			}
 			std::vector<DuctworkPoint> pathPoints;
 			bool closed = false;
-			if (!DuctworkGeometry::GetPathPoints(art[i], pathPoints, closed) && pathPoints.size() == 1) {
+			if (DuctworkGeometry::GetPathPoints(art[i], pathPoints, closed) && pathPoints.size() == 1) {
 				points.push_back(pathPoints[0]);
 			}
 		}
@@ -1003,6 +1080,141 @@ DuctworkPartStats DuctworkParts::CreateAnchorsAndGraphics(const std::vector<Duct
 		return stats;
 	}
 
+	std::vector<DuctworkPoint> runtimeIgnoreAnchors;
+	{
+		std::vector<DuctworkPoint> unitAnchorCandidates = skipAnchors;
+		CollectAnchorsFromLayerName("Units", unitAnchorCandidates);
+		CollectGraphicsFromLayerName("Units", unitAnchorCandidates);
+
+		std::vector<DuctworkPoint> existingIgnoreAnchors;
+		CollectAnchorsFromLayerName("Ignore", existingIgnoreAnchors);
+		CollectAnchorsFromLayerName("Ignored", existingIgnoreAnchors);
+
+		const double unitEndpointTolerance = 10.0;
+		const double branchEndpointTolerance = 5.0;
+		const double internalAnchorTolerance = 10.0;
+		const double interiorConnectionClearance = 10.0;
+
+		AILayerHandle ignoredLayer = GetOrCreateLayer("Ignored");
+		if (!ignoredLayer) {
+			ignoredLayer = GetOrCreateLayer("Ignore");
+		}
+		const bool canPersistIgnoreAnchors = ignoredLayer && DuctworkArt::IsLayerChainEditableVisible(ignoredLayer);
+
+		auto hasInternalAnchorNearEndpoint = [&](const DuctworkPath& path, size_t endpointIndex) -> bool {
+			if (path.points.size() < 3 || endpointIndex >= path.points.size()) {
+				return false;
+			}
+			const DuctworkPoint& endpoint = path.points[endpointIndex];
+			for (size_t i = 1; i + 1 < path.points.size(); ++i) {
+				if (DuctworkMath::Dist(endpoint, path.points[i]) <= internalAnchorTolerance) {
+					return true;
+				}
+			}
+			return false;
+		};
+
+		auto hasInteriorBranchConnection = [&](int pathIndex, const DuctworkPath& path) -> bool {
+			if (path.points.size() < 2) {
+				return false;
+			}
+			const DuctworkPoint& start = path.points.front();
+			const DuctworkPoint& end = path.points.back();
+			for (size_t i = 0; i < connections.size(); ++i) {
+				const DuctworkConnection& conn = connections[i];
+				if (conn.a != pathIndex && conn.b != pathIndex) {
+					continue;
+				}
+				if (conn.type != kConnectionEndpointToSegment && conn.type != kConnectionSegmentIntersection) {
+					continue;
+				}
+				if (DuctworkMath::Dist(conn.point, start) <= interiorConnectionClearance ||
+					DuctworkMath::Dist(conn.point, end) <= interiorConnectionClearance) {
+					continue;
+				}
+				return true;
+			}
+			return false;
+		};
+
+		size_t unitBranchIgnoreCount = 0;
+		for (size_t pathIndex = 0; pathIndex < paths.size(); ++pathIndex) {
+			const DuctworkPath& path = paths[pathIndex];
+			if (path.layerName != "Blue Ductwork" || path.closed || path.points.size() < 2) {
+				continue;
+			}
+
+			const DuctworkPoint& start = path.points.front();
+			const DuctworkPoint& end = path.points.back();
+			const bool startNearUnit = IsPointNear(start, unitAnchorCandidates, unitEndpointTolerance);
+			const bool endNearUnit = IsPointNear(end, unitAnchorCandidates, unitEndpointTolerance);
+			const bool hasConnectionBranch = hasInteriorBranchConnection(static_cast<int>(pathIndex), path);
+			const bool hasGeometryBranch = HasInteriorBranchGeometry(
+				pathIndex,
+				path,
+				paths,
+				branchEndpointTolerance,
+				interiorConnectionClearance);
+			const bool hasInteriorBranch = hasConnectionBranch || hasGeometryBranch;
+
+			std::ostringstream evalStream;
+			evalStream << "Parts: unit-branch eval pathIndex=" << pathIndex
+				<< " startNearUnit=" << (startNearUnit ? 1 : 0)
+				<< " endNearUnit=" << (endNearUnit ? 1 : 0)
+				<< " branchConnection=" << (hasConnectionBranch ? 1 : 0)
+				<< " branchGeometry=" << (hasGeometryBranch ? 1 : 0)
+				<< " start=[" << start.x << "," << start.y << "]"
+				<< " end=[" << end.x << "," << end.y << "]";
+			DuctworkLog::Write(evalStream.str());
+
+			if (startNearUnit == endNearUnit) {
+				continue;
+			}
+			if (!hasInteriorBranch) {
+				continue;
+			}
+
+			const size_t oppositeIndex = startNearUnit ? (path.points.size() - 1) : 0;
+			if (EndpointIsConnected(static_cast<int>(pathIndex), static_cast<int>(oppositeIndex), connections)) {
+				continue;
+			}
+			if (hasInternalAnchorNearEndpoint(path, oppositeIndex)) {
+				std::ostringstream skipStream;
+				skipStream << "Parts: unit-branch ignore skipped pathIndex=" << pathIndex
+					<< " endpoint=" << oppositeIndex
+					<< " reason=internal-anchor-near-end"
+					<< " point=[" << path.points[oppositeIndex].x << "," << path.points[oppositeIndex].y << "]";
+				DuctworkLog::Write(skipStream.str());
+				continue;
+			}
+
+			const DuctworkPoint& ignorePoint = path.points[oppositeIndex];
+			if (IsPointNear(ignorePoint, existingIgnoreAnchors, anchorTolerance + 2.0) ||
+				IsPointNear(ignorePoint, runtimeIgnoreAnchors, anchorTolerance + 2.0)) {
+				continue;
+			}
+
+			runtimeIgnoreAnchors.push_back(ignorePoint);
+			existingIgnoreAnchors.push_back(ignorePoint);
+			++unitBranchIgnoreCount;
+
+			std::ostringstream stream;
+			stream << "Parts: unit-branch ignore added pathIndex=" << pathIndex
+				<< " endpoint=" << oppositeIndex
+				<< " point=[" << ignorePoint.x << "," << ignorePoint.y << "]";
+			if (canPersistIgnoreAnchors && CreateAnchorPath(ignoredLayer, ignorePoint, 0.0)) {
+				stream << " persisted=1";
+			} else {
+				stream << " persisted=0";
+			}
+			DuctworkLog::Write(stream.str());
+		}
+
+		if (unitBranchIgnoreCount > 0) {
+			DuctworkLog::Write("Parts: unit-branch ignore total=" + std::to_string(unitBranchIgnoreCount));
+		}
+	}
+
 	std::map<std::string, std::vector<int> > grouped;
 	for (size_t i = 0; i < paths.size(); ++i) {
 		const DuctworkPath& path = paths[i];
@@ -1064,6 +1276,7 @@ DuctworkPartStats DuctworkParts::CreateAnchorsAndGraphics(const std::vector<Duct
 		CollectAnchorsFromLayerName("Ignore", existingAnchors);
 		CollectAnchorsFromLayerName("Ignored", existingAnchors);
 		AppendAnchors(existingAnchors, skipAnchors);
+		AppendAnchors(existingAnchors, runtimeIgnoreAnchors);
 		// Also collect placed graphics (PlacedItems) from ALL part layers as existing positions
 		// In case the user moved art but no anchor exists, the graphic center should still block placement
 		CollectGraphicsFromLayerName("Units", existingAnchors);

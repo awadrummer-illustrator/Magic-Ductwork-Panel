@@ -54,11 +54,11 @@ if (typeof JSON.parse !== "function") {
 // Set these to true/false to control logging throughout the entire script
 // ============================================================================
 var MDUX_DEBUG_DEFAULTS = {
-    ENABLED: true,              // Master switch - enables/disables ALL debug logging
-    CONNECTIONS: true,          // Log path connection detection details
-    INTERSECTIONS: true,        // Log intersection vertex detection
-    COMPOUNDING: true,          // Log compounding operations
-    COMPONENTS: true,           // Log component placement (units, registers, etc.)
+    ENABLED: false,             // Master switch - enables/disables ALL debug logging (PERF: off by default)
+    CONNECTIONS: false,         // Log path connection detection details
+    INTERSECTIONS: false,       // Log intersection vertex detection
+    COMPOUNDING: false,         // Log compounding operations
+    COMPONENTS: false,          // Log component placement (units, registers, etc.)
     OVERLAP_DETECTION: false    // Visual indicators for overlapping/collinear paths (DISABLED)
 };
 if (typeof $.global.MDUX_DEBUG === "undefined" || !$.global.MDUX_DEBUG) {
@@ -78,7 +78,7 @@ if (typeof $.global.MDUX_YIELD_TO_UI === "undefined") {
     $.global.MDUX_YIELD_TO_UI = true;
 }
 if (typeof $.global.MDUX_YIELD_TO_UI_INTERVAL === "undefined") {
-    $.global.MDUX_YIELD_TO_UI_INTERVAL = 40; // ms throttle for yielding
+    $.global.MDUX_YIELD_TO_UI_INTERVAL = 150; // ms throttle for yielding (PERF: raised from 40ms)
 }
 if (typeof $.global.MDUX_LAST_YIELD_TIME === "undefined") {
     $.global.MDUX_LAST_YIELD_TIME = 0;
@@ -702,7 +702,7 @@ function yieldToUI(force) {
     } catch (e) { return; }
 
     var now = new Date().getTime();
-    var interval = 75;
+    var interval = 150;
     try {
         if (typeof $.global.MDUX_YIELD_TO_UI_INTERVAL !== "undefined") {
             interval = $.global.MDUX_YIELD_TO_UI_INTERVAL;
@@ -716,9 +716,8 @@ function yieldToUI(force) {
     }
 
     try { $.global.MDUX_LAST_YIELD_TIME = now; } catch (e) { }
-    try { if (typeof app !== "undefined" && app && app.redraw) app.redraw(); } catch (e) { }
+    // PERF: Only update progress window, skip app.redraw() and $.sleep() which block the thread
     try { if ($.global.MDUX_PROGRESS_WIN) $.global.MDUX_PROGRESS_WIN.update(); } catch (e) { }
-    try { $.sleep(8); } catch (e) { }
 }
 
 /**
@@ -12600,7 +12599,16 @@ function isDuctworkLineLayer(name) {
                 var targetLayer = null;
                 try { targetLayer = findLayerByNameDeep(layerName); } catch (eFind) { targetLayer = null; }
                 if (!targetLayer) continue;
-                collectExistingAnchors(targetLayer);
+                var prevLocked = null;
+                var prevVisible = null;
+                try { prevLocked = targetLayer.locked; targetLayer.locked = false; } catch (eUnlockLayer) { }
+                try { prevVisible = targetLayer.visible; targetLayer.visible = true; } catch (eShowLayer) { }
+                try {
+                    collectExistingAnchors(targetLayer);
+                } finally {
+                    try { if (prevLocked !== null) targetLayer.locked = prevLocked; } catch (eRestoreLayerLock) { }
+                    try { if (prevVisible !== null) targetLayer.visible = prevVisible; } catch (eRestoreLayerVis) { }
+                }
             }
 
             return existingAnchors;
@@ -12653,7 +12661,16 @@ function isDuctworkLineLayer(name) {
                 var targetLayer = null;
                 try { targetLayer = findLayerByNameDeep(layerName); } catch (eFind) { targetLayer = null; }
                 if (!targetLayer) continue;
-                collectPlacedItems(targetLayer);
+                var prevLocked = null;
+                var prevVisible = null;
+                try { prevLocked = targetLayer.locked; targetLayer.locked = false; } catch (eUnlockLayer) { }
+                try { prevVisible = targetLayer.visible; targetLayer.visible = true; } catch (eShowLayer) { }
+                try {
+                    collectPlacedItems(targetLayer);
+                } finally {
+                    try { if (prevLocked !== null) targetLayer.locked = prevLocked; } catch (eRestoreLayerLock) { }
+                    try { if (prevVisible !== null) targetLayer.visible = prevVisible; } catch (eRestoreLayerVis) { }
+                }
             }
 
             return placedPositions;
@@ -17900,6 +17917,138 @@ function isDuctworkLineLayer(name) {
         }
         addDebug("[INTERSECT-VERTEX] Total intersection vertex ignore points: " + intersectionVertexIgnorePoints.length);
 
+        // Blue trunks that start from a Unit and have offshoot branches should not default to
+        // a register at the far endpoint unless that far endpoint is already qualified by a
+        // nearby internal anchor.
+        (function addBlueUnitBranchOppositeEndpointIgnores() {
+            var blueLayerNameForIgnore = (typeof blueSourceLayer === "string" && blueSourceLayer) ? blueSourceLayer : "Blue Ductwork";
+            var bluePathsForIgnore = getPathsOnLayerSelected(blueLayerNameForIgnore) || [];
+            if (!bluePathsForIgnore.length) return;
+
+            var unitAnchorsForIgnore = getExistingAnchorPoints(["Units"]) || [];
+            if (!unitAnchorsForIgnore.length) return;
+
+            var allSelectedDuctPaths = [];
+            for (var srcIdx = 0; srcIdx < ALL_DUCTWORK_SOURCES.length; srcIdx++) {
+                var srcPaths = getPathsOnLayerSelected(ALL_DUCTWORK_SOURCES[srcIdx].layer) || [];
+                for (var spIdx = 0; spIdx < srcPaths.length; spIdx++) {
+                    var srcPath = srcPaths[spIdx];
+                    var alreadyAdded = false;
+                    for (var apIdx = 0; apIdx < allSelectedDuctPaths.length; apIdx++) {
+                        if (allSelectedDuctPaths[apIdx] === srcPath) {
+                            alreadyAdded = true;
+                            break;
+                        }
+                    }
+                    if (!alreadyAdded) allSelectedDuctPaths.push(srcPath);
+                }
+            }
+
+            var unitTol = (typeof UNIT_MERGE_DIST === "number" && UNIT_MERGE_DIST > 0) ? UNIT_MERGE_DIST : CLOSE_DIST;
+            var branchTol = (typeof CONNECTION_DIST === "number" && CONNECTION_DIST > 0) ? CONNECTION_DIST : CLOSE_DIST;
+            var internalTol = (typeof ENDPOINT_INTERNAL_THRESHOLD === "number" && ENDPOINT_INTERNAL_THRESHOLD > 0) ? ENDPOINT_INTERNAL_THRESHOLD : CLOSE_DIST;
+            var ignoreCount = 0;
+
+            function hasNearbyAnchor(target, anchors, tolerance) {
+                if (!target || !anchors) return false;
+                for (var ai = 0; ai < anchors.length; ai++) {
+                    try {
+                        if (dist(target, anchors[ai]) <= tolerance) return true;
+                    } catch (e) { }
+                }
+                return false;
+            }
+
+            function hasInternalAnchorNearEndpoint(path, endpointIndex, tolerance) {
+                try {
+                    var pts = path.pathPoints;
+                    if (!pts || pts.length < 3) return false;
+                    var endpoint = pts[endpointIndex].anchor;
+                    for (var ii = 1; ii < pts.length - 1; ii++) {
+                        if (dist(endpoint, pts[ii].anchor) <= tolerance) return true;
+                    }
+                } catch (e) { }
+                return false;
+            }
+
+            function pathHasBranchOffshoot(path, allPaths, tolerance) {
+                try {
+                    var pts = path.pathPoints;
+                    if (!pts || pts.length < 2) return false;
+
+                    var startAnchor = pts[0].anchor;
+                    var endAnchor = pts[pts.length - 1].anchor;
+
+                    for (var otherIdx = 0; otherIdx < allPaths.length; otherIdx++) {
+                        var otherPath = allPaths[otherIdx];
+                        if (!otherPath || otherPath === path) continue;
+
+                        var otherPts = otherPath.pathPoints;
+                        if (!otherPts || otherPts.length < 2) continue;
+
+                        var candidateEndpoints = [
+                            otherPts[0].anchor,
+                            otherPts[otherPts.length - 1].anchor
+                        ];
+
+                        for (var ceIdx = 0; ceIdx < candidateEndpoints.length; ceIdx++) {
+                            var endpoint = candidateEndpoints[ceIdx];
+                            if (dist(endpoint, startAnchor) <= tolerance || dist(endpoint, endAnchor) <= tolerance) continue;
+
+                            for (var internalIdx = 1; internalIdx < pts.length - 1; internalIdx++) {
+                                if (dist(endpoint, pts[internalIdx].anchor) <= tolerance) return true;
+                            }
+
+                            for (var segIdx = 0; segIdx < pts.length - 1; segIdx++) {
+                                var segStart = pts[segIdx].anchor;
+                                var segEnd = pts[segIdx + 1].anchor;
+                                var segMatch = closestPointOnSegment(segStart, segEnd, endpoint);
+                                if (!segMatch) continue;
+                                if (segMatch.t > 1e-6 && segMatch.t < 1 - 1e-6 && dist(endpoint, segMatch.pt) <= tolerance) {
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                } catch (e) { }
+                return false;
+            }
+
+            addDebug("[UNIT-BRANCH-IGNORE] Checking " + bluePathsForIgnore.length + " blue path(s) against " + unitAnchorsForIgnore.length + " unit anchor(s)");
+
+            for (var bpIdx = 0; bpIdx < bluePathsForIgnore.length; bpIdx++) {
+                var bluePath = bluePathsForIgnore[bpIdx];
+                try {
+                    var bluePts = bluePath.pathPoints;
+                    if (!bluePts || bluePts.length < 2) continue;
+
+                    var startPos = [bluePts[0].anchor[0], bluePts[0].anchor[1]];
+                    var endPos = [bluePts[bluePts.length - 1].anchor[0], bluePts[bluePts.length - 1].anchor[1]];
+                    var startNearUnit = hasNearbyAnchor(startPos, unitAnchorsForIgnore, unitTol);
+                    var endNearUnit = hasNearbyAnchor(endPos, unitAnchorsForIgnore, unitTol);
+
+                    if (startNearUnit === endNearUnit) continue;
+                    if (!pathHasBranchOffshoot(bluePath, allSelectedDuctPaths, branchTol)) continue;
+
+                    var oppositeIndex = startNearUnit ? (bluePts.length - 1) : 0;
+                    var oppositePos = (oppositeIndex === 0) ? startPos : endPos;
+
+                    if (hasInternalAnchorNearEndpoint(bluePath, oppositeIndex, internalTol)) {
+                        addDebug("[UNIT-BRANCH-IGNORE] Skipping [" + oppositePos[0].toFixed(1) + "," + oppositePos[1].toFixed(1) + "] - internal anchor already near opposite endpoint");
+                        continue;
+                    }
+
+                    if (persistIgnoreAnchor(oppositePos, ignoredAnchors, "[UNIT-BRANCH-IGNORE]")) {
+                        ignoreCount++;
+                    }
+                } catch (eBlueIgnore) {
+                    addDebug("[UNIT-BRANCH-IGNORE] Error processing blue path " + bpIdx + ": " + eBlueIgnore);
+                }
+            }
+
+            addDebug("[UNIT-BRANCH-IGNORE] Added " + ignoreCount + " opposite-end ignore anchor(s) for unit-fed blue trunks with branches");
+        })();
+
         // STEP 4: Create Registers, but skip endpoints that are close to existing Units, Ignored points, or existing points
         updateProgress("Creating registers...");
         // *** REFACTORED: Create a single, comprehensive list of all existing points to check against ***
@@ -18034,6 +18183,45 @@ function isDuctworkLineLayer(name) {
                 }
             } catch (e) { }
             return false;
+        }
+
+        function persistIgnoreAnchor(position, ignoredAnchors, debugPrefix) {
+            if (!position) return false;
+
+            var prefix = debugPrefix || "[IGNORE-PERSIST]";
+            var anchorPos = [position[0], position[1]];
+
+            if (isPointIgnored(anchorPos, ignoredAnchors)) {
+                addDebug(prefix + " Skipping [" + anchorPos[0].toFixed(1) + "," + anchorPos[1].toFixed(1) + "] - already ignored in memory");
+                return false;
+            }
+
+            ignoredAnchors.push(anchorPos);
+
+            if (ignoreAnchorExistsAt(anchorPos, 3)) {
+                addDebug(prefix + " Reused existing ignore anchor at [" + anchorPos[0].toFixed(1) + "," + anchorPos[1].toFixed(1) + "]");
+                return true;
+            }
+
+            try {
+                var ignoredLayer = ensureIgnoredLayer();
+                if (!ignoredLayer) {
+                    addDebug(prefix + " Added in-memory ignore anchor at [" + anchorPos[0].toFixed(1) + "," + anchorPos[1].toFixed(1) + "] (layer unavailable)");
+                    return true;
+                }
+
+                var created = createAnchorPoint(ignoredLayer, anchorPos, null);
+                if (created) {
+                    addDebug(prefix + " Created ignore anchor at [" + anchorPos[0].toFixed(1) + "," + anchorPos[1].toFixed(1) + "]");
+                } else {
+                    addDebug(prefix + " Added in-memory ignore anchor at [" + anchorPos[0].toFixed(1) + "," + anchorPos[1].toFixed(1) + "] (creation returned null)");
+                }
+                return true;
+            } catch (ePersistIgnore) {
+                addDebug(prefix + " Failed to persist ignore anchor at [" + anchorPos[0].toFixed(1) + "," + anchorPos[1].toFixed(1) + "]: " + ePersistIgnore);
+            }
+
+            return true;
         }
 
         // Get or create the Gap Definitions layer (stores both user anchors and gap memory markers)

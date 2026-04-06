@@ -973,11 +973,9 @@ void ProcessDuctworkPanel::UpdateSelectionSummary()
 		status << L"Selection: " << static_cast<int>(selection.size());
 		SetStatusText(status.str().c_str());
 	}
-	std::vector<AIArtHandle> linePaths;
 	std::vector<AIArtHandle> partItems;
 	std::vector<AIArtHandle> rotatableParts;
 	for (size_t i = 0; i < selection.size(); ++i) {
-		CollectLinePathsSelected(selection[i], linePaths, true);
 		CollectPartItemsSelected(selection[i], partItems, true);
 		CollectRotatablePartItemsSelected(selection[i], rotatableParts, true);
 	}
@@ -1010,13 +1008,10 @@ void ProcessDuctworkPanel::UpdateSelectionSummary()
 	partItems.swap(resolvedParts);
 	rotatableParts.swap(resolvedRotatable);
 
-	std::vector<AIArtHandle> scaleTargets = partItems;
-	scaleTargets.insert(scaleTargets.end(), linePaths.begin(), linePaths.end());
-
-	DuctworkMetadata::TransformSummary scaleSummary = DuctworkMetadata::SummarizeSelectionTransform(scaleTargets);
+	DuctworkMetadata::TransformSummary scaleSummary = DuctworkMetadata::SummarizeSelectionTransform(partItems);
 	DuctworkMetadata::TransformSummary rotationSummary = DuctworkMetadata::SummarizeSelectionTransform(rotatableParts);
 
-	if (!scaleTargets.empty()) {
+	if (!partItems.empty()) {
 		fScaleValue = scaleSummary.scale;
 		UpdateScaleUI(scaleSummary.scale, scaleSummary.mixedScale);
 	} else {
@@ -1451,18 +1446,25 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 		" targetRotation=" + std::to_string(targetRotation));
 
 	const std::vector<AIArtHandle> selectionSnapshot = selection;
-	std::vector<AIArtHandle> linePaths;
 	std::vector<AIArtHandle> partItems;
 	std::vector<AIArtHandle> rotatableParts;
 	for (size_t i = 0; i < selection.size(); ++i) {
-		CollectLinePathsSelected(selection[i], linePaths, true);
 		CollectPartItemsSelected(selection[i], partItems, true);
 		CollectRotatablePartItemsSelected(selection[i], rotatableParts, true);
 	}
 
-	DuctworkLog::Write("Panel ApplyTransform: linePaths=" + std::to_string(static_cast<int>(linePaths.size())) +
-		" partItems=" + std::to_string(static_cast<int>(partItems.size())) +
+	DuctworkLog::Write("Panel ApplyTransform: partItems=" + std::to_string(static_cast<int>(partItems.size())) +
 		" rotatableParts=" + std::to_string(static_cast<int>(rotatableParts.size())));
+
+	if (partItems.empty()) {
+		if (updateUI) {
+			SetStatusText(L"No ductwork parts selected.");
+		}
+		if (outMessage) {
+			*outMessage = "No ductwork parts selected.";
+		}
+		return false;
+	}
 
 	bool applyScale = fScaleUserChanged;
 	bool applyRotation = fRotationUserChanged;
@@ -1471,30 +1473,7 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 		applyRotation = std::fabs(targetRotation) >= 0.0001;
 	}
 
-	size_t lineScaled = 0;
 	size_t partTransformed = 0;
-
-	for (size_t i = 0; i < linePaths.size(); ++i) {
-		AIArtHandle art = linePaths[i];
-		double currentScale = 100.0;
-		const double baselineStroke = GetBaselineMaxStrokeWidth(art);
-		double currentStroke = 0.0;
-		if (GetMaxStrokeWidth(art, currentStroke) && currentStroke > 0.0 && baselineStroke > 0.0) {
-			currentScale = (currentStroke / baselineStroke) * 100.0;
-			DuctworkMetadata::SetDouble(art, "MDUX_OriginalStrokeWidth", baselineStroke);
-		}
-		if (!applyScale) {
-			continue;
-		}
-		const double scaleFactor = (currentScale == 0.0) ? 1.0 : (targetScale / currentScale);
-		if (std::fabs(scaleFactor - 1.0) < 0.0001) {
-			continue;
-		}
-		if (ScaleLineStrokeWidths(art, scaleFactor)) {
-			++lineScaled;
-			DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", targetScale);
-		}
-	}
 
 	for (size_t i = 0; i < partItems.size(); ++i) {
 		AIArtHandle art = partItems[i];
@@ -1559,9 +1538,7 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 	}
 
 	if (updateUI) {
-		if (linePaths.empty() && partItems.empty()) {
-			SetStatusText(L"No ductwork parts or lines selected.");
-		} else if (lineScaled == 0 && partTransformed == 0) {
+		if (partTransformed == 0) {
 			SetStatusText(L"No transform changes.");
 		} else {
 			SetStatusText(L"Transform applied.");
@@ -1571,16 +1548,14 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 
 	ReselectArtList(selectionSnapshot);
 	if (outMessage) {
-		if (linePaths.empty() && partItems.empty()) {
-			*outMessage = "No ductwork parts or lines selected.";
-		} else if (lineScaled == 0 && partTransformed == 0) {
+		if (partTransformed == 0) {
 			*outMessage = "No transform changes.";
 		} else {
-			*outMessage = "Transformed " + std::to_string(lineScaled + partTransformed) + " item(s).";
+			*outMessage = "Transformed " + std::to_string(partTransformed) + " item(s).";
 		}
 	}
 
-	return (lineScaled > 0 || partTransformed > 0);
+	return partTransformed > 0;
 }
 
 void ProcessDuctworkPanel::ApplyQuickRotate(double angle)
@@ -1621,37 +1596,15 @@ void ProcessDuctworkPanel::ResetTransformToOriginal()
 		SetStatusText(L"No selection.");
 		return;
 	}
-	std::vector<AIArtHandle> linePaths;
 	std::vector<AIArtHandle> partItems;
-	std::vector<AIArtHandle> rotatableParts;
 	for (size_t i = 0; i < selection.size(); ++i) {
-		CollectLinePathsRecursive(selection[i], linePaths);
 		CollectPartItemsRecursive(selection[i], partItems);
-		CollectRotatablePartItemsRecursive(selection[i], rotatableParts);
 	}
 
-	for (size_t i = 0; i < linePaths.size(); ++i) {
-		AIArtHandle art = linePaths[i];
-		double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
-		const double originalScale = ReadOriginalScale(art, 100.0);
-		double currentStroke = 0.0;
-		const double baselineStroke = GetBaselineMaxStrokeWidth(art);
-		if (baselineStroke > 0.0 && GetMaxStrokeWidth(art, currentStroke) && currentStroke > 0.0) {
-			currentScale = (currentStroke / baselineStroke) * 100.0;
-			DuctworkMetadata::SetDouble(art, "MDUX_OriginalStrokeWidth", baselineStroke);
-		}
-		const double scaleFactor = (currentScale == 0.0) ? 1.0 : (originalScale / currentScale);
-		DuctworkLog::Write("Panel ResetOriginal: line scale originalScale=" + std::to_string(originalScale) +
-			" currentScale=" + std::to_string(currentScale) +
-			" scaleFactor=" + std::to_string(scaleFactor) +
-			" originalStroke=" + std::to_string(baselineStroke) +
-			" currentStroke=" + std::to_string(currentStroke));
-		if (std::fabs(scaleFactor - 1.0) < 0.0001) {
-			continue;
-		}
-		if (ScaleLineStrokeWidths(art, scaleFactor)) {
-			DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
-		}
+	if (partItems.empty()) {
+		SetStatusText(L"No ductwork parts selected.");
+		UpdateSelectionSummary();
+		return;
 	}
 
 	for (size_t i = 0; i < partItems.size(); ++i) {
@@ -1720,35 +1673,15 @@ void ProcessDuctworkPanel::ResetScale()
 		SetStatusText(L"No selection.");
 		return;
 	}
-	std::vector<AIArtHandle> linePaths;
 	std::vector<AIArtHandle> partItems;
 	for (size_t i = 0; i < selection.size(); ++i) {
-		CollectLinePathsRecursive(selection[i], linePaths);
 		CollectPartItemsRecursive(selection[i], partItems);
 	}
 
-	for (size_t i = 0; i < linePaths.size(); ++i) {
-		AIArtHandle art = linePaths[i];
-		double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
-		const double originalScale = ReadOriginalScale(art, 100.0);
-		double currentStroke = 0.0;
-		const double baselineStroke = GetBaselineMaxStrokeWidth(art);
-		if (baselineStroke > 0.0 && GetMaxStrokeWidth(art, currentStroke) && currentStroke > 0.0) {
-			currentScale = (currentStroke / baselineStroke) * 100.0;
-			DuctworkMetadata::SetDouble(art, "MDUX_OriginalStrokeWidth", baselineStroke);
-		}
-		const double scaleFactor = (currentScale == 0.0) ? 1.0 : (originalScale / currentScale);
-		DuctworkLog::Write("Panel ResetScale: line scale originalScale=" + std::to_string(originalScale) +
-			" currentScale=" + std::to_string(currentScale) +
-			" scaleFactor=" + std::to_string(scaleFactor) +
-			" originalStroke=" + std::to_string(baselineStroke) +
-			" currentStroke=" + std::to_string(currentStroke));
-		if (std::fabs(scaleFactor - 1.0) < 0.0001) {
-			continue;
-		}
-		if (ScaleLineStrokeWidths(art, scaleFactor)) {
-			DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
-		}
+	if (partItems.empty()) {
+		SetStatusText(L"No ductwork parts selected.");
+		UpdateSelectionSummary();
+		return;
 	}
 
 	for (size_t i = 0; i < partItems.size(); ++i) {

@@ -4,6 +4,8 @@
 
 Adobe Illustrator CEP extension for automated ductwork diagram generation with orthogonalization, T-junction detection, and ignore marker support.
 
+Important: Emory Mode launched from this panel routes to the separate `Emory-Ductwork-Panel` native plugin target `EmoryDuctwork.aip`. Bugs in `Process Emory Ductwork` are not necessarily in this repo's `ProcessDuctwork.aip` path.
+
 ## Architecture
 
 - **Frontend**: HTML/JavaScript panel UI
@@ -116,9 +118,21 @@ Get-Content <logfile> | Select-String -Pattern "PYTHON-ORTHO|POST-ORTHO"
 
 ## Deployment
 
-After changes:
+Read the deployment instructions in this repo before claiming a change is deployed. For this project that means checking `README.md`, `DEPLOYMENT_INSTRUCTIONS.md`, and `cpp-plugin/AI Info.md`.
+
+After panel-only changes:
 ```powershell
 Copy-Item 'e:\Work\Work\Custom Sketchup, Illustrator and Photoshop Scripts and Extensions\Illustrator\Extensions\Magic-Ductwork-Panel\jsx\magic-final.jsx' 'C:\Users\Chris\AppData\Roaming\Adobe\CEP\extensions\Magic-Ductwork-Panel\jsx\magic-final.jsx' -Force
 ```
 
-Must restart Illustrator to reload JSX files (they're cached).
+After plugin/C++ changes:
+```powershell
+schtasks /run /tn "Reload Illustrator Ductwork"
+```
+
+Preferred wrapper:
+```powershell
+powershell -ExecutionPolicy Bypass -File ".\tools\reload-illustrator-ductwork.ps1"
+```
+
+Do not say deployment is complete until the task finished with `Last Result: 0`, the installed `ProcessDuctwork.aip` matches the built plugin, and Illustrator has relaunched.

@@ -4382,6 +4382,19 @@ function MDUX_cppRevertSelectedEmoryToCenterlines() {
     }
 }
 
+function MDUX_cppPurgeSelectedEmoryState() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=purge-emory-state";
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ purge Emory state error: " + e });
+    }
+}
+
 function MDUX_cppSetSelectedEmoryTaperAlignment(value) {
     try {
         if (app.documents.length === 0) {
@@ -4823,7 +4836,7 @@ function MDUX_clearDebugLog() {
 }
 
 // Performance threshold - skip expensive metadata reads for large selections
-var MDUX_LARGE_SELECTION_THRESHOLD = 50;
+var MDUX_LARGE_SELECTION_THRESHOLD = 10; // PERF: lowered from 50 — Emory selections with 10+ items cause 45s+ lockups
 
 function MDUX_getSelectionTransformState() {
     if (MDUX_isCepSuspended()) {
@@ -4839,47 +4852,76 @@ function MDUX_getSelectionTransformState() {
             return JSON.stringify({ ok: false });
         }
 
-        if (!MDUX_selectionHasPathItems(sel) && MDUX_selectionHasPlacedItems(sel)) {
-            return JSON.stringify({
-                ok: true,
-                scale: null,
-                rotation: null,
-                mixedScale: true,
-                mixedRotation: true,
-                count: sel.length,
-                reason: "placed-only"
-            });
-        }
-
-        if (MDUX_selectionExceedsPathLimit(sel, MDUX_LIVE_SELECTION_PATH_LIMIT)) {
-            MDUX_debugLog("[SELECT-STATE] Large selection (pathItems) - returning mixed to avoid lockup");
-            return JSON.stringify({
-                ok: true,
-                scale: null,
-                rotation: null,
-                mixedScale: true,
-                mixedRotation: true,
-                count: sel.length,
-                largeSelection: true
-            });
-        }
-
-        // PERFORMANCE: For large selections, return "mixed" immediately without scanning metadata
-        // This prevents Illustrator lockups when many items are selected
-        if (sel.length > MDUX_LARGE_SELECTION_THRESHOLD) {
-            MDUX_debugLog("[SELECT-STATE] Large selection (" + sel.length + " items) - returning mixed to avoid lockup");
-            return JSON.stringify({
-                ok: true,
-                scale: null,
-                rotation: null,
-                mixedScale: true,
-                mixedRotation: true,
-                count: sel.length,
-                largeSelection: true
-            });
-        }
-
         var anchor = parseFloat(MDUX_getDocumentScale()) || 100;
+        var partTargets = [];
+        var largeSelection = false;
+
+        function isSinglePointPath(item) {
+            try {
+                return item && item.typename === "PathItem" && item.pathPoints && item.pathPoints.length === 1;
+            } catch (eSingle) {}
+            return false;
+        }
+
+        function collectPartTargets(item) {
+            if (!item || largeSelection) return;
+
+            var type = item.typename;
+            if (type === "GroupItem" && item.pageItems) {
+                for (var g = 0; g < item.pageItems.length; g++) {
+                    collectPartTargets(item.pageItems[g]);
+                    if (largeSelection) return;
+                }
+                return;
+            }
+
+            if (type === "CompoundPathItem" && item.pathItems) {
+                for (var c = 0; c < item.pathItems.length; c++) {
+                    collectPartTargets(item.pathItems[c]);
+                    if (largeSelection) return;
+                }
+                return;
+            }
+
+            if (!MDUX_isDuctworkPart(item)) return;
+            if (isSinglePointPath(item)) return;
+
+            partTargets.push(item);
+            if (partTargets.length > MDUX_LARGE_SELECTION_THRESHOLD) {
+                largeSelection = true;
+            }
+        }
+
+        for (var s = 0; s < sel.length; s++) {
+            collectPartTargets(sel[s]);
+            if (largeSelection) break;
+        }
+
+        if (partTargets.length === 0) {
+            return JSON.stringify({
+                ok: true,
+                scale: null,
+                rotation: null,
+                mixedScale: false,
+                mixedRotation: false,
+                count: 0,
+                reason: "no-parts"
+            });
+        }
+
+        if (largeSelection) {
+            MDUX_debugLog("[SELECT-STATE] Large ductwork-parts selection (" + partTargets.length + " items) - returning mixed to avoid lockup");
+            return JSON.stringify({
+                ok: true,
+                scale: null,
+                rotation: null,
+                mixedScale: true,
+                mixedRotation: true,
+                count: partTargets.length,
+                largeSelection: true
+            });
+        }
+
         var count = 0;
 
         var firstScale = null;
@@ -4887,18 +4929,9 @@ function MDUX_getSelectionTransformState() {
         var mixedScale = false;
         var mixedRot = false;
 
-        for (var i = 0; i < sel.length; i++) {
+        for (var i = 0; i < partTargets.length; i++) {
             try {
-                var item = sel[i];
-
-                // Skip anchor points (single-point PathItems)
-                if (item.typename === "PathItem") {
-                    try {
-                        if (item.pathPoints && item.pathPoints.length === 1) {
-                            continue;
-                        }
-                    } catch (eAnchor) {}
-                }
+                var item = partTargets[i];
 
                 // Get metadata once per item (optimization: single parse instead of multiple)
                 var meta = MDUX_getMetadata(item);
