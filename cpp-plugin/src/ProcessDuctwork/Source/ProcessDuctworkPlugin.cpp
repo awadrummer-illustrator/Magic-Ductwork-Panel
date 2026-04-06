@@ -151,6 +151,8 @@ namespace
 		}
 	}
 
+	void FinalizeArtCaches(const std::vector<AIArtHandle>& arts);
+
 	void ClearSelection()
 	{
 		if (!sAIArtSet || !sAIArt) {
@@ -263,6 +265,234 @@ namespace
 			}
 			layer = next;
 		}
+	}
+
+	void CollectSelectedArtHandles(std::vector<AIArtHandle>& outArt)
+	{
+		outArt.clear();
+		if (!sAIArtSet) {
+			return;
+		}
+
+		AIArtSet selectedSet = nullptr;
+		if (sAIArtSet->NewArtSet(&selectedSet)) {
+			return;
+		}
+
+		size_t selectedCount = 0;
+		if (!sAIArtSet->SelectedArtSet(selectedSet) &&
+			!sAIArtSet->CountArtSet(selectedSet, &selectedCount)) {
+			outArt.reserve(selectedCount);
+			for (size_t i = 0; i < selectedCount; ++i) {
+				AIArtHandle art = nullptr;
+				if (!sAIArtSet->IndexArtSet(selectedSet, i, &art) && art) {
+					outArt.push_back(art);
+				}
+			}
+		}
+
+		sAIArtSet->DisposeArtSet(&selectedSet);
+	}
+
+	bool CollectSelectedLinePathData(std::vector<AIArtHandle>& outSelectedPaths,
+		std::vector<DuctworkPath>& outDuctworkPaths)
+	{
+		outSelectedPaths.clear();
+		outDuctworkPaths.clear();
+
+		DuctworkSelection::CollectSelectedPaths(outSelectedPaths);
+		if (outSelectedPaths.empty()) {
+			return false;
+		}
+
+		for (size_t i = 0; i < outSelectedPaths.size(); ++i) {
+			std::vector<DuctworkPoint> points;
+			bool closed = false;
+			if (!DuctworkGeometry::GetPathPoints(outSelectedPaths[i], points, closed)) {
+				continue;
+			}
+
+			DuctworkPath entry;
+			entry.art = outSelectedPaths[i];
+			entry.points = points;
+			entry.closed = closed;
+			entry.layerName = DuctworkGeometry::GetArtLayerName(outSelectedPaths[i]);
+			if (!DuctworkLayers::IsLineLayerName(entry.layerName)) {
+				continue;
+			}
+			outDuctworkPaths.push_back(entry);
+		}
+
+		return !outDuctworkPaths.empty();
+	}
+
+	void FinalizePanelEditAndRestoreSelection(const std::vector<AIArtHandle>& selectionSnapshot)
+	{
+		if (!sAIDocument) {
+			return;
+		}
+
+		std::vector<AIArtHandle> finalizePaths;
+		CollectDuctworkLayerPaths(finalizePaths);
+		FinalizeArtCaches(finalizePaths);
+		sAIDocument->SyncDocument();
+		sAIDocument->RedrawDocument();
+
+		std::vector<AIArtHandle> selectionToRestore;
+		FilterValidArtList(selectionSnapshot, selectionToRestore);
+		ClearSelection();
+		SelectArtList(selectionToRestore);
+	}
+
+	std::string EscapeJsonString(const std::string& input)
+	{
+		std::ostringstream out;
+		for (size_t i = 0; i < input.size(); ++i) {
+			switch (input[i]) {
+			case '\\': out << "\\\\"; break;
+			case '"': out << "\\\""; break;
+			case '\n': out << "\\n"; break;
+			case '\r': out << "\\r"; break;
+			case '\t': out << "\\t"; break;
+			default: out << input[i]; break;
+			}
+		}
+		return out.str();
+	}
+
+	bool IsPartAnchorArt(AIArtHandle art)
+	{
+		if (!art) {
+			return false;
+		}
+
+		const std::string layerName = DuctworkGeometry::GetArtLayerName(art);
+		if (!DuctworkLayers::IsPartLayerName(layerName)) {
+			return false;
+		}
+
+		std::vector<DuctworkPoint> points;
+		bool closed = false;
+		return DuctworkGeometry::GetPathPoints(art, points, closed) &&
+			!closed &&
+			points.size() == 1;
+	}
+
+	void CollectPartAnchors(AIArtHandle art, std::vector<AIArtHandle>& outAnchors)
+	{
+		if (!art || !sAIArt) {
+			return;
+		}
+
+		if (IsPartAnchorArt(art)) {
+			outAnchors.push_back(art);
+		}
+
+		AIArtHandle child = nullptr;
+		if (!sAIArt->GetArtFirstChild(art, &child) && child) {
+			AIArtHandle current = child;
+			while (current) {
+				CollectPartAnchors(current, outAnchors);
+				AIArtHandle next = nullptr;
+				if (sAIArt->GetArtSibling(current, &next)) {
+					break;
+				}
+				current = next;
+			}
+		}
+	}
+
+	size_t SelectDuctworkPartsInDocument(AIDocumentHandle document)
+	{
+		if (!document || !sAILayer || !sAIArt) {
+			return 0;
+		}
+
+		ClearSelection();
+
+		size_t selectedCount = 0;
+		for (size_t i = 0; i < DuctworkConstants::kPartLayerCount; ++i) {
+			ai::UnicodeString layerName = ai::UnicodeString::FromUTF8(DuctworkConstants::kPartLayers[i]);
+			AILayerHandle layer = nullptr;
+			if (sAILayer->GetLayerByTitle(&layer, layerName) || !layer) {
+				continue;
+			}
+
+			AIArtHandle layerGroup = nullptr;
+			if (sAIArt->GetFirstArtOfLayer(layer, &layerGroup) || !layerGroup) {
+				continue;
+			}
+
+			std::vector<AIArtHandle> parts;
+			CollectSelectableParts(layerGroup, parts);
+			for (size_t p = 0; p < parts.size(); ++p) {
+				if (sAIArt->SetArtUserAttr(parts[p], kArtSelected | kArtFullySelected,
+					kArtSelected | kArtFullySelected) == kNoErr) {
+					++selectedCount;
+				}
+			}
+		}
+
+		DuctworkLog::Write("Select parts selected=" + std::to_string(selectedCount));
+		return selectedCount;
+	}
+
+	size_t SelectDuctworkAnchorsInDocument(AIDocumentHandle document)
+	{
+		if (!document || !sAILayer || !sAIArt) {
+			return 0;
+		}
+
+		ClearSelection();
+
+		size_t selectedCount = 0;
+		for (size_t i = 0; i < DuctworkConstants::kPartLayerCount; ++i) {
+			ai::UnicodeString layerName = ai::UnicodeString::FromUTF8(DuctworkConstants::kPartLayers[i]);
+			AILayerHandle layer = nullptr;
+			if (sAILayer->GetLayerByTitle(&layer, layerName) || !layer) {
+				continue;
+			}
+
+			AIArtHandle layerGroup = nullptr;
+			if (sAIArt->GetFirstArtOfLayer(layer, &layerGroup) || !layerGroup) {
+				continue;
+			}
+
+			std::vector<AIArtHandle> anchors;
+			CollectPartAnchors(layerGroup, anchors);
+			for (size_t a = 0; a < anchors.size(); ++a) {
+				if (sAIArt->SetArtUserAttr(anchors[a], kArtSelected | kArtFullySelected,
+					kArtSelected | kArtFullySelected) == kNoErr) {
+					++selectedCount;
+				}
+			}
+		}
+
+		DuctworkLog::Write("Select anchors selected=" + std::to_string(selectedCount));
+		return selectedCount;
+	}
+
+	size_t DeleteSelectedPartAnchors()
+	{
+		std::vector<AIArtHandle> selectedPaths;
+		DuctworkSelection::CollectSelectedPaths(selectedPaths);
+
+		std::vector<AIArtHandle> anchorsToDelete;
+		for (size_t i = 0; i < selectedPaths.size(); ++i) {
+			if (IsPartAnchorArt(selectedPaths[i])) {
+				anchorsToDelete.push_back(selectedPaths[i]);
+			}
+		}
+
+		size_t deletedCount = 0;
+		for (size_t i = 0; i < anchorsToDelete.size(); ++i) {
+			if (sAIArt->DisposeArt(anchorsToDelete[i]) == kNoErr) {
+				++deletedCount;
+			}
+		}
+
+		DuctworkLog::Write("Delete anchors deleted=" + std::to_string(deletedCount));
+		return deletedCount;
 	}
 
 	bool SavePreOrthoCopy(AIDocumentHandle document)
@@ -972,11 +1202,133 @@ ASErr ProcessDuctworkPlugin::Message(char* caller, char* selector, void* message
 					std::ostringstream out;
 					if (processErr == kNoErr) {
 						out << "{\"ok\":true,\"message\":\""
-							<< outMsg.as_UTF8()
+							<< EscapeJsonString(outMsg.as_UTF8())
 							<< "\"}";
 					} else {
 						out << "{\"ok\":false,\"message\":\"Process failed.\"}";
 					}
+					msg->outParam = ai::UnicodeString::FromUTF8(out.str());
+					return kNoErr;
+				}
+
+				if (action == "create-parts" || action == "create-anchors") {
+					std::vector<AIArtHandle> selectionSnapshot;
+					CollectSelectedArtHandles(selectionSnapshot);
+
+					std::vector<AIArtHandle> selectedPaths;
+					std::vector<DuctworkPath> ductworkPaths;
+					if (!CollectSelectedLinePathData(selectedPaths, ductworkPaths)) {
+						msg->outParam = ai::UnicodeString::FromUTF8(
+							"{\"ok\":false,\"message\":\"No ductwork paths selected.\"}");
+						return kNoErr;
+					}
+
+					CepSuspendScope cepSuspend;
+					LiveEditSuspendScope liveEditSuspender;
+					StepTimer timer(action == "create-anchors" ? "PanelCreateAnchors" : "PanelCreateParts");
+					const bool anchorsOnly = (action == "create-anchors");
+					DuctworkPartStats partStats = DuctworkParts::CreateSelectionAnchorsAndGraphics(
+						ductworkPaths,
+						3.0,
+						50.0,
+						anchorsOnly,
+						false,
+						false);
+					FinalizePanelEditAndRestoreSelection(selectionSnapshot);
+					timer.LogElapsed();
+
+					std::ostringstream messageText;
+					if (anchorsOnly) {
+						messageText << "Created " << partStats.anchorsCreated << " part anchor(s).";
+					} else {
+						messageText << "Created " << partStats.anchorsCreated << " anchor(s) and "
+							<< partStats.graphicsPlaced << " graphic(s).";
+					}
+
+					std::ostringstream out;
+					out << "{\"ok\":true"
+						<< ",\"anchorsCreated\":" << partStats.anchorsCreated
+						<< ",\"graphicsPlaced\":" << partStats.graphicsPlaced
+						<< ",\"message\":\"" << EscapeJsonString(messageText.str()) << "\"}";
+					msg->outParam = ai::UnicodeString::FromUTF8(out.str());
+					return kNoErr;
+				}
+
+				if (action == "select-parts" || action == "select-anchors") {
+					AIDocumentHandle document = nullptr;
+					if (!sAIDocument || sAIDocument->GetDocument(&document) != kNoErr || !document) {
+						msg->outParam = ai::UnicodeString::FromUTF8(
+							"{\"ok\":false,\"message\":\"No document open.\"}");
+						return kNoErr;
+					}
+
+					const bool selectAnchors = (action == "select-anchors");
+					const size_t selectedCount = selectAnchors
+						? SelectDuctworkAnchorsInDocument(document)
+						: SelectDuctworkPartsInDocument(document);
+
+					if (sAIDocument) {
+						sAIDocument->SyncDocument();
+						sAIDocument->RedrawDocument();
+					}
+
+					std::ostringstream messageText;
+					if (selectedCount > 0) {
+						messageText << "Selected " << selectedCount << " "
+							<< (selectAnchors ? "anchor(s)." : "ductwork part(s).");
+					} else {
+						messageText << "No " << (selectAnchors ? "ductwork anchors" : "ductwork parts")
+							<< " found.";
+					}
+
+					std::ostringstream out;
+					out << "{\"ok\":true"
+						<< ",\"selectedCount\":" << selectedCount
+						<< ",\"message\":\"" << EscapeJsonString(messageText.str()) << "\"}";
+					msg->outParam = ai::UnicodeString::FromUTF8(out.str());
+					return kNoErr;
+				}
+
+				if (action == "delete-selected-anchors") {
+					CepSuspendScope cepSuspend;
+					LiveEditSuspendScope liveEditSuspender;
+					const size_t deletedCount = DeleteSelectedPartAnchors();
+					if (sAIDocument) {
+						sAIDocument->SyncDocument();
+						sAIDocument->RedrawDocument();
+					}
+
+					std::ostringstream messageText;
+					messageText << "Deleted " << deletedCount << " anchor(s).";
+					std::ostringstream out;
+					out << "{\"ok\":true"
+						<< ",\"deletedCount\":" << deletedCount
+						<< ",\"message\":\"" << EscapeJsonString(messageText.str()) << "\"}";
+					msg->outParam = ai::UnicodeString::FromUTF8(out.str());
+					return kNoErr;
+				}
+
+				if (action == "place-part-graphics") {
+					std::vector<AIArtHandle> selectionSnapshot;
+					CollectSelectedArtHandles(selectionSnapshot);
+
+					CepSuspendScope cepSuspend;
+					LiveEditSuspendScope liveEditSuspender;
+					StepTimer timer("PanelPlaceGraphics");
+					DuctworkPartStats partStats = DuctworkParts::PlaceGraphicsForAnchors(
+						3.0,
+						50.0,
+						false,
+						false);
+					FinalizePanelEditAndRestoreSelection(selectionSnapshot);
+					timer.LogElapsed();
+
+					std::ostringstream messageText;
+					messageText << "Placed " << partStats.graphicsPlaced << " graphic(s).";
+					std::ostringstream out;
+					out << "{\"ok\":true"
+						<< ",\"graphicsPlaced\":" << partStats.graphicsPlaced
+						<< ",\"message\":\"" << EscapeJsonString(messageText.str()) << "\"}";
 					msg->outParam = ai::UnicodeString::FromUTF8(out.str());
 					return kNoErr;
 				}
@@ -2138,35 +2490,6 @@ ASErr ProcessDuctworkPlugin::ProcessDuctwork(const ProcessDuctworkOptions& optio
 
 ASErr ProcessDuctworkPlugin::SelectDuctworkParts(AIDocumentHandle document)
 {
-	if (!document || !sAILayer || !sAIArt) {
-		return kNoErr;
-	}
-
-	ClearSelection();
-
-	size_t selectedCount = 0;
-	for (size_t i = 0; i < DuctworkConstants::kPartLayerCount; ++i) {
-		ai::UnicodeString layerName = ai::UnicodeString::FromUTF8(DuctworkConstants::kPartLayers[i]);
-		AILayerHandle layer = nullptr;
-		if (sAILayer->GetLayerByTitle(&layer, layerName) || !layer) {
-			continue;
-		}
-
-		AIArtHandle layerGroup = nullptr;
-		if (sAIArt->GetFirstArtOfLayer(layer, &layerGroup) || !layerGroup) {
-			continue;
-		}
-
-		std::vector<AIArtHandle> parts;
-		CollectSelectableParts(layerGroup, parts);
-		for (size_t p = 0; p < parts.size(); ++p) {
-			if (sAIArt->SetArtUserAttr(parts[p], kArtSelected | kArtFullySelected,
-				kArtSelected | kArtFullySelected) == kNoErr) {
-				++selectedCount;
-			}
-		}
-	}
-
-	DuctworkLog::Write("Select parts selected=" + std::to_string(selectedCount));
+	SelectDuctworkPartsInDocument(document);
 	return kNoErr;
 }

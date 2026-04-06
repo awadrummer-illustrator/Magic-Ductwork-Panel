@@ -6599,499 +6599,56 @@ function V3_normalizeAngle(angleDeg) {
     return angleDeg;
 }
 
-function MDUX_createUpdateDuctworkParts() {
-    MDUX_debugLog("[V3] MDUX_createUpdateDuctworkParts called");
+function MDUX_runCppPartsAction(actionName) {
     try {
-        var doc = app.activeDocument;
-        var paths = MDUX_collectSelectedDuctworkPaths();
-
-        if (paths.length === 0) {
-            return "No ductwork paths selected";
+        if (app.documents.length === 0) {
+            return "No document open.";
         }
-
-        MDUX_debugLog("[V3] Processing " + paths.length + " selected ductwork path(s)");
-
-        var DEFAULT_SCALE = 50;
-        var anchorCount = 0;
-        var graphicCount = 0;
-        var existingPositions = [];
-
-        // Group paths by their ductwork color layer
-        var pathsByColor = {};
-        for (var i = 0; i < paths.length; i++) {
-            var path = paths[i];
-            var layerName = "";
-            try { layerName = path.layer.name; } catch (e) { continue; }
-
-            if (!pathsByColor[layerName]) {
-                pathsByColor[layerName] = [];
-            }
-            pathsByColor[layerName].push(path);
+        var payload = "action=" + actionName;
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
+        if (!result) {
+            return "No response from C++ panel.";
         }
-
-        // Process each ductwork color group
-        for (var colorLayer in pathsByColor) {
-            if (!pathsByColor.hasOwnProperty(colorLayer)) continue;
-
-            var colorPaths = pathsByColor[colorLayer];
-            var registerLayerName = V3_DUCTWORK_COLOR_TO_REGISTER[colorLayer];
-
-            if (!registerLayerName) {
-                MDUX_debugLog("[V3] Skipping unknown ductwork color: " + colorLayer);
-                continue;
+        try {
+            var parsed = JSON.parse(result);
+            if (parsed && parsed.message) {
+                return parsed.message;
             }
-
-            var componentFileName = V3_REGISTER_TO_FILE[registerLayerName];
-            var componentFile = new File(DUCTWORK_ASSETS_PATH + componentFileName);
-
-            if (!componentFile.exists) {
-                MDUX_debugLog("[V3] WARNING: Component file not found: " + componentFile.fsName);
-                continue;
-            }
-
-            var registerLayer = V3_getOrCreateLayer(doc, registerLayerName);
-
-            MDUX_debugLog("[V3] Processing " + colorPaths.length + " paths on " + colorLayer + " -> " + registerLayerName);
-
-            // Collect all endpoints from this color's paths
-            for (var pathIdx = 0; pathIdx < colorPaths.length; pathIdx++) {
-                var path = colorPaths[pathIdx];
-                try {
-                    var pts = path.pathPoints;
-                    if (!pts || pts.length < 2) continue;
-
-                    // Process start endpoint
-                    var startPt = pts[0].anchor;
-                    var nextPt = pts[1].anchor;
-                    var startAngle = V3_computeSegmentAngle(null, startPt, nextPt);
-
-                    if (!V3_isPointAlreadyPlaced(startPt, existingPositions, 3)) {
-                        // Create anchor
-                        V3_createAnchorPoint(registerLayer, startPt, startAngle);
-                        anchorCount++;
-
-                        // Place linked graphic
-                        try {
-                            var placed = registerLayer.placedItems.add();
-                            placed.file = componentFile;
-                            try { placed.relink(componentFile); } catch (eRelink) {}
-                            try { placed.update(); } catch (eUpdate) {}
-
-                            // Center on anchor position
-                            var bounds = placed.geometricBounds;
-                            var w = bounds[2] - bounds[0];
-                            var h = bounds[1] - bounds[3];
-                            placed.position = [startPt[0] - w / 2, startPt[1] + h / 2];
-                            placed.name = registerLayerName.replace(" Registers", " Register") + " (Linked)";
-
-                            // Apply default 50% scale
-                            placed.resize(DEFAULT_SCALE, DEFAULT_SCALE, true, true, true, true, DEFAULT_SCALE, Transformation.CENTER);
-
-                            // Apply rotation to match ductwork angle
-                            placed.rotate(startAngle, true, true, true, true, Transformation.CENTER);
-
-                            // Re-center after scaling
-                            bounds = placed.geometricBounds;
-                            var cx = (bounds[0] + bounds[2]) / 2;
-                            var cy = (bounds[1] + bounds[3]) / 2;
-                            var dx = startPt[0] - cx;
-                            var dy = startPt[1] - cy;
-                            if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
-                                placed.translate(dx, dy, true, true, true, true);
-                            }
-
-                            // Store metadata
-                            var meta = {
-                                MDUX_RotationOverride: V3_normalizeAngle(startAngle),
-                                MDUX_CumulativeRotation: String(V3_normalizeAngle(startAngle))
-                            };
-                            MDUX_setMetadata(placed, meta);
-
-                            graphicCount++;
-                        } catch (ePlaceStart) {
-                            MDUX_debugLog("[V3] Error placing start graphic: " + ePlaceStart);
-                        }
-
-                        existingPositions.push(startPt);
-                    }
-
-                    // Process end endpoint
-                    var endPt = pts[pts.length - 1].anchor;
-                    var prevPt = pts[pts.length - 2].anchor;
-                    var endAngle = V3_computeSegmentAngle(prevPt, endPt, null);
-
-                    if (!V3_isPointAlreadyPlaced(endPt, existingPositions, 3)) {
-                        // Create anchor
-                        V3_createAnchorPoint(registerLayer, endPt, endAngle);
-                        anchorCount++;
-
-                        // Place linked graphic
-                        try {
-                            var placedEnd = registerLayer.placedItems.add();
-                            placedEnd.file = componentFile;
-                            try { placedEnd.relink(componentFile); } catch (eRelink2) {}
-                            try { placedEnd.update(); } catch (eUpdate2) {}
-
-                            // Center on anchor position
-                            var boundsEnd = placedEnd.geometricBounds;
-                            var wEnd = boundsEnd[2] - boundsEnd[0];
-                            var hEnd = boundsEnd[1] - boundsEnd[3];
-                            placedEnd.position = [endPt[0] - wEnd / 2, endPt[1] + hEnd / 2];
-                            placedEnd.name = registerLayerName.replace(" Registers", " Register") + " (Linked)";
-
-                            // Apply default 50% scale
-                            placedEnd.resize(DEFAULT_SCALE, DEFAULT_SCALE, true, true, true, true, DEFAULT_SCALE, Transformation.CENTER);
-
-                            // Apply rotation to match ductwork angle
-                            placedEnd.rotate(endAngle, true, true, true, true, Transformation.CENTER);
-
-                            // Re-center after scaling
-                            boundsEnd = placedEnd.geometricBounds;
-                            var cxEnd = (boundsEnd[0] + boundsEnd[2]) / 2;
-                            var cyEnd = (boundsEnd[1] + boundsEnd[3]) / 2;
-                            var dxEnd = endPt[0] - cxEnd;
-                            var dyEnd = endPt[1] - cyEnd;
-                            if (Math.abs(dxEnd) > 0.01 || Math.abs(dyEnd) > 0.01) {
-                                placedEnd.translate(dxEnd, dyEnd, true, true, true, true);
-                            }
-
-                            // Store metadata
-                            var metaEnd = {
-                                MDUX_RotationOverride: V3_normalizeAngle(endAngle),
-                                MDUX_CumulativeRotation: String(V3_normalizeAngle(endAngle))
-                            };
-                            MDUX_setMetadata(placedEnd, metaEnd);
-
-                            graphicCount++;
-                        } catch (ePlaceEnd) {
-                            MDUX_debugLog("[V3] Error placing end graphic: " + ePlaceEnd);
-                        }
-
-                        existingPositions.push(endPt);
-                    }
-
-                    // Process internal anchors (collinear points)
-                    for (var ptIdx = 1; ptIdx < pts.length - 1; ptIdx++) {
-                        var internalPt = pts[ptIdx].anchor;
-                        var prevInternal = pts[ptIdx - 1].anchor;
-                        var nextInternal = pts[ptIdx + 1].anchor;
-
-                        // Skip if already placed
-                        if (V3_isPointAlreadyPlaced(internalPt, existingPositions, 3)) continue;
-
-                        var internalAngle = V3_computeSegmentAngle(prevInternal, internalPt, null);
-
-                        // Create anchor
-                        V3_createAnchorPoint(registerLayer, internalPt, internalAngle);
-                        anchorCount++;
-
-                        // Place linked graphic
-                        try {
-                            var placedInt = registerLayer.placedItems.add();
-                            placedInt.file = componentFile;
-                            try { placedInt.relink(componentFile); } catch (eRelink3) {}
-                            try { placedInt.update(); } catch (eUpdate3) {}
-
-                            var boundsInt = placedInt.geometricBounds;
-                            var wInt = boundsInt[2] - boundsInt[0];
-                            var hInt = boundsInt[1] - boundsInt[3];
-                            placedInt.position = [internalPt[0] - wInt / 2, internalPt[1] + hInt / 2];
-                            placedInt.name = registerLayerName.replace(" Registers", " Register") + " (Linked)";
-
-                            placedInt.resize(DEFAULT_SCALE, DEFAULT_SCALE, true, true, true, true, DEFAULT_SCALE, Transformation.CENTER);
-                            placedInt.rotate(internalAngle, true, true, true, true, Transformation.CENTER);
-
-                            boundsInt = placedInt.geometricBounds;
-                            var cxInt = (boundsInt[0] + boundsInt[2]) / 2;
-                            var cyInt = (boundsInt[1] + boundsInt[3]) / 2;
-                            var dxInt = internalPt[0] - cxInt;
-                            var dyInt = internalPt[1] - cyInt;
-                            if (Math.abs(dxInt) > 0.01 || Math.abs(dyInt) > 0.01) {
-                                placedInt.translate(dxInt, dyInt, true, true, true, true);
-                            }
-
-                            var metaInt = {
-                                MDUX_RotationOverride: V3_normalizeAngle(internalAngle),
-                                MDUX_CumulativeRotation: String(V3_normalizeAngle(internalAngle))
-                            };
-                            MDUX_setMetadata(placedInt, metaInt);
-
-                            graphicCount++;
-                        } catch (ePlaceInt) {
-                            MDUX_debugLog("[V3] Error placing internal graphic: " + ePlaceInt);
-                        }
-
-                        existingPositions.push(internalPt);
-                    }
-                } catch (ePath) {
-                    MDUX_debugLog("[V3] Error processing path: " + ePath);
-                }
-            }
-        }
-
-        return "Created " + anchorCount + " anchor(s) and " + graphicCount + " graphic(s)";
+        } catch (jsonErr) {}
+        return result;
     } catch (e) {
-        MDUX_debugLog("[CREATE-PARTS] Error: " + e);
-        return "Error: " + e.message;
+        return "Error: " + e;
     }
+}
+
+function MDUX_createUpdateDuctworkParts() {
+    MDUX_debugLog("[PARTS-CPP] create/update via C++");
+    return MDUX_runCppPartsAction("create-parts");
 }
 
 function MDUX_createPartAnchorsOnly() {
-    MDUX_debugLog("[V3] MDUX_createPartAnchorsOnly called");
-    try {
-        var doc = app.activeDocument;
-        var paths = MDUX_collectSelectedDuctworkPaths();
-
-        if (paths.length === 0) {
-            return "No ductwork paths selected";
-        }
-
-        MDUX_debugLog("[V3] Creating anchors only for " + paths.length + " path(s)");
-
-        var anchorCount = 0;
-        var existingPositions = [];
-
-        // Group paths by their ductwork color layer
-        var pathsByColor = {};
-        for (var i = 0; i < paths.length; i++) {
-            var path = paths[i];
-            var layerName = "";
-            try { layerName = path.layer.name; } catch (e) { continue; }
-
-            if (!pathsByColor[layerName]) {
-                pathsByColor[layerName] = [];
-            }
-            pathsByColor[layerName].push(path);
-        }
-
-        // Process each ductwork color group
-        for (var colorLayer in pathsByColor) {
-            if (!pathsByColor.hasOwnProperty(colorLayer)) continue;
-
-            var colorPaths = pathsByColor[colorLayer];
-            var registerLayerName = V3_DUCTWORK_COLOR_TO_REGISTER[colorLayer];
-
-            if (!registerLayerName) {
-                MDUX_debugLog("[V3] Skipping unknown ductwork color: " + colorLayer);
-                continue;
-            }
-
-            var registerLayer = V3_getOrCreateLayer(doc, registerLayerName);
-
-            for (var pathIdx = 0; pathIdx < colorPaths.length; pathIdx++) {
-                var path = colorPaths[pathIdx];
-                try {
-                    var pts = path.pathPoints;
-                    if (!pts || pts.length < 2) continue;
-
-                    // Process all anchor points
-                    for (var ptIdx = 0; ptIdx < pts.length; ptIdx++) {
-                        var pt = pts[ptIdx].anchor;
-
-                        if (V3_isPointAlreadyPlaced(pt, existingPositions, 3)) continue;
-
-                        var prevPt = ptIdx > 0 ? pts[ptIdx - 1].anchor : null;
-                        var nextPt = ptIdx < pts.length - 1 ? pts[ptIdx + 1].anchor : null;
-                        var angle = V3_computeSegmentAngle(prevPt, pt, nextPt);
-
-                        V3_createAnchorPoint(registerLayer, pt, angle);
-                        anchorCount++;
-                        existingPositions.push(pt);
-                    }
-                } catch (ePath) {
-                    MDUX_debugLog("[V3] Error processing path: " + ePath);
-                }
-            }
-        }
-
-        return "Created " + anchorCount + " anchor point(s)";
-    } catch (e) {
-        MDUX_debugLog("[CREATE-ANCHORS] Error: " + e);
-        return "Error: " + e.message;
-    }
+    MDUX_debugLog("[PARTS-CPP] create anchors via C++");
+    return MDUX_runCppPartsAction("create-anchors");
 }
 
 function MDUX_selectDuctworkParts() {
-    MDUX_debugLog("[V3] MDUX_selectDuctworkParts called");
-    try {
-        var doc = app.activeDocument;
-        doc.selection = null;
-
-        // Build lookup hash for target layers
-        var partsLayerLookup = {};
-        for (var k = 0; k < DUCTWORK_PARTS.length; k++) {
-            partsLayerLookup[DUCTWORK_PARTS[k]] = true;
-        }
-
-        // Iterate through all placed items and select those on target layers
-        var placed = doc.placedItems;
-        var len = placed.length;
-        var count = 0;
-
-        for (var i = 0; i < len; i++) {
-            var item = placed[i];
-            if (partsLayerLookup[item.layer.name]) {
-                item.selected = true;
-                count++;
-            }
-        }
-
-        return count > 0 ? "Selected " + count + " ductwork part(s)" : "No ductwork parts found";
-    } catch (e) {
-        return "Error: " + e.message;
-    }
+    MDUX_debugLog("[PARTS-CPP] select parts via C++");
+    return MDUX_runCppPartsAction("select-parts");
 }
 
 function MDUX_selectDuctworkAnchors() {
-    MDUX_debugLog("[V3] MDUX_selectDuctworkAnchors called");
-    try {
-        var doc = app.activeDocument;
-        doc.selection = null;
-
-        // Build lookup hash for target layers
-        var partsLayerLookup = {};
-        for (var k = 0; k < DUCTWORK_PARTS.length; k++) {
-            partsLayerLookup[DUCTWORK_PARTS[k]] = true;
-        }
-
-        // Iterate through all path items and select anchors on target layers
-        var paths = doc.pathItems;
-        var len = paths.length;
-        var count = 0;
-
-        for (var i = 0; i < len; i++) {
-            var item = paths[i];
-            // Anchors are single-point paths with no stroke/fill on ductwork layers
-            if (partsLayerLookup[item.layer.name] &&
-                !item.stroked && !item.filled &&
-                item.pathPoints.length === 1) {
-                item.selected = true;
-                count++;
-            }
-        }
-
-        return count > 0 ? "Selected " + count + " anchor(s)" : "No ductwork anchors found";
-    } catch (e) {
-        return "Error: " + e.message;
-    }
+    MDUX_debugLog("[PARTS-CPP] select anchors via C++");
+    return MDUX_runCppPartsAction("select-anchors");
 }
 
 function MDUX_deleteSelectedAnchors() {
-    MDUX_debugLog("[V3] MDUX_deleteSelectedAnchors called");
-    try {
-        var doc = app.activeDocument;
-        var sel = doc.selection;
-        if (!sel || sel.length === 0) return "No selection";
-
-        var deletedCount = 0;
-
-        for (var i = sel.length - 1; i >= 0; i--) {
-            try {
-                var item = sel[i];
-                // Delete single-point paths (anchors)
-                if (item.typename === "PathItem" && item.pathPoints && item.pathPoints.length === 1) {
-                    if (!item.stroked && !item.filled) {
-                        item.remove();
-                        deletedCount++;
-                    }
-                }
-            } catch (e) {}
-        }
-
-        return "Deleted " + deletedCount + " anchor(s)";
-    } catch (e) {
-        return "Error: " + e.message;
-    }
+    MDUX_debugLog("[PARTS-CPP] delete anchors via C++");
+    return MDUX_runCppPartsAction("delete-selected-anchors");
 }
 
 function MDUX_placeDuctworkPartGraphics() {
-    MDUX_debugLog("[V3] MDUX_placeDuctworkPartGraphics called");
-    try {
-        var doc = app.activeDocument;
-        var placedCount = 0;
-
-        // Search all ductwork parts layers for anchors without nearby graphics
-        for (var layerIdx = 0; layerIdx < DUCTWORK_PARTS.length; layerIdx++) {
-            var layerName = DUCTWORK_PARTS[layerIdx];
-
-            // Determine component file for this layer
-            var componentFileName = V3_REGISTER_TO_FILE[layerName];
-            if (!componentFileName) continue;
-
-            var componentFile = new File(DUCTWORK_ASSETS_PATH + componentFileName);
-            if (!componentFile.exists) {
-                MDUX_debugLog("[V3] Component file not found: " + componentFile.fsName);
-                continue;
-            }
-
-            try {
-                var layer = doc.layers.getByName(layerName);
-                if (!layer) continue;
-
-                // Collect existing graphic positions
-                var existingGraphicPositions = [];
-                for (var g = 0; g < layer.placedItems.length; g++) {
-                    var graphic = layer.placedItems[g];
-                    try {
-                        var gBounds = graphic.geometricBounds;
-                        var gCx = (gBounds[0] + gBounds[2]) / 2;
-                        var gCy = (gBounds[1] + gBounds[3]) / 2;
-                        existingGraphicPositions.push([gCx, gCy]);
-                    } catch (e) {}
-                }
-
-                // Find anchors without graphics
-                for (var p = 0; p < layer.pathItems.length; p++) {
-                    var path = layer.pathItems[p];
-                    try {
-                        if (path.pathPoints.length !== 1 || path.stroked || path.filled) continue;
-
-                        var anchorPt = path.pathPoints[0].anchor;
-
-                        // Check if graphic already exists at this position
-                        if (V3_isPointAlreadyPlaced(anchorPt, existingGraphicPositions, 5)) continue;
-
-                        // Place new graphic at 100% size, no rotation
-                        var placed = layer.placedItems.add();
-                        placed.file = componentFile;
-                        try { placed.relink(componentFile); } catch (eRelink) {}
-                        try { placed.update(); } catch (eUpdate) {}
-
-                        // Center the placed item on the anchor point
-                        var bounds = placed.geometricBounds;
-                        var w = bounds[2] - bounds[0];
-                        var h = bounds[1] - bounds[3];
-                        placed.position = [anchorPt[0] - w / 2, anchorPt[1] + h / 2];
-                        placed.name = layerName.replace(" Registers", " Register") + " (Linked)";
-
-                        // No resize (100% size) and no rotation
-
-                        // Store metadata with 0 rotation
-                        var meta = {
-                            MDUX_RotationOverride: 0,
-                            MDUX_CumulativeRotation: "0"
-                        };
-                        MDUX_setMetadata(placed, meta);
-
-                        placedCount++;
-                    } catch (ePlacePath) {
-                        MDUX_debugLog("[V3] Error placing graphic: " + ePlacePath);
-                    }
-                }
-            } catch (eLayer) {
-                MDUX_debugLog("[V3] Error processing layer " + layerName + ": " + eLayer);
-            }
-        }
-
-        if (placedCount === 0) {
-            return "No anchors need graphics (all anchors already have graphics nearby)";
-        }
-
-        return "Placed " + placedCount + " graphic(s) at anchor positions";
-    } catch (e) {
-        MDUX_debugLog("[PLACE-GRAPHICS] Error: " + e);
-        return "Error: " + e.message;
-    }
+    MDUX_debugLog("[PARTS-CPP] place graphics via C++");
+    return MDUX_runCppPartsAction("place-part-graphics");
 }
 
 // ============================================

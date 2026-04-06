@@ -47,6 +47,18 @@ namespace DuctworkParts
 		bool skipPlacedMetadata,
 		bool directPlaceGraphics,
 		bool placedApiGraphics);
+
+	DuctworkPartStats CreateSelectionAnchorsAndGraphics(const std::vector<DuctworkPath>& paths,
+		double anchorTolerance,
+		double defaultScalePercent,
+		bool skipGraphics,
+		bool skipPlacedMetadata,
+		bool directPlaceGraphics);
+
+	DuctworkPartStats PlaceGraphicsForAnchors(double anchorTolerance,
+		double defaultScalePercent,
+		bool skipPlacedMetadata,
+		bool directPlaceGraphics);
 }
 
 #endif // __ProcessDuctworkParts_H__

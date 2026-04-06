@@ -923,6 +923,42 @@ namespace
 		}
 		return false;
 	}
+
+	void CollectAllPartLayerAnchors(std::vector<DuctworkPoint>& outPoints)
+	{
+		outPoints.clear();
+		for (size_t i = 0; i < DuctworkConstants::kPartLayerCount; ++i) {
+			CollectAnchorsFromLayerName(DuctworkConstants::kPartLayers[i], outPoints);
+		}
+		CollectAnchorsFromLayerName("Ignore", outPoints);
+		CollectAnchorsFromLayerName("Ignored", outPoints);
+	}
+
+	void CollectAllPartLayerGraphics(std::vector<DuctworkPoint>& outPoints)
+	{
+		outPoints.clear();
+		for (size_t i = 0; i < DuctworkConstants::kPartLayerCount; ++i) {
+			CollectGraphicsFromLayerName(DuctworkConstants::kPartLayers[i], outPoints);
+		}
+	}
+
+	double ReadAnchorRotation(AIArtHandle art)
+	{
+		const std::string note = DuctworkNotes::GetNote(art);
+		if (note.empty()) {
+			return 0.0;
+		}
+
+		const std::vector<std::string> tokens = DuctworkNotes::SplitTokens(note);
+		for (size_t i = 0; i < tokens.size(); ++i) {
+			const std::string& token = tokens[i];
+			const std::string prefix = "MD:POINT_ROT=";
+			if (token.find(prefix) == 0) {
+				return std::atof(token.substr(prefix.size()).c_str());
+			}
+		}
+		return 0.0;
+	}
 }
 
 void DuctworkParts::SetGlobalRotationOverride(bool hasOverride, double rotationOverride)
@@ -1379,6 +1415,224 @@ DuctworkPartStats DuctworkParts::CreateAnchorsAndGraphics(const std::vector<Duct
 
 		DuctworkLog::Write("Parts: layer done=" + registerLayerName +
 			" anchorsCreated=" + std::to_string(layerAnchorsCreated) +
+			" graphicsPlaced=" + std::to_string(layerGraphicsPlaced));
+	}
+
+	return stats;
+}
+
+DuctworkPartStats DuctworkParts::CreateSelectionAnchorsAndGraphics(const std::vector<DuctworkPath>& paths,
+	double anchorTolerance,
+	double defaultScalePercent,
+	bool skipGraphics,
+	bool skipPlacedMetadata,
+	bool directPlaceGraphics)
+{
+	DuctworkPartStats stats = {};
+	if (!sAILayer || !sAIArt || !sAIPath || !sAIPlaced) {
+		return stats;
+	}
+
+	std::map<std::string, std::vector<const DuctworkPath*> > grouped;
+	for (size_t i = 0; i < paths.size(); ++i) {
+		const DuctworkPath& path = paths[i];
+		if (path.closed || path.points.size() < 2) {
+			continue;
+		}
+		const char* registerLayer = ResolveRegisterLayer(path.layerName);
+		if (!registerLayer) {
+			continue;
+		}
+		grouped[registerLayer].push_back(&path);
+	}
+
+	const double scale = defaultScalePercent / 100.0;
+	for (std::map<std::string, std::vector<const DuctworkPath*> >::iterator it = grouped.begin();
+		it != grouped.end(); ++it) {
+		const std::string& registerLayerName = it->first;
+		const char* componentFile = ResolveComponentFile(registerLayerName);
+		if (!componentFile) {
+			continue;
+		}
+
+		AILayerHandle registerLayer = GetOrCreateLayer(registerLayerName.c_str());
+		if (!registerLayer) {
+			DuctworkLog::Write("SelectionParts: failed to find/create layer " + registerLayerName);
+			continue;
+		}
+		if (!DuctworkArt::IsLayerChainEditableVisible(registerLayer)) {
+			DuctworkLog::Write("SelectionParts: layer not editable/visible " + registerLayerName +
+				" " + DescribeLayerStatus(registerLayer));
+			continue;
+		}
+
+		const std::string assetPathStr = std::string(kAssetsPath) + componentFile;
+		bool canPlaceGraphics = false;
+		if (!skipGraphics) {
+			canPlaceGraphics = std::filesystem::exists(std::filesystem::path(assetPathStr));
+			if (!canPlaceGraphics) {
+				++stats.skippedMissingAsset;
+				DuctworkLog::Write("SelectionParts: missing asset " + assetPathStr +
+					" for layer " + registerLayerName);
+			}
+		}
+
+		std::vector<DuctworkPoint> existingAnchors;
+		std::vector<DuctworkPoint> crossLayerGraphics;
+		std::vector<DuctworkPoint> existingGraphics;
+		CollectAllPartLayerAnchors(existingAnchors);
+		CollectAllPartLayerGraphics(crossLayerGraphics);
+		AppendAnchors(existingAnchors, crossLayerGraphics);
+		CollectExistingGraphics(registerLayer, existingGraphics);
+
+		AIArtHandle templateGraphic = nullptr;
+		if (canPlaceGraphics && !directPlaceGraphics) {
+			templateGraphic = CreateTemplateGraphic(registerLayer, registerLayerName, scale, skipPlacedMetadata);
+			if (!templateGraphic) {
+				canPlaceGraphics = false;
+				DuctworkLog::Write("SelectionParts: template create failed for layer=" + registerLayerName);
+			}
+		}
+
+		size_t layerAnchorsCreated = 0;
+		size_t layerGraphicsPlaced = 0;
+		for (size_t pathIndex = 0; pathIndex < it->second.size(); ++pathIndex) {
+			const DuctworkPath& path = *it->second[pathIndex];
+			for (size_t pointIndex = 0; pointIndex < path.points.size(); ++pointIndex) {
+				const DuctworkPoint& point = path.points[pointIndex];
+				if (IsPointNear(point, existingAnchors, anchorTolerance)) {
+					++stats.skippedExisting;
+					continue;
+				}
+
+				const DuctworkPoint* prev = (pointIndex > 0) ? &path.points[pointIndex - 1] : nullptr;
+				const DuctworkPoint* next = (pointIndex + 1 < path.points.size()) ? &path.points[pointIndex + 1] : nullptr;
+				const double angle = NormalizeAngle(ComputeAngleDegrees(prev, point, next));
+
+				if (!CreateAnchorPath(registerLayer, point, angle)) {
+					continue;
+				}
+
+				++stats.anchorsCreated;
+				++layerAnchorsCreated;
+				existingAnchors.push_back(point);
+
+				if (!canPlaceGraphics || IsPointNear(point, existingGraphics, anchorTolerance + 2.0)) {
+					continue;
+				}
+
+				bool placedOk = false;
+				if (directPlaceGraphics) {
+					placedOk = PlaceLinkedGraphicAtPoint(registerLayer, registerLayerName, point, scale, angle, skipPlacedMetadata);
+				} else {
+					placedOk = PlaceFromTemplate(templateGraphic, registerLayerName, point, angle, skipPlacedMetadata);
+				}
+				if (placedOk) {
+					++stats.graphicsPlaced;
+					++layerGraphicsPlaced;
+					existingGraphics.push_back(point);
+				}
+			}
+		}
+
+		if (templateGraphic) {
+			sAIArt->DisposeArt(templateGraphic);
+		}
+
+		DuctworkLog::Write("SelectionParts: layer done=" + registerLayerName +
+			" anchorsCreated=" + std::to_string(layerAnchorsCreated) +
+			" graphicsPlaced=" + std::to_string(layerGraphicsPlaced));
+	}
+
+	return stats;
+}
+
+DuctworkPartStats DuctworkParts::PlaceGraphicsForAnchors(double anchorTolerance,
+	double defaultScalePercent,
+	bool skipPlacedMetadata,
+	bool directPlaceGraphics)
+{
+	DuctworkPartStats stats = {};
+	if (!sAILayer || !sAIArt || !sAIPath || !sAIPlaced) {
+		return stats;
+	}
+
+	const double scale = defaultScalePercent / 100.0;
+	for (size_t layerIndex = 0; layerIndex < DuctworkConstants::kPartLayerCount; ++layerIndex) {
+		const std::string registerLayerName = DuctworkConstants::kPartLayers[layerIndex];
+		const char* componentFile = ResolveComponentFile(registerLayerName);
+		if (!componentFile) {
+			continue;
+		}
+
+		AILayerHandle layer = DuctworkArt::FindLayerByTitle(registerLayerName.c_str());
+		if (!layer) {
+			continue;
+		}
+		if (!DuctworkArt::IsLayerChainEditableVisible(layer)) {
+			DuctworkLog::Write("PlaceGraphics: layer not editable/visible " + registerLayerName +
+				" " + DescribeLayerStatus(layer));
+			continue;
+		}
+
+		const std::string assetPathStr = std::string(kAssetsPath) + componentFile;
+		if (!std::filesystem::exists(std::filesystem::path(assetPathStr))) {
+			++stats.skippedMissingAsset;
+			DuctworkLog::Write("PlaceGraphics: missing asset " + assetPathStr +
+				" for layer " + registerLayerName);
+			continue;
+		}
+
+		std::vector<DuctworkPoint> existingGraphics;
+		CollectExistingGraphics(layer, existingGraphics);
+
+		AIArtHandle templateGraphic = nullptr;
+		if (!directPlaceGraphics) {
+			templateGraphic = CreateTemplateGraphic(layer, registerLayerName, scale, skipPlacedMetadata);
+			if (!templateGraphic) {
+				DuctworkLog::Write("PlaceGraphics: template create failed for layer=" + registerLayerName);
+				continue;
+			}
+		}
+
+		std::vector<AIArtHandle> layerArt;
+		DuctworkArt::CollectLayerArt(layer, layerArt);
+		size_t layerGraphicsPlaced = 0;
+		for (size_t artIndex = 0; artIndex < layerArt.size(); ++artIndex) {
+			DuctworkPoint anchorPoint;
+			bool closed = false;
+			std::vector<DuctworkPoint> anchorPoints;
+			if (!DuctworkGeometry::GetPathPoints(layerArt[artIndex], anchorPoints, closed) ||
+				closed ||
+				anchorPoints.size() != 1) {
+				continue;
+			}
+
+			anchorPoint = anchorPoints[0];
+			if (IsPointNear(anchorPoint, existingGraphics, anchorTolerance + 2.0)) {
+				++stats.skippedExisting;
+				continue;
+			}
+
+			const double angle = NormalizeAngle(ReadAnchorRotation(layerArt[artIndex]));
+			bool placedOk = false;
+			if (directPlaceGraphics) {
+				placedOk = PlaceLinkedGraphicAtPoint(layer, registerLayerName, anchorPoint, scale, angle, skipPlacedMetadata);
+			} else {
+				placedOk = PlaceFromTemplate(templateGraphic, registerLayerName, anchorPoint, angle, skipPlacedMetadata);
+			}
+			if (placedOk) {
+				++stats.graphicsPlaced;
+				++layerGraphicsPlaced;
+				existingGraphics.push_back(anchorPoint);
+			}
+		}
+
+		if (templateGraphic) {
+			sAIArt->DisposeArt(templateGraphic);
+		}
+
+		DuctworkLog::Write("PlaceGraphics: layer done=" + registerLayerName +
 			" graphicsPlaced=" + std::to_string(layerGraphicsPlaced));
 	}
 
