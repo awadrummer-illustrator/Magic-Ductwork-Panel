@@ -145,16 +145,35 @@
                                 <span>No Final Segment Thickness</span>
                             </label>
                         </div>
-                        <button id="revert-emory-centerlines-btn" style="width: 100%; margin-top: 4px;">Revert to Centerlines</button>
-                        <button id="purge-emory-state-btn" style="width: 100%; margin-top: 4px;">Purge Emory State From Selection</button>
-                        <div class="btn-row" style="margin-top: 4px;">
-                            <button id="hide-emory-centerlines-btn">Hide Centerlines</button>
-                            <button id="show-emory-centerlines-btn">Show Centerlines</button>
+                        <button id="revert-emory-centerlines-btn" class="btn-hue-orange" style="width: 100%; margin-top: 4px;">Revert to Centerlines</button>
+                        <button id="select-emory-centerlines-btn" class="btn-hue-green" style="width: 100%; margin-top: 4px;">Select Centerlines</button>
+                        <div class="btn-row emory-action-row" style="margin-top: 4px;">
+                            <button id="hide-emory-centerlines-btn" class="btn-hue-red">Hide Centerlines</button>
+                            <button id="show-emory-centerlines-btn" class="btn-hue-green">Show Centerlines</button>
                         </div>
-                        <button id="toggle-connector-style-btn" style="width: 100%; margin-top: 4px;">Toggle Selected Connector Style</button>
-                        <button id="toggle-terminal-segment-style-btn" style="width: 100%; margin-top: 4px;">Toggle Selected Final Segment Curve</button>
-                        <button id="set-emory-start-btn" style="width: 100%; margin-top: 4px;">Mark Selected Segment As Start</button>
-                        <button id="clear-emory-start-btn" style="width: 100%; margin-top: 4px;">Unmark Selected Segment As Start</button>
+                        <div class="btn-row emory-action-row emory-action-row-compact" style="margin-top: 4px;">
+                            <button id="set-terminal-segment-straight-btn" class="btn-hue-red">Final Curve Off</button>
+                            <button id="set-terminal-segment-curved-btn" class="btn-hue-green">Final Curve On</button>
+                        </div>
+                        <div class="btn-row emory-action-row emory-action-row-compact" style="margin-top: 4px;">
+                            <button id="set-curved-connector-style-btn" class="btn-with-icon">
+                                <svg class="btn-line-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                                    <path d="M2 11C4.2 4.5 11.8 4.5 14 11"></path>
+                                </svg>
+                                <span>Curved Connectors</span>
+                            </button>
+                            <button id="set-straight-connector-style-btn" class="btn-with-icon">
+                                <svg class="btn-line-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                                    <path d="M2 8H14"></path>
+                                </svg>
+                                <span>Straight Connectors</span>
+                            </button>
+                        </div>
+                        <div class="btn-row emory-action-row emory-action-row-compact" style="margin-top: 4px;">
+                            <button id="clear-emory-start-btn" class="btn-hue-red">Unmark Start Segment</button>
+                            <button id="set-emory-start-btn" class="btn-hue-green">Mark Start Segment</button>
+                        </div>
+                        <button id="purge-emory-state-btn" class="btn-hue-red" style="width: 100%; margin-top: 4px;">Purge Emory State From Selection</button>
                         <div class="control-group" style="margin-top: 6px;">
                             <div class="slider-row" style="margin-bottom: 4px;">
                                 <span class="slider-label" style="width: 62px;">Width</span>

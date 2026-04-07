@@ -72,11 +72,14 @@
     let processNormalControls = document.getElementById('process-normal-controls');
     let processEmoryControls = document.getElementById('process-emory-controls');
     let revertEmoryCenterlinesBtn = document.getElementById('revert-emory-centerlines-btn');
+    let selectEmoryCenterlinesBtn = document.getElementById('select-emory-centerlines-btn');
     let purgeEmoryStateBtn = document.getElementById('purge-emory-state-btn');
     let hideEmoryCenterlinesBtn = document.getElementById('hide-emory-centerlines-btn');
     let showEmoryCenterlinesBtn = document.getElementById('show-emory-centerlines-btn');
-    let toggleConnectorStyleBtn = document.getElementById('toggle-connector-style-btn');
-    let toggleTerminalSegmentStyleBtn = document.getElementById('toggle-terminal-segment-style-btn');
+    let setCurvedConnectorStyleBtn = document.getElementById('set-curved-connector-style-btn');
+    let setStraightConnectorStyleBtn = document.getElementById('set-straight-connector-style-btn');
+    let setCurvedTerminalSegmentStyleBtn = document.getElementById('set-terminal-segment-curved-btn');
+    let setStraightTerminalSegmentStyleBtn = document.getElementById('set-terminal-segment-straight-btn');
     let setEmoryStartBtn = document.getElementById('set-emory-start-btn');
     let clearEmoryStartBtn = document.getElementById('clear-emory-start-btn');
     let emoryWidthSlider = document.getElementById('emory-width-slider');
@@ -130,11 +133,14 @@
         processNormalControls = document.getElementById('process-normal-controls');
         processEmoryControls = document.getElementById('process-emory-controls');
         revertEmoryCenterlinesBtn = document.getElementById('revert-emory-centerlines-btn');
+        selectEmoryCenterlinesBtn = document.getElementById('select-emory-centerlines-btn');
         purgeEmoryStateBtn = document.getElementById('purge-emory-state-btn');
         hideEmoryCenterlinesBtn = document.getElementById('hide-emory-centerlines-btn');
         showEmoryCenterlinesBtn = document.getElementById('show-emory-centerlines-btn');
-        toggleConnectorStyleBtn = document.getElementById('toggle-connector-style-btn');
-        toggleTerminalSegmentStyleBtn = document.getElementById('toggle-terminal-segment-style-btn');
+        setCurvedConnectorStyleBtn = document.getElementById('set-curved-connector-style-btn');
+        setStraightConnectorStyleBtn = document.getElementById('set-straight-connector-style-btn');
+        setCurvedTerminalSegmentStyleBtn = document.getElementById('set-terminal-segment-curved-btn');
+        setStraightTerminalSegmentStyleBtn = document.getElementById('set-terminal-segment-straight-btn');
         setEmoryStartBtn = document.getElementById('set-emory-start-btn');
         clearEmoryStartBtn = document.getElementById('clear-emory-start-btn');
         emoryWidthSlider = document.getElementById('emory-width-slider');
@@ -1017,6 +1023,24 @@
         if (showEmoryCenterlinesBtn) showEmoryCenterlinesBtn.disabled = !enabled;
     }
 
+    function updateEmoryTerminalStyleButtons(state) {
+        if (setCurvedTerminalSegmentStyleBtn) {
+            setCurvedTerminalSegmentStyleBtn.disabled = false;
+        }
+        if (setStraightTerminalSegmentStyleBtn) {
+            setStraightTerminalSegmentStyleBtn.disabled = false;
+        }
+    }
+
+    function setEmoryTerminalStyleButtonsDisabled(disabled) {
+        if (setCurvedTerminalSegmentStyleBtn) {
+            setCurvedTerminalSegmentStyleBtn.disabled = !!disabled;
+        }
+        if (setStraightTerminalSegmentStyleBtn) {
+            setStraightTerminalSegmentStyleBtn.disabled = !!disabled;
+        }
+    }
+
     async function refreshEmorySelectionState(force) {
         if (!isEmoryModeActive()) return;
         if (!setEmoryStartBtn || !emoryWidthSlider || !emoryWidthInput || !emoryStrokeSlider || !emoryStrokeInput) return;
@@ -1039,10 +1063,7 @@
                 setEmorySelectionStatus('');
                 setEmoryWidthStatus((state && state.message) ? state.message : 'Unable to read Emory selection.', true);
                 setEmoryStrokeStatus('', false);
-                if (toggleTerminalSegmentStyleBtn) {
-                    toggleTerminalSegmentStyleBtn.disabled = true;
-                    toggleTerminalSegmentStyleBtn.textContent = 'Toggle Selected Final Segment Curve';
-                }
+                setEmoryTerminalStyleButtonsDisabled(true);
                 if (hideEmoryCenterlinesBtn) hideEmoryCenterlinesBtn.disabled = true;
                 if (showEmoryCenterlinesBtn) showEmoryCenterlinesBtn.disabled = true;
                 return;
@@ -1059,18 +1080,7 @@
                     setEmorySelectionStatus('');
                 }
                 setEmoryWidthStatus('');
-                if (toggleTerminalSegmentStyleBtn) {
-                    const canToggleTerminalStyle = !!state.canToggleTerminalStyle;
-                    toggleTerminalSegmentStyleBtn.disabled = false;
-                    if (canToggleTerminalStyle) {
-                        const currentTerminalStyle = String(state.terminalStyle || 'straight').toLowerCase();
-                        toggleTerminalSegmentStyleBtn.textContent = currentTerminalStyle === 'curved'
-                            ? 'Set Selected Final Segment Straight'
-                            : 'Set Selected Final Segment Curved';
-                    } else {
-                        toggleTerminalSegmentStyleBtn.textContent = 'Toggle Selected Final Segment Curve';
-                    }
-                }
+                updateEmoryTerminalStyleButtons(state);
                 if (canApplyStroke) {
                     const referenceStrokeWidth = Number(state.referenceStrokeWidth || state.selectedStrokeWidth || 0);
                     if (referenceStrokeWidth > 0) {
@@ -1128,18 +1138,7 @@
             if (clearEmoryStartBtn) {
                 clearEmoryStartBtn.disabled = !state.canClearStart;
             }
-            if (toggleTerminalSegmentStyleBtn) {
-                const canToggleTerminalStyle = !!state.canToggleTerminalStyle;
-                toggleTerminalSegmentStyleBtn.disabled = false;
-                if (canToggleTerminalStyle) {
-                    const currentTerminalStyle = String(state.terminalStyle || 'straight').toLowerCase();
-                    toggleTerminalSegmentStyleBtn.textContent = currentTerminalStyle === 'curved'
-                        ? 'Set Selected Final Segment Straight'
-                        : 'Set Selected Final Segment Curved';
-                } else {
-                    toggleTerminalSegmentStyleBtn.textContent = 'Toggle Selected Final Segment Curve';
-                }
-            }
+            updateEmoryTerminalStyleButtons(state);
             if (emoryWidthSlider) emoryWidthSlider.disabled = !canApplyWidth;
             if (emoryWidthInput) emoryWidthInput.disabled = !canApplyWidth;
             if (emoryStrokeSlider) emoryStrokeSlider.disabled = !canApplyStroke;
@@ -1209,6 +1208,7 @@
             setEmorySelectionStatus('');
             setEmoryWidthStatus('Unable to refresh Emory selection state: ' + e.message, true);
             setEmoryStrokeStatus('', false);
+            setEmoryTerminalStyleButtonsDisabled(true);
         } finally {
             emoryWidthRefreshInFlight = false;
         }
@@ -1925,23 +1925,35 @@
         }
     }
 
-    async function handleToggleConnectorStyleClick() {
-        if (!toggleConnectorStyleBtn) return;
+    async function handleSetConnectorStyleClick(targetStyle) {
+        const target = String(targetStyle || '').toLowerCase();
+        if (target !== 'curved' && target !== 'straight') return;
+        const buttons = [setCurvedConnectorStyleBtn, setStraightConnectorStyleBtn].filter(Boolean);
+        if (!buttons.length) return;
+
         processingInProgress = true;
-        toggleConnectorStyleBtn.disabled = true;
-        setProcessStatus('Toggling selected connector style...');
+        buttons.forEach(function (button) {
+            button.disabled = true;
+        });
+        setProcessStatus(target === 'curved'
+            ? 'Converting selected connectors to curved connectors...'
+            : 'Converting selected connectors to straight connectors...');
         try {
             await ensureBridgeLoaded();
-            const result = parseBridgeJsonResult(await evalScript('MDUX_cppToggleSelectedEmoryConnector()'));
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppSetSelectedEmoryConnectorStyle("' + target + '")'));
             if (result && result.ok !== false) {
-                setProcessStatus(result.message || 'Connector style updated.');
+                setProcessStatus(result.message || (target === 'curved'
+                    ? 'Selected connectors converted to curved connectors.'
+                    : 'Selected connectors converted to straight connectors.'));
             } else {
                 setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to update connector style.'), true);
             }
         } catch (e) {
             setProcessStatus('Error: ' + e.message, true);
         } finally {
-            toggleConnectorStyleBtn.disabled = false;
+            buttons.forEach(function (button) {
+                button.disabled = false;
+            });
             setTimeout(function() {
                 processingInProgress = false;
                 scheduleSkipOrthoRefresh();
@@ -1949,26 +1961,38 @@
         }
     }
 
-    async function handleToggleTerminalSegmentStyleClick() {
-        if (!toggleTerminalSegmentStyleBtn) return;
+    async function handleSetTerminalSegmentStyleClick(targetStyle) {
+        const target = String(targetStyle || '').toLowerCase();
+        if (target !== 'curved' && target !== 'straight') return;
+        const buttons = [setCurvedTerminalSegmentStyleBtn, setStraightTerminalSegmentStyleBtn].filter(Boolean);
+        if (!buttons.length) return;
+
         processingInProgress = true;
-        htmlLog('[PANEL] ToggleTerminalSegmentStyle click');
-        toggleTerminalSegmentStyleBtn.disabled = true;
-        setProcessStatus('Updating selected final segment style...');
+        htmlLog('[PANEL] SetTerminalSegmentStyle click target=' + target);
+        buttons.forEach(function (button) {
+            button.disabled = true;
+        });
+        setProcessStatus(target === 'curved'
+            ? 'Setting selected final segment to curved...'
+            : 'Setting selected final segment to straight...');
         try {
             await ensureBridgeLoaded();
-            const result = parseBridgeJsonResult(await evalScript('MDUX_cppToggleSelectedEmoryTerminalSegmentStyle()'));
-            htmlLog('[PANEL] ToggleTerminalSegmentStyle result ok=' + (result && result.ok !== false ? 'true' : 'false') + ' message=' + (result && result.message ? result.message : ''));
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppSetSelectedEmoryTerminalSegmentStyle("' + target + '")'));
+            htmlLog('[PANEL] SetTerminalSegmentStyle result ok=' + (result && result.ok !== false ? 'true' : 'false') + ' message=' + (result && result.message ? result.message : ''));
             if (result && result.ok !== false) {
-                setProcessStatus(result.message || 'Updated selected final segment style.');
+                setProcessStatus(result.message || (target === 'curved'
+                    ? 'Selected final segment set to curved.'
+                    : 'Selected final segment set to straight.'));
             } else {
                 setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to update final segment style.'), true);
             }
         } catch (e) {
-            htmlLog('[PANEL] ToggleTerminalSegmentStyle exception=' + (e && e.message ? e.message : e));
+            htmlLog('[PANEL] SetTerminalSegmentStyle exception=' + (e && e.message ? e.message : e));
             setProcessStatus('Error: ' + e.message, true);
         } finally {
-            toggleTerminalSegmentStyleBtn.disabled = false;
+            buttons.forEach(function (button) {
+                button.disabled = false;
+            });
             setTimeout(function() {
                 processingInProgress = false;
                 scheduleSkipOrthoRefresh();
@@ -1994,6 +2018,31 @@
         } finally {
             revertEmoryCenterlinesBtn.disabled = false;
             // PERF: Short cooldown to absorb delayed CEP events
+            setTimeout(function() {
+                processingInProgress = false;
+                scheduleSkipOrthoRefresh();
+            }, 200);
+        }
+    }
+
+    async function handleSelectEmoryCenterlinesClick() {
+        if (!selectEmoryCenterlinesBtn) return;
+        processingInProgress = true;
+        selectEmoryCenterlinesBtn.disabled = true;
+        setProcessStatus('Selecting Emory centerlines...');
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppSelectSelectedEmoryCenterlines()'));
+            if (result && result.ok !== false) {
+                setProcessStatus(result.message || 'Selected Emory centerlines.');
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                setProcessStatus('Error: ' + (result && result.message ? result.message : 'Unable to select Emory centerlines.'), true);
+            }
+        } catch (e) {
+            setProcessStatus('Error: ' + e.message, true);
+        } finally {
+            selectEmoryCenterlinesBtn.disabled = false;
             setTimeout(function() {
                 processingInProgress = false;
                 scheduleSkipOrthoRefresh();
@@ -2955,11 +3004,14 @@
         if (processPlacedBtn) processPlacedBtn.addEventListener('click', handleProcessPlacedApiClick);
         if (processEmoryBtn) processEmoryBtn.addEventListener('click', handleProcessEmoryClick);
         if (revertEmoryCenterlinesBtn) revertEmoryCenterlinesBtn.addEventListener('click', handleRevertEmoryCenterlinesClick);
+        if (selectEmoryCenterlinesBtn) selectEmoryCenterlinesBtn.addEventListener('click', handleSelectEmoryCenterlinesClick);
         if (purgeEmoryStateBtn) purgeEmoryStateBtn.addEventListener('click', handlePurgeEmoryStateClick);
         if (hideEmoryCenterlinesBtn) hideEmoryCenterlinesBtn.addEventListener('click', handleHideEmoryCenterlinesClick);
         if (showEmoryCenterlinesBtn) showEmoryCenterlinesBtn.addEventListener('click', handleShowEmoryCenterlinesClick);
-        if (toggleConnectorStyleBtn) toggleConnectorStyleBtn.addEventListener('click', handleToggleConnectorStyleClick);
-        if (toggleTerminalSegmentStyleBtn) toggleTerminalSegmentStyleBtn.addEventListener('click', handleToggleTerminalSegmentStyleClick);
+        if (setCurvedConnectorStyleBtn) setCurvedConnectorStyleBtn.addEventListener('click', function () { handleSetConnectorStyleClick('curved'); });
+        if (setStraightConnectorStyleBtn) setStraightConnectorStyleBtn.addEventListener('click', function () { handleSetConnectorStyleClick('straight'); });
+        if (setCurvedTerminalSegmentStyleBtn) setCurvedTerminalSegmentStyleBtn.addEventListener('click', function () { handleSetTerminalSegmentStyleClick('curved'); });
+        if (setStraightTerminalSegmentStyleBtn) setStraightTerminalSegmentStyleBtn.addEventListener('click', function () { handleSetTerminalSegmentStyleClick('straight'); });
         if (setEmoryStartBtn) setEmoryStartBtn.addEventListener('click', handleSetEmoryStartClick);
         if (clearEmoryStartBtn) clearEmoryStartBtn.addEventListener('click', handleClearEmoryStartClick);
         if (emoryTaperAlignABtn) emoryTaperAlignABtn.addEventListener('click', handleSetEmoryTaperAlignmentClick);

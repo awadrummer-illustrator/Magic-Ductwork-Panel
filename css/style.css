@@ -369,6 +369,75 @@ button:active {
     flex: 1;
 }
 
+.emory-action-row {
+    margin-bottom: 0;
+}
+
+.emory-action-row button {
+    min-width: 0;
+}
+
+.emory-action-row-compact button {
+    padding: 4px 3px;
+    font-size: 7px;
+    letter-spacing: 0.35px;
+}
+
+.btn-with-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    white-space: nowrap;
+}
+
+.btn-line-icon {
+    width: 10px;
+    height: 10px;
+    min-width: 10px;
+    stroke: currentColor;
+    fill: none;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.btn-hue-red {
+    border-color: rgba(255, 102, 122, 0.72) !important;
+    color: #ffe0e5 !important;
+    background: rgba(255, 72, 96, 0.12) !important;
+}
+
+.btn-hue-red:hover {
+    border-color: rgba(255, 122, 142, 0.9) !important;
+    background: rgba(255, 72, 96, 0.2) !important;
+    box-shadow: 0 0 10px rgba(255, 90, 116, 0.28) !important;
+}
+
+.btn-hue-green {
+    border-color: rgba(50, 220, 120, 0.72) !important;
+    color: #e1ffed !important;
+    background: rgba(40, 190, 100, 0.12) !important;
+}
+
+.btn-hue-green:hover {
+    border-color: rgba(86, 235, 145, 0.9) !important;
+    background: rgba(40, 190, 100, 0.2) !important;
+    box-shadow: 0 0 10px rgba(56, 210, 116, 0.28) !important;
+}
+
+.btn-hue-orange {
+    border-color: rgba(255, 176, 74, 0.82) !important;
+    color: #fff2de !important;
+    background: rgba(255, 140, 36, 0.18) !important;
+}
+
+.btn-hue-orange:hover {
+    border-color: rgba(255, 196, 110, 0.96) !important;
+    background: rgba(255, 140, 36, 0.28) !important;
+    box-shadow: 0 0 10px rgba(255, 158, 58, 0.3) !important;
+}
+
 /* Selection Transform */
 .control-group {
     margin-bottom: 4px;

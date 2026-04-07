@@ -2835,6 +2835,31 @@ function MDUX_moveToLayerBridge(optionsJSON) {
             return false;
         }
 
+        function isReplacementTargetItem(item, layerName) {
+            if (!item || !layerName) return false;
+            try {
+                if (item.typename === 'PlacedItem') {
+                    return isValidDuctworkLayer(layerName);
+                }
+                if (item.typename === 'PathItem') {
+                    return item.pathPoints && item.pathPoints.length === 1 && isValidDuctworkLayer(layerName);
+                }
+            } catch (eReplacementTarget) {}
+            return false;
+        }
+
+        var prioritizePartReplacement = false;
+        for (var selIdx = 0; selIdx < selection.length; selIdx++) {
+            var selectedItem = selection[selIdx];
+            var selectedLayerName = null;
+            try { selectedLayerName = selectedItem && selectedItem.layer ? selectedItem.layer.name : null; } catch (eSelectedLayer) {}
+            if (isReplacementTargetItem(selectedItem, selectedLayerName)) {
+                prioritizePartReplacement = true;
+                break;
+            }
+        }
+        $.writeln("[MOVE] prioritizePartReplacement=" + (prioritizePartReplacement ? 1 : 0));
+
         // Helper function to find and remove existing anchors at a position from ALL ductwork parts layers
         // Returns the removed anchor's layer name if one was found and removed, null otherwise
         function removeExistingAnchorAtPosition(x, y, tolerance, excludeLayer) {
@@ -3143,9 +3168,16 @@ function MDUX_moveToLayerBridge(optionsJSON) {
 
             var isOnDuctworkParts = isValidDuctworkLayer(itemLayerName);
             var isOnIgnoreLayer = (itemLayerName === 'Ignore' || itemLayerName === 'Ignored');
+            var isReplacementTarget = isReplacementTargetItem(item, itemLayerName);
 
             // Accept items from ANY layer per user request
             $.writeln("[MOVE]   Item accepted from layer: " + itemLayerName);
+
+            if (prioritizePartReplacement && !isReplacementTarget) {
+                $.writeln("[MOVE]   Ignored non-part item during mixed-selection replacement");
+                moveLogLines.push("  Ignored in mixed-selection replacement mode");
+                continue;
+            }
 
             try {
                 moveLogLines.push("  Checking typename: " + item.typename);
@@ -4356,6 +4388,146 @@ function MDUX_cppToggleSelectedEmoryConnector() {
     }
 }
 
+function MDUX_getSelectedEmoryConnectorStyle() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, available: false, message: "No document open." });
+        }
+
+        var doc = app.activeDocument;
+        var selection = doc.selection;
+        if (!selection || !selection.length) {
+            return JSON.stringify({ ok: false, available: false, message: "Select Emory connector art first." });
+        }
+
+        var curvedCount = 0;
+        var straightCount = 0;
+        var tol = 0.05;
+
+        function valuesDiffer(a, b) {
+            return Math.abs(Number(a || 0) - Number(b || 0)) > tol;
+        }
+
+        function pointHasCurve(point) {
+            if (!point || !point.anchor || !point.leftDirection || !point.rightDirection) {
+                return false;
+            }
+            return valuesDiffer(point.leftDirection[0], point.anchor[0]) ||
+                valuesDiffer(point.leftDirection[1], point.anchor[1]) ||
+                valuesDiffer(point.rightDirection[0], point.anchor[0]) ||
+                valuesDiffer(point.rightDirection[1], point.anchor[1]);
+        }
+
+        function inspectPath(pathItem) {
+            if (!pathItem || !pathItem.closed || !pathItem.pathPoints || pathItem.pathPoints.length < 2) {
+                return;
+            }
+
+            var isCurved = false;
+            try {
+                var note = String(pathItem.note || "").toLowerCase();
+                if (note.indexOf("corner connector") >= 0) {
+                    isCurved = true;
+                }
+            } catch (eNote) { }
+
+            if (!isCurved) {
+                for (var i = 0; i < pathItem.pathPoints.length; i++) {
+                    if (pointHasCurve(pathItem.pathPoints[i])) {
+                        isCurved = true;
+                        break;
+                    }
+                }
+            }
+
+            if (isCurved) {
+                curvedCount++;
+            } else {
+                straightCount++;
+            }
+        }
+
+        function inspectItem(item) {
+            if (!item) {
+                return;
+            }
+            if (item.typename === "PathItem") {
+                inspectPath(item);
+                return;
+            }
+            if (item.typename === "CompoundPathItem") {
+                for (var p = 0; p < item.pathItems.length; p++) {
+                    inspectPath(item.pathItems[p]);
+                }
+                return;
+            }
+            if (item.typename === "GroupItem") {
+                for (var g = 0; g < item.pageItems.length; g++) {
+                    inspectItem(item.pageItems[g]);
+                }
+            }
+        }
+
+        for (var si = 0; si < selection.length; si++) {
+            inspectItem(selection[si]);
+        }
+
+        if (!curvedCount && !straightCount) {
+            return JSON.stringify({ ok: false, available: false, message: "Select Emory connector art first." });
+        }
+
+        if (curvedCount && straightCount) {
+            return JSON.stringify({ ok: true, available: true, mixed: true, connectorStyle: "mixed" });
+        }
+
+        return JSON.stringify({
+            ok: true,
+            available: true,
+            mixed: false,
+            connectorStyle: curvedCount > 0 ? "curved" : "straight"
+        });
+    } catch (e) {
+        return JSON.stringify({ ok: false, available: false, message: "Unable to inspect connector style: " + e });
+    }
+}
+
+function MDUX_cppSetSelectedEmoryConnectorStyle(targetStyle) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+
+        var target = String(targetStyle || "").toLowerCase();
+        if (target !== "curved" && target !== "straight") {
+            return JSON.stringify({ ok: false, message: "Invalid connector style target." });
+        }
+
+        var currentState = null;
+        try {
+            currentState = JSON.parse(MDUX_getSelectedEmoryConnectorStyle());
+        } catch (eParse) {
+            currentState = null;
+        }
+
+        if (currentState && currentState.ok !== false && currentState.available && !currentState.mixed) {
+            if (currentState.connectorStyle === target) {
+                return JSON.stringify({
+                    ok: true,
+                    message: target === "curved"
+                        ? "Selected connectors are already curved."
+                        : "Selected connectors are already straight."
+                });
+            }
+        }
+
+        var payload = "action=toggle-connector-style";
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ set connector style error: " + e });
+    }
+}
+
 function MDUX_cppToggleSelectedEmoryTerminalSegmentStyle() {
     try {
         if (app.documents.length === 0) {
@@ -4369,6 +4541,24 @@ function MDUX_cppToggleSelectedEmoryTerminalSegmentStyle() {
     }
 }
 
+function MDUX_cppSetSelectedEmoryTerminalSegmentStyle(targetStyle) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+
+        var target = String(targetStyle || "").toLowerCase();
+        if (target !== "curved" && target !== "straight") {
+            return JSON.stringify({ ok: false, message: "Invalid final segment style target." });
+        }
+        var payload = "action=set-terminal-segment-style;value=" + target;
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ set terminal segment style error: " + e });
+    }
+}
+
 function MDUX_cppRevertSelectedEmoryToCenterlines() {
     try {
         if (app.documents.length === 0) {
@@ -4379,6 +4569,19 @@ function MDUX_cppRevertSelectedEmoryToCenterlines() {
         return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
     } catch (e) {
         return JSON.stringify({ ok: false, message: "C++ revert Emory centerlines error: " + e });
+    }
+}
+
+function MDUX_cppSelectSelectedEmoryCenterlines() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=select-emory-centerlines";
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ select Emory centerlines error: " + e });
     }
 }
 
