@@ -455,6 +455,17 @@ button:active {
     font-size: 8px;
 }
 
+.transform-value-input.mixed-value {
+    color: var(--text-muted);
+    border-color: rgba(255, 0, 60, 0.45);
+    font-style: italic;
+}
+
+.transform-value-input.mixed-value::placeholder {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 input[type="range"] {
     -webkit-appearance: none;
     width: 100%;

@@ -3008,10 +3008,28 @@ function MDUX_moveToLayerBridge(optionsJSON) {
             return removed;
         }
 
-        // Helper function to get scale of a PlacedItem using matrix
+        // Prefer stored ductwork metadata; fall back to the raw placed-art matrix only if needed.
         function getItemScale(item) {
             try {
                 if (item.typename !== 'PlacedItem') return 100;
+
+                try {
+                    var meta = MDUX_getMetadata(item);
+                    if (meta) {
+                        if (meta.MDUX_CurrentScale !== undefined && meta.MDUX_CurrentScale !== null) {
+                            var storedScale = parseFloat(meta.MDUX_CurrentScale);
+                            if (isFinite(storedScale) && storedScale > 0) {
+                                return storedScale;
+                            }
+                        }
+                        if (meta.tagScale !== undefined && meta.tagScale !== null) {
+                            var tagScale = parseFloat(meta.tagScale);
+                            if (isFinite(tagScale) && tagScale > 0) {
+                                return tagScale;
+                            }
+                        }
+                    }
+                } catch (eMetaScale) {}
 
                 // Get the transformation matrix
                 var matrix = item.matrix;
@@ -3234,14 +3252,20 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                                             oldStoredRotation = cumRot;
                                         }
                                     }
-                                    // Check for scale
-                                    if (oldItemMeta.tagScale !== undefined) {
+                                    // Check for scale only if actual visual scale wasn't available
+                                    if ((oldStoredScale === null || !isFinite(oldStoredScale) || oldStoredScale <= 0) && oldItemMeta.tagScale !== undefined) {
                                         oldStoredScale = parseFloat(oldItemMeta.tagScale);
                                         if (!isFinite(oldStoredScale)) oldStoredScale = null;
                                     }
-                                    if (oldStoredScale === null && oldItemMeta.MDUX_CurrentScale !== undefined) {
+                                    if ((oldStoredScale === null || !isFinite(oldStoredScale) || oldStoredScale <= 0) && oldItemMeta.MDUX_CurrentScale !== undefined) {
                                         oldStoredScale = parseFloat(oldItemMeta.MDUX_CurrentScale);
                                         if (!isFinite(oldStoredScale)) oldStoredScale = null;
+                                    }
+                                }
+                                if (oldStoredScale === null || !isFinite(oldStoredScale) || oldStoredScale <= 0) {
+                                    var actualItemScale = getItemScale(item);
+                                    if (isFinite(actualItemScale) && actualItemScale > 0) {
+                                        oldStoredScale = actualItemScale;
                                     }
                                 }
                                 $.writeln("[MOVE]   Old item metadata - Rotation: " + oldStoredRotation + ", Scale: " + oldStoredScale);
@@ -3275,10 +3299,15 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             var newWidth = Math.abs(newBounds[2] - newBounds[0]);
                             var newHeight = Math.abs(newBounds[1] - newBounds[3]);
 
+                            var useScale = oldStoredScale;
+                            if (!isFinite(useScale) || useScale <= 0) {
+                                useScale = smallestScale;
+                            }
+
                             // Scale FIRST if needed
-                            if (smallestScale !== 100) {
-                                newItem.resize(smallestScale, smallestScale, true, false, false, false, 100, Transformation.CENTER);
-                                $.writeln("[MOVE]   Scaled to " + smallestScale + "%");
+                            if (useScale !== 100) {
+                                newItem.resize(useScale, useScale, true, false, false, false, 100, Transformation.CENTER);
+                                $.writeln("[MOVE]   Scaled to preserved scale " + useScale + "%");
 
                                 // Recalculate bounds after scaling
                                 newBounds = newItem.geometricBounds;
@@ -3337,7 +3366,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
 
                                 // Use old stored values if available, otherwise defaults
                                 var finalRotation = oldStoredRotation || 0;
-                                var finalScale = oldStoredScale || smallestScale;
+                                var finalScale = useScale;
 
                                 var metadata = {
                                     MDUX_OriginalWidth: actualWidth,
@@ -3589,6 +3618,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             // Find the nearest existing PlacedItem near this anchor to preserve its rotation/scale
                             var nearestArtScale = smallestScale;
                             var nearestArtRotation = 0;
+                            var nearestArtDistance = 999999;
                             try {
                                 var ART_SEARCH_TOLERANCE = 20; // wider search for art near anchor
                                 for (var layerIdx = 0; layerIdx < doc.layers.length; layerIdx++) {
@@ -3602,10 +3632,12 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                                             var pcy = (pBounds[1] + pBounds[3]) / 2;
                                             var pdx = pcx - anchorX;
                                             var pdy = pcy - anchorY;
-                                            if (Math.sqrt(pdx * pdx + pdy * pdy) <= ART_SEARCH_TOLERANCE) {
-                                                // Preserve scale from existing art
+                                            var pDist = Math.sqrt(pdx * pdx + pdy * pdy);
+                                            if (pDist <= ART_SEARCH_TOLERANCE && pDist < nearestArtDistance) {
+                                                nearestArtDistance = pDist;
+                                                // Preserve scale from the nearest existing art, not the smallest nearby art
                                                 var existingScale = getItemScale(pItem);
-                                                if (existingScale < nearestArtScale) {
+                                                if (isFinite(existingScale) && existingScale > 0) {
                                                     nearestArtScale = existingScale;
                                                 }
                                                 // Try to get rotation from metadata
@@ -3626,8 +3658,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                                                         }
                                                     }
                                                 } catch (ePRot) {}
-                                                $.writeln("[MOVE]   Found nearby art on '" + searchLayer.name + "' - scale=" + existingScale.toFixed(1) + "%, rotation=" + nearestArtRotation);
-                                                break;
+                                                $.writeln("[MOVE]   Found nearest art on '" + searchLayer.name + "' at distance " + pDist.toFixed(2) + " - scale=" + existingScale.toFixed(1) + "%, rotation=" + nearestArtRotation);
                                             }
                                         } catch (ePi) {}
                                     }

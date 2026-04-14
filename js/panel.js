@@ -350,7 +350,8 @@
     const AUTO_SELECTION_REFRESH_ENABLED = true;
     const AUTO_SELECTION_REFRESH_MODE = 'all';
     const AUTO_SELECTION_EVENTS_ENABLED = true;
-    const AUTO_SELECTION_POLL_ENABLED = false;
+    const AUTO_SELECTION_POLL_ENABLED = true;
+    const AUTO_SELECTION_POLL_INTERVAL_MS = 500;
     let cepRuntimeActive = false;
     let pollInterval = null;
     let suspendMonitor = null;
@@ -361,6 +362,9 @@
     let skipSelectionRefresh = false;
     let selectionRefreshInFlight = false;
     let selectionRefreshQueued = false;
+    let transformStateRefreshTimer = null;
+    let transformStateRefreshInFlight = false;
+    let transformStateRefreshQueued = false;
     let processingInProgress = false; // PERF: suppresses CEP event storms during C++ processing
     let emorySelectionState = null;
     let emoryWidthRefreshInFlight = false;
@@ -380,7 +384,11 @@
         if (isCepSuspended() || processingInProgress) return;
         if (!AUTO_SELECTION_REFRESH_ENABLED) return;
         updateSkipSelectionRefresh().then(() => {
-            if (skipSelectionRefresh) return;
+            if (skipSelectionRefresh) {
+                refreshRotationOverrideState().catch(() => {});
+                scheduleTransformStateRefresh();
+                return;
+            }
             console.log('[PERF] onAfterSelectionChanged -> scheduleSkipOrthoRefresh');
             scheduleSkipOrthoRefresh();
         }).catch(() => {});
@@ -391,10 +399,13 @@
         if (isCepSuspended() || processingInProgress) return;
         if (!AUTO_SELECTION_REFRESH_ENABLED) return;
         updateSkipSelectionRefresh().then(() => {
-            if (!skipSelectionRefresh) {
-                console.log('[PERF] onDocumentAfterActivate -> scheduleSkipOrthoRefresh');
-                scheduleSkipOrthoRefresh();
+            if (skipSelectionRefresh) {
+                refreshRotationOverrideState().catch(() => {});
+                scheduleTransformStateRefresh();
+                return;
             }
+            console.log('[PERF] onDocumentAfterActivate -> scheduleSkipOrthoRefresh');
+            scheduleSkipOrthoRefresh();
         }).catch(() => {});
         resetTransformControls(true);
         lastSelectionHash = '';
@@ -409,7 +420,11 @@
         if (isCepSuspended() || processingInProgress) return;
         if (!AUTO_SELECTION_REFRESH_ENABLED) return;
         updateSkipSelectionRefresh().then(() => {
-            if (skipSelectionRefresh) return;
+            if (skipSelectionRefresh) {
+                refreshRotationOverrideState().catch(() => {});
+                scheduleTransformStateRefresh();
+                return;
+            }
             console.log('[PERF] onDocumentChanged -> scheduleSkipOrthoRefresh');
             scheduleSkipOrthoRefresh();
         }).catch(() => {});
@@ -427,14 +442,6 @@
             pollInterval = setInterval(function() {
                 if (pollInProgress || isCepSuspended()) return;
                 pollInProgress = true;
-                if (skipSelectionRefresh) {
-                    updateSkipSelectionRefresh().then(() => {
-                        pollInProgress = false;
-                    }).catch(() => {
-                        pollInProgress = false;
-                    });
-                    return;
-                }
                 evalScript('(function(){try{var s=app.activeDocument.selection;if(!s||s.length===0)return"empty";var pos=s[0].position||[0,0];return s.length+"|"+(s[0].typename||"")+"|"+Math.round(pos[0])+","+Math.round(pos[1]);}catch(e){return"nodoc";}})()').then(function(hash) {
                     if (hash === lastSelectionHash) {
                         pollInProgress = false;
@@ -444,13 +451,20 @@
                     if (!AUTO_SELECTION_REFRESH_ENABLED) {
                         return;
                     }
-                    // PERF: Skip refreshSelectionTransformState — takes 48s+ on large docs
-                    return refreshRotationOverrideState().catch(function() {});
+                    const refreshes = [
+                        refreshRotationOverrideState().catch(function() {})
+                    ];
+                    if (isEmoryModeActive()) {
+                        refreshes.push(refreshEmorySelectionState(true).catch(function() {}));
+                    } else {
+                        refreshes.push(refreshSelectionTransformState().catch(function() {}));
+                    }
+                    return Promise.all(refreshes);
                 }).catch(function() {
                 }).finally(function() {
                     pollInProgress = false;
                 });
-            }, 1000);
+            }, AUTO_SELECTION_POLL_INTERVAL_MS);
         }
         cepRuntimeActive = true;
     }
@@ -520,7 +534,9 @@
                 const hasPlaced = await selectionHasPlacedItems();
                 if (hasPlaced) {
                     skipSelectionRefresh = true;
-                    stopCepRuntime();
+                    if (!cepRuntimeActive) {
+                        startCepRuntime();
+                    }
                     return;
                 }
                 skipSelectionRefresh = false;
@@ -531,6 +547,32 @@
                 selectionMonitorInFlight = false;
             }
         }, 2000);
+    }
+
+    function scheduleTransformStateRefresh(delay = 150) {
+        if (isCepSuspended() || processingInProgress || isEmoryModeActive()) return;
+        if (transformStateRefreshTimer) {
+            clearTimeout(transformStateRefreshTimer);
+        }
+        transformStateRefreshTimer = setTimeout(async () => {
+            transformStateRefreshTimer = null;
+            if (isCepSuspended() || processingInProgress || isEmoryModeActive()) return;
+            if (transformStateRefreshInFlight) {
+                transformStateRefreshQueued = true;
+                return;
+            }
+            transformStateRefreshInFlight = true;
+            try {
+                await withTimeout(refreshSelectionTransformState(), 5000);
+            } catch (e) {
+            } finally {
+                transformStateRefreshInFlight = false;
+                if (transformStateRefreshQueued && !isCepSuspended() && !processingInProgress && !isEmoryModeActive()) {
+                    transformStateRefreshQueued = false;
+                    scheduleTransformStateRefresh(50);
+                }
+            }
+        }, delay);
     }
 
     /**
@@ -2664,6 +2706,19 @@
         return isFinite(a) && isFinite(b) && Math.abs(a - b) < 0.01;
     }
 
+    function setTransformInputDisplay(inputEl, value, isMixed) {
+        if (!inputEl) return;
+        if (isMixed) {
+            inputEl.value = '';
+            inputEl.placeholder = 'Mixed';
+            inputEl.classList.add('mixed-value');
+            return;
+        }
+        inputEl.value = value;
+        inputEl.placeholder = '';
+        inputEl.classList.remove('mixed-value');
+    }
+
     function shouldApplyTransformTarget(targetScale, targetRotation, scaleDirty, rotateDirty) {
         const hasScaleDelta = !!scaleDirty && (
             lastSelectionMixedScale ||
@@ -2798,9 +2853,9 @@
     function resetTransformControls(resetValues = true) {
         if (resetValues) {
             if (teScaleSlider) teScaleSlider.value = 100;
-            if (teScaleInput) teScaleInput.value = 100;
+            setTransformInputDisplay(teScaleInput, 100, false);
             if (teRotateSlider) teRotateSlider.value = 0;
-            if (teRotateInput) teRotateInput.value = 0;
+            setTransformInputDisplay(teRotateInput, 0, false);
             lastSelectionScale = 100;
             lastSelectionRotation = 0;
             lastSelectionMixedScale = false;
@@ -2888,9 +2943,9 @@
             if (statusEl) statusEl.textContent = '';
 
             if (res.ok && res.count > 0) {
-                let statusMsg = [];
-                const preserveScale = teScaleDirty || teRotateDirty;
-                const preserveRotate = teRotateDirty || teScaleDirty;
+                const statusMsg = [];
+                const preserveScale = teScaleDirty;
+                const preserveRotate = teRotateDirty;
                 lastSelectionMixedScale = !!res.mixedScale;
                 lastSelectionMixedRotation = !!res.mixedRotation;
 
@@ -2907,14 +2962,11 @@
                 // Update scale
                 if (!preserveScale) {
                     if (res.mixedScale) {
-                        teScaleInput.value = '';
-                        teScaleInput.placeholder = 'Mixed';
+                        setTransformInputDisplay(teScaleInput, null, true);
                         teScaleSlider.value = 100;
-                        statusMsg.push('Multiple different scales in selection');
                         lastSelectionScale = null;
                     } else {
-                        teScaleInput.value = res.scale;
-                        teScaleInput.placeholder = '';
+                        setTransformInputDisplay(teScaleInput, res.scale, false);
                         teScaleSlider.value = res.scale;
                         lastSelectionScale = res.scale;
                     }
@@ -2924,14 +2976,11 @@
                 // Update rotation
                 if (!preserveRotate) {
                     if (res.mixedRotation) {
-                        teRotateInput.value = '';
-                        teRotateInput.placeholder = 'Mixed';
+                        setTransformInputDisplay(teRotateInput, null, true);
                         teRotateSlider.value = 0;
-                        statusMsg.push('Multiple different rotations in selection');
                         lastSelectionRotation = null;
                     } else {
-                        teRotateInput.value = res.rotation;
-                        teRotateInput.placeholder = '';
+                        setTransformInputDisplay(teRotateInput, res.rotation, false);
                         teRotateSlider.value = res.rotation;
                         lastSelectionRotation = res.rotation;
                     }
@@ -2949,11 +2998,9 @@
                 }
             } else {
                 // No selection or no tagged items
-                teScaleInput.value = 100;
-                teScaleInput.placeholder = '';
+                setTransformInputDisplay(teScaleInput, 100, false);
                 teScaleSlider.value = 100;
-                teRotateInput.value = 0;
-                teRotateInput.placeholder = '';
+                setTransformInputDisplay(teRotateInput, 0, false);
                 teRotateSlider.value = 0;
                 lastSelectionScale = 100;
                 lastSelectionRotation = 0;
@@ -3571,7 +3618,7 @@
                 // Clamp to slider range
                 newValue = Math.max(sliderMin, Math.min(sliderMax, newValue));
             }
-            teScaleInput.value = Math.round(newValue);
+            setTransformInputDisplay(teScaleInput, Math.round(newValue), false);
             lastSelectionScale = newValue;
             teScaleDirty = true;
             console.log('[TRANSFORM] scale input', rawValue, '->', newValue);
@@ -3580,6 +3627,10 @@
 
         // Track if Enter was just pressed to skip change event
         let scaleEnterPressed = false;
+
+        teScaleInput.addEventListener('input', () => {
+            teScaleInput.classList.remove('mixed-value');
+        });
 
         teScaleInput.addEventListener('change', () => {
             // Skip if Enter was pressed (we handle that separately)
@@ -3594,6 +3645,7 @@
             teDragStartScale = 100;
             teDragStartRotate = 0;
             teScaleSlider.value = val;
+            setTransformInputDisplay(teScaleInput, Math.round(val), false);
             lastSelectionScale = val;
 
             teDragActive = true;
@@ -3634,7 +3686,7 @@
 
                 // Sync the slider to match typed value
                 if (teScaleSlider) teScaleSlider.value = Math.max(10, Math.min(400, typedScale));
-                teScaleInput.value = Math.round(typedScale);
+                setTransformInputDisplay(teScaleInput, Math.round(typedScale), false);
 
                 // Apply transform directly regardless of Live mode
                 if (shouldApplyTransformTarget(typedScale, currentRotation, scaleDirty, rotateDirty)) {
@@ -3671,7 +3723,7 @@
                 // Clamp to slider range
                 newValue = Math.max(sliderMin, Math.min(sliderMax, newValue));
             }
-            teRotateInput.value = Math.round(newValue);
+            setTransformInputDisplay(teRotateInput, Math.round(newValue), false);
             lastSelectionRotation = newValue;
             teRotateDirty = true;
             console.log('[TRANSFORM] rotate input', rawValue, '->', newValue);
@@ -3680,6 +3732,10 @@
 
         // Track if Enter was just pressed to skip change event
         let rotateEnterPressed = false;
+
+        teRotateInput.addEventListener('input', () => {
+            teRotateInput.classList.remove('mixed-value');
+        });
 
         teRotateInput.addEventListener('change', () => {
             // Skip if Enter was pressed (we handle that separately)
@@ -3696,6 +3752,7 @@
             rotateSelection(val);
 
             teRotateSlider.value = val;
+            setTransformInputDisplay(teRotateInput, Math.round(val), false);
             teDragStartRotate = val;
             teTransformAppliedInDrag = false;
         });
@@ -3720,6 +3777,7 @@
                 console.log('[TRANSFORM] Enter pressed on rotation, applying absolute rotation: ' + val + '°');
                 await rotateSelection(val);
                 teRotateSlider.value = val;
+                setTransformInputDisplay(teRotateInput, Math.round(val), false);
             }
         });
     }
@@ -4201,6 +4259,9 @@
 
             refreshSkipOrthoState().catch(function () { });
             refreshRotationOverrideState().catch(function () { });
+            if (!isEmoryModeActive()) {
+                refreshSelectionTransformState().catch(function () { });
+            }
             refreshDebugLoggingState().catch(function () { });
             refreshYieldToUiState().catch(function () { });
             refreshDocScale().catch(function () { });
@@ -4210,9 +4271,16 @@
                 if (!AUTO_SELECTION_REFRESH_ENABLED) return;
                 if (isCepSuspended()) return;
                 updateSkipSelectionRefresh().then(() => {
-                    if (skipSelectionRefresh) return;
+                    if (skipSelectionRefresh) {
+                        refreshRotationOverrideState().catch(function() {});
+                        scheduleTransformStateRefresh();
+                        return;
+                    }
                     // PERF: Skip refreshSelectionTransformState — takes 48s+ on large docs
                     refreshRotationOverrideState().catch(function() {});
+                    if (!isEmoryModeActive()) {
+                        refreshSelectionTransformState().catch(function() {});
+                    }
                     if (isEmoryModeActive()) {
                         refreshEmorySelectionState(true).catch(function() {});
                     }
