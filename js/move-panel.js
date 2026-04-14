@@ -10,14 +10,14 @@
     const moveToSecondaryExhaustBtn = document.getElementById('move-to-secondary-exhaust-btn');
     const moveToThermostatsBtn = document.getElementById('move-to-thermostats-btn');
     const moveToIgnoreBtn = document.getElementById('move-to-ignore-btn');
-    const moveUseEmoryAssetsOption = document.getElementById('move-use-emory-assets-option');
+    const moveAssetModeIndicator = document.getElementById('move-asset-mode-indicator');
     const moveStatus = document.getElementById('move-status');
     const debugStatus = document.getElementById('debug-status');
     const reloadBtn = document.getElementById('reload-btn');
     const extensionId = 'com.chris.magicductwork.movepanel';
     const PROCESS_MODE_STORAGE_KEY = 'mdux-process-mode';
+    const PROCESS_MODE_NORMAL = 'normal';
     const PROCESS_MODE_EMORY = 'emory';
-    const MOVE_PANEL_EMORY_ASSETS_KEY = 'mdux-move-use-emory-assets';
     function reloadExtensionView() {
         try {
             const base = window.location.href.split('?')[0];
@@ -37,27 +37,22 @@
         }
     }
 
-    function readMovePanelEmoryAssetsPreference() {
-        try {
-            const stored = window.localStorage.getItem(MOVE_PANEL_EMORY_ASSETS_KEY);
-            if (stored === '1') return true;
-            if (stored === '0') return false;
-        } catch (e) {}
-        return readCurrentProcessMode() === PROCESS_MODE_EMORY;
+    function normalizeProcessMode(mode) {
+        return mode === PROCESS_MODE_EMORY ? PROCESS_MODE_EMORY : PROCESS_MODE_NORMAL;
     }
 
-    function writeMovePanelEmoryAssetsPreference(enabled) {
-        try {
-            window.localStorage.setItem(MOVE_PANEL_EMORY_ASSETS_KEY, enabled ? '1' : '0');
-        } catch (e) {}
+    function isEmoryModeActive() {
+        return normalizeProcessMode(readCurrentProcessMode()) === PROCESS_MODE_EMORY;
     }
 
-    function useEmoryAssetsEnabled() {
-        return !!(moveUseEmoryAssetsOption && moveUseEmoryAssetsOption.checked);
+    function syncMoveAssetModeIndicator() {
+        if (!moveAssetModeIndicator) return;
+        moveAssetModeIndicator.textContent = isEmoryModeActive() ? 'Using Emory assets' : 'Using normal assets';
+        moveAssetModeIndicator.classList.toggle('emory', isEmoryModeActive());
     }
 
     function resolveMoveAsset(layerName, defaultFileBaseName) {
-        if (!useEmoryAssetsEnabled()) {
+        if (!isEmoryModeActive()) {
             return defaultFileBaseName;
         }
         if (layerName === 'Units') {
@@ -105,6 +100,7 @@
 
     async function moveToLayer(layerName, fileBaseName) {
         console.log('[MOVE] Button clicked - Layer:', layerName, 'File:', fileBaseName);
+        syncMoveAssetModeIndicator();
         setMoveStatus('Moving selection to ' + layerName + '…');
 
         try {
@@ -197,21 +193,25 @@
         moveToIgnoreBtn.addEventListener('click', () => {
             moveToLayer('Ignored', null);
         });
-        if (moveUseEmoryAssetsOption) {
-            moveUseEmoryAssetsOption.addEventListener('change', () => {
-                writeMovePanelEmoryAssetsPreference(!!moveUseEmoryAssetsOption.checked);
-            });
-        }
         reloadBtn.addEventListener('click', () => {
             reloadExtensionView();
+        });
+        window.addEventListener('focus', syncMoveAssetModeIndicator);
+        window.addEventListener('storage', event => {
+            if (!event || event.key === PROCESS_MODE_STORAGE_KEY) {
+                syncMoveAssetModeIndicator();
+            }
+        });
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                syncMoveAssetModeIndicator();
+            }
         });
     }
 
     async function initialise() {
         setMoveStatus('');
-        if (moveUseEmoryAssetsOption) {
-            moveUseEmoryAssetsOption.checked = readMovePanelEmoryAssetsPreference();
-        }
+        syncMoveAssetModeIndicator();
         try {
             await ensureBridgeLoaded();
         } catch (e) {

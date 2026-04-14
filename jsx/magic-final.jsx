@@ -1542,7 +1542,7 @@ function linesOverlap(ax1, ay1, ax2, ay2, bx1, by1, bx2, by2) {
     var a1, a2, b1, b2;
     if (primaryAxis === 'x') {
         a1 = Math.min(ax1, ax2); a2 = Math.max(ax1, ax2);
-        b1 = Math.min(bx1, bx2); b2 = Math.max(bx1, by2);
+        b1 = Math.min(bx1, bx2); b2 = Math.max(bx1, bx2);
     } else {
         a1 = Math.min(ay1, ay2); a2 = Math.max(ay1, ay2);
         b1 = Math.min(by1, by2); b2 = Math.max(by1, by2);
@@ -13179,12 +13179,51 @@ function isDuctworkLineLayer(name) {
             // Precompute thermostat endpoints so registers can avoid thermostat locations
             var thermostatEndpoints = [];
             try { thermostatEndpoints = getEndpoints(getPathsOnLayerSelected("Thermostat Lines")) || []; } catch (e) { thermostatEndpoints = []; }
+            var blueUnitAnchors = [];
+            var unitEndpointTolerance = (typeof UNIT_MERGE_DIST === "number" && UNIT_MERGE_DIST > 0) ? UNIT_MERGE_DIST : CLOSE_DIST;
+            if (sourceLayerName === "Blue Ductwork") {
+                try { blueUnitAnchors = getExistingAnchorPoints(["Units"]) || []; } catch (eUnits) { blueUnitAnchors = []; }
+            }
 
             function isNearThermostat(pt) {
                 for (var ti = 0; ti < thermostatEndpoints.length; ti++) {
                     try { if (dist(pt, thermostatEndpoints[ti].pos) <= IGNORED_DIST) return true; } catch (e) { continue; }
                 }
                 return false;
+            }
+
+            function isNearAnyUnit(pt) {
+                if (!pt || !blueUnitAnchors || blueUnitAnchors.length === 0) return false;
+                for (var ui = 0; ui < blueUnitAnchors.length; ui++) {
+                    try {
+                        if (dist(pt, blueUnitAnchors[ui]) <= unitEndpointTolerance) return true;
+                    } catch (e) { }
+                }
+                return false;
+            }
+
+            function shouldIgnoreBlueUnitOppositeEndpoint(endpoint) {
+                if (sourceLayerName !== "Blue Ductwork" || !endpoint || !endpoint.path) return false;
+                try {
+                    var path = endpoint.path;
+                    var pts = path.pathPoints;
+                    if (!pts || pts.length < 2) return false;
+
+                    var startPos = pts[0].anchor;
+                    var endPos = pts[pts.length - 1].anchor;
+                    var currentPos = endpoint.pos;
+                    if (!currentPos || currentPos.length < 2) return false;
+
+                    var endpointIndex = (typeof endpoint.index === "number") ? endpoint.index : -1;
+                    var currentIsStart = endpointIndex <= 0;
+                    var currentIsEnd = endpointIndex >= pts.length - 1;
+                    if (!currentIsStart && !currentIsEnd) return false;
+
+                    var oppositePos = currentIsStart ? endPos : startPos;
+                    return !isNearAnyUnit(currentPos) && isNearAnyUnit(oppositePos);
+                } catch (e) {
+                    return false;
+                }
             }
 
             function computeEndpointRotation(ep) {
@@ -13274,6 +13313,12 @@ function isDuctworkLineLayer(name) {
 
                 // *** NEW: Skip if point overlaps with ignored anchors ***
                 if (isPointIgnored(currentEndpoint.pos, ignoredAnchors)) continue;
+
+                // Unit-fed blue runs should terminate with an ignore marker, not a register, at the far isolated endpoint.
+                if (shouldIgnoreBlueUnitOppositeEndpoint(currentEndpoint)) {
+                    persistIgnoreAnchor(currentEndpoint.pos, ignoredAnchors, "[UNIT-END-IGNORE]");
+                    continue;
+                }
 
                 var endpointRotation = currentEndpoint.rotationOverride;
                 var computedRotation = computeEndpointRotation(currentEndpoint);

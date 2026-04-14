@@ -1094,9 +1094,10 @@ ASErr ProcessDuctworkPlugin::Message(char* caller, char* selector, void* message
 					const bool livePreview = ParseBool(data, "live", false);
 					const bool scaleDirty = ParseBool(data, "scaleDirty", false);
 					const bool rotateDirty = ParseBool(data, "rotateDirty", false);
+					const bool scaleLines = ParseBool(data, "scaleLines", false);
 					fPanel.SetTransformDirtyFlags(scaleDirty, rotateDirty);
 					std::string messageText;
-					const bool ok = fPanel.ApplyTransformSelection(targetScale, targetRotation, false, false, livePreview, &messageText);
+					const bool ok = fPanel.ApplyTransformSelection(targetScale, targetRotation, false, false, livePreview, scaleLines, &messageText);
 					if (!livePreview) {
 						fPanel.UpdateSelectionSummary();
 					}
@@ -1141,7 +1142,8 @@ ASErr ProcessDuctworkPlugin::Message(char* caller, char* selector, void* message
 				}
 
 				if (action == "reset-scale") {
-					fPanel.ResetScale();
+					const bool scaleLines = ParseBool(data, "scaleLines", false);
+					fPanel.ResetScale(scaleLines);
 					fPanel.UpdateSelectionSummary();
 					msg->outParam = ai::UnicodeString::FromUTF8("{\"ok\":true,\"message\":\"Scale reset.\"}");
 					return kNoErr;

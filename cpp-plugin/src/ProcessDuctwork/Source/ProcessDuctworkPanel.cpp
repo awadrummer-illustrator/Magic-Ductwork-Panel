@@ -1134,7 +1134,7 @@ LRESULT ProcessDuctworkPanel::HandlePanelMessage(HWND hWnd, UINT msg, WPARAM wPa
 			return 0;
 		}
 		if (id == kIdResetScale && notify == BN_CLICKED) {
-			ResetScale();
+			ResetScale(false);
 			return 0;
 		}
 		if (id == kIdResetStrokes && notify == BN_CLICKED) {
@@ -1406,10 +1406,10 @@ void ProcessDuctworkPanel::ApplyTransformFromUI()
 	const double targetScale = GetScaleValue();
 	const double targetRotation = GetRotationValue();
 
-	ApplyTransformSelection(targetScale, targetRotation, false, true, false, nullptr);
+	ApplyTransformSelection(targetScale, targetRotation, false, true, false, false, nullptr);
 }
 
-bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double targetRotation, bool allowCache, bool updateUI, bool livePreview, std::string* outMessage)
+bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double targetRotation, bool allowCache, bool updateUI, bool livePreview, bool includeLineStrokes, std::string* outMessage)
 {
 	AppContext appContext(fPluginRef);
 	std::vector<AIArtHandle> selection;
@@ -1448,20 +1448,40 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 	const std::vector<AIArtHandle> selectionSnapshot = selection;
 	std::vector<AIArtHandle> partItems;
 	std::vector<AIArtHandle> rotatableParts;
+	std::vector<AIArtHandle> lineItems;
 	for (size_t i = 0; i < selection.size(); ++i) {
 		CollectPartItemsSelected(selection[i], partItems, true);
 		CollectRotatablePartItemsSelected(selection[i], rotatableParts, true);
+		if (includeLineStrokes) {
+			CollectLinePathsSelected(selection[i], lineItems, true);
+		}
 	}
 
-	DuctworkLog::Write("Panel ApplyTransform: partItems=" + std::to_string(static_cast<int>(partItems.size())) +
-		" rotatableParts=" + std::to_string(static_cast<int>(rotatableParts.size())));
+	std::set<AIArtHandle> lineSet;
+	std::vector<AIArtHandle> resolvedLines;
+	resolvedLines.reserve(lineItems.size());
+	for (size_t i = 0; i < lineItems.size(); ++i) {
+		AIArtHandle art = lineItems[i];
+		if (!art) {
+			continue;
+		}
+		if (lineSet.insert(art).second) {
+			resolvedLines.push_back(art);
+		}
+	}
+	lineItems.swap(resolvedLines);
 
-	if (partItems.empty()) {
+	DuctworkLog::Write("Panel ApplyTransform: partItems=" + std::to_string(static_cast<int>(partItems.size())) +
+		" rotatableParts=" + std::to_string(static_cast<int>(rotatableParts.size())) +
+		" lineItems=" + std::to_string(static_cast<int>(lineItems.size())) +
+		" includeLineStrokes=" + std::to_string(includeLineStrokes ? 1 : 0));
+
+	if (partItems.empty() && lineItems.empty()) {
 		if (updateUI) {
-			SetStatusText(L"No ductwork parts selected.");
+			SetStatusText(L"No ductwork parts or lines selected.");
 		}
 		if (outMessage) {
-			*outMessage = "No ductwork parts selected.";
+			*outMessage = "No ductwork parts or lines selected.";
 		}
 		return false;
 	}
@@ -1474,6 +1494,7 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 	}
 
 	size_t partTransformed = 0;
+	size_t lineScaled = 0;
 
 	for (size_t i = 0; i < partItems.size(); ++i) {
 		AIArtHandle art = partItems[i];
@@ -1537,8 +1558,28 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 		}
 	}
 
+	if (includeLineStrokes && applyScale) {
+		for (size_t i = 0; i < lineItems.size(); ++i) {
+			AIArtHandle art = lineItems[i];
+			if (!art) {
+				continue;
+			}
+			const double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
+			EnsureOriginalTransform(art, currentScale, 0.0);
+			const double scaleFactor = (currentScale == 0.0) ? 1.0 : (targetScale / currentScale);
+			if (std::fabs(scaleFactor - 1.0) < 0.0001) {
+				DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", targetScale);
+				continue;
+			}
+			if (ScaleLineStrokeWidths(art, scaleFactor)) {
+				DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", targetScale);
+				++lineScaled;
+			}
+		}
+	}
+
 	if (updateUI) {
-		if (partTransformed == 0) {
+		if (partTransformed == 0 && lineScaled == 0) {
 			SetStatusText(L"No transform changes.");
 		} else {
 			SetStatusText(L"Transform applied.");
@@ -1548,14 +1589,18 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 
 	ReselectArtList(selectionSnapshot);
 	if (outMessage) {
-		if (partTransformed == 0) {
+		if (partTransformed == 0 && lineScaled == 0) {
 			*outMessage = "No transform changes.";
-		} else {
+		} else if (partTransformed > 0 && lineScaled > 0) {
+			*outMessage = "Transformed " + std::to_string(partTransformed) + " part(s) and scaled strokes on " + std::to_string(lineScaled) + " line(s).";
+		} else if (partTransformed > 0) {
 			*outMessage = "Transformed " + std::to_string(partTransformed) + " item(s).";
+		} else {
+			*outMessage = "Scaled strokes on " + std::to_string(lineScaled) + " line(s).";
 		}
 	}
 
-	return partTransformed > 0;
+	return partTransformed > 0 || lineScaled > 0;
 }
 
 void ProcessDuctworkPanel::ApplyQuickRotate(double angle)
@@ -1665,7 +1710,7 @@ void ProcessDuctworkPanel::ResetRotation()
 	ReselectArtList(selectionSnapshot);
 }
 
-void ProcessDuctworkPanel::ResetScale()
+void ProcessDuctworkPanel::ResetScale(bool includeLineStrokes)
 {
 	AppContext appContext(fPluginRef);
 	std::vector<AIArtHandle> selection;
@@ -1674,12 +1719,30 @@ void ProcessDuctworkPanel::ResetScale()
 		return;
 	}
 	std::vector<AIArtHandle> partItems;
+	std::vector<AIArtHandle> lineItems;
 	for (size_t i = 0; i < selection.size(); ++i) {
 		CollectPartItemsRecursive(selection[i], partItems);
+		if (includeLineStrokes) {
+			CollectLinePathsSelected(selection[i], lineItems, true);
+		}
 	}
 
-	if (partItems.empty()) {
-		SetStatusText(L"No ductwork parts selected.");
+	std::set<AIArtHandle> lineSet;
+	std::vector<AIArtHandle> resolvedLines;
+	resolvedLines.reserve(lineItems.size());
+	for (size_t i = 0; i < lineItems.size(); ++i) {
+		AIArtHandle art = lineItems[i];
+		if (!art) {
+			continue;
+		}
+		if (lineSet.insert(art).second) {
+			resolvedLines.push_back(art);
+		}
+	}
+	lineItems.swap(resolvedLines);
+
+	if (partItems.empty() && lineItems.empty()) {
+		SetStatusText(L"No ductwork parts or lines selected.");
 		UpdateSelectionSummary();
 		return;
 	}
@@ -1694,6 +1757,24 @@ void ProcessDuctworkPanel::ResetScale()
 		const double scaleFactor = (currentScale == 0.0) ? 1.0 : (originalScale / currentScale);
 		ApplyTransform(art, 0.0, scaleFactor);
 		DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
+	}
+	if (includeLineStrokes) {
+		for (size_t i = 0; i < lineItems.size(); ++i) {
+			AIArtHandle art = lineItems[i];
+			if (!art) {
+				continue;
+			}
+			const double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
+			const double originalScale = ReadOriginalScale(art, 100.0);
+			const double scaleFactor = (currentScale == 0.0) ? 1.0 : (originalScale / currentScale);
+			if (std::fabs(scaleFactor - 1.0) < 0.0001) {
+				DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
+				continue;
+			}
+			if (ScaleLineStrokeWidths(art, scaleFactor)) {
+				DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
+			}
+		}
 	}
 	SetScaleValue(100.0);
 	SetStatusText(L"Scale reset.");

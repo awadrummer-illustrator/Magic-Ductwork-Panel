@@ -2652,11 +2652,31 @@
     let teRotateDirty = false;
     let lastSelectionScale = 100;
     let lastSelectionRotation = 0;
+    let lastSelectionMixedScale = false;
+    let lastSelectionMixedRotation = false;
 
     // Track committed values (where the slider was left after last drag)
     // We need this because the slider value is absolute (e.g. 110), but we need to calculate
     // the factor relative to the START of the drag.
     // Actually, we can just read the slider value on mousedown.
+
+    function isSameTransformValue(a, b) {
+        return isFinite(a) && isFinite(b) && Math.abs(a - b) < 0.01;
+    }
+
+    function shouldApplyTransformTarget(targetScale, targetRotation, scaleDirty, rotateDirty) {
+        const hasScaleDelta = !!scaleDirty && (
+            lastSelectionMixedScale ||
+            !isFinite(lastSelectionScale) ||
+            !isSameTransformValue(targetScale, lastSelectionScale)
+        );
+        const hasRotationDelta = !!rotateDirty && (
+            lastSelectionMixedRotation ||
+            !isFinite(lastSelectionRotation) ||
+            !isSameTransformValue(targetRotation, lastSelectionRotation)
+        );
+        return hasScaleDelta || hasRotationDelta;
+    }
 
     async function processTransformQueue() {
         if (teIsBusy) return;
@@ -2676,7 +2696,7 @@
 
         try {
             // Add a timeout race to prevent hanging if Illustrator doesn't respond
-            const transformPromise = evalScript(`MDUX_cppTransformEachLive(${payload.scale}, ${payload.rotate})`);
+            const transformPromise = evalScript(`MDUX_cppTransformEachLive(${payload.scale}, ${payload.rotate}, ${!isEmoryModeActive()}, ${!!payload.scaleDirty}, ${!!payload.rotateDirty})`);
             const timeoutPromise = new Promise(resolve => setTimeout(() => resolve("TIMEOUT"), 1000));
 
             const result = await Promise.race([transformPromise, timeoutPromise]);
@@ -2691,6 +2711,8 @@
 
                 lastSelectionScale = payload.scale;
                 lastSelectionRotation = payload.rotate;
+                if (payload.scaleDirty) lastSelectionMixedScale = false;
+                if (payload.rotateDirty) lastSelectionMixedRotation = false;
                 console.log('[TRANSFORM] applied scale/rotate', lastSelectionScale, lastSelectionRotation);
 
                 // DEBUG: Show the result message from JSX
@@ -2779,6 +2801,10 @@
             if (teScaleInput) teScaleInput.value = 100;
             if (teRotateSlider) teRotateSlider.value = 0;
             if (teRotateInput) teRotateInput.value = 0;
+            lastSelectionScale = 100;
+            lastSelectionRotation = 0;
+            lastSelectionMixedScale = false;
+            lastSelectionMixedRotation = false;
         }
 
         teDragActive = false;
@@ -2788,28 +2814,29 @@
         teDragStartRotate = 0;
         teScaleDirty = false;
         teRotateDirty = false;
-        lastSelectionScale = 100;
-        lastSelectionRotation = 0;
     }
 
     async function handleTransformEach() {
         // If Live is ON, the button just resets the controls (commits the change)
         if (teLiveOption && teLiveOption.checked) {
-            resetTransformControls(true);
+            resetTransformControls(false);
+            if (!isEmoryModeActive()) await refreshSelectionTransformState();
             setSelectionStatus("Transformation committed.", false);
         } else {
             // If Live is OFF, apply the current values
             const s = parseFloat(teScaleInput.value) || 100;
             const r = parseFloat(teRotateInput.value) || 0;
+            const scaleDirty = teScaleDirty;
+            const rotateDirty = teRotateDirty;
 
-            if (s === 100 && r === 0) {
+            if (!shouldApplyTransformTarget(s, r, scaleDirty, rotateDirty)) {
                 setSelectionStatus("No changes to apply.", false);
                 return;
             }
 
             setSelectionStatus("Transforming...", false);
             try {
-                await evalScript(`MDUX_cppTransformEach(${s}, ${r})`);
+                await evalScript(`MDUX_cppTransformEach(${s}, ${r}, ${!isEmoryModeActive()}, ${scaleDirty}, ${rotateDirty})`);
                 setSelectionStatus("Transformation applied.", false);
                 // Reset internal state but NOT input values - let refresh update them from metadata
                 resetTransformControls(false);
@@ -2864,6 +2891,8 @@
                 let statusMsg = [];
                 const preserveScale = teScaleDirty || teRotateDirty;
                 const preserveRotate = teRotateDirty || teScaleDirty;
+                lastSelectionMixedScale = !!res.mixedScale;
+                lastSelectionMixedRotation = !!res.mixedRotation;
 
                 // If either input has focus, blur it so we can update values
                 // This handles the case where user clicks a new object in Illustrator
@@ -2928,6 +2957,8 @@
                 teRotateSlider.value = 0;
                 lastSelectionScale = 100;
                 lastSelectionRotation = 0;
+                lastSelectionMixedScale = false;
+                lastSelectionMixedRotation = false;
                 teScaleDirty = false;
                 teRotateDirty = false;
             }
@@ -3343,8 +3374,9 @@
             setProcessStatus('Carving overlaps...');
             try {
                 await ensureBridgeLoaded();
-                const result = await evalScript('MDUX_carveOverlapsOnly()');
-                setProcessStatus(result || 'Overlaps carved');
+                const raw = await evalScript('MDUX_cppCarveOverlapSelection()');
+                const result = normaliseResult(raw);
+                setProcessStatus(result.ok ? (result.message || 'Overlaps carved') : (result.message || 'Overlap carve failed'), !result.ok);
             } catch (e) {
                 setProcessStatus('Error: ' + e.message, true);
             }
@@ -3589,27 +3621,36 @@
                 scaleEnterPressed = true;
 
                 // Get the typed value BEFORE any blur/reset
-                const typedScale = parseFloat(teScaleInput.value) || 100;
-                const currentRotation = parseFloat(teRotateInput.value) || 0;
+                const typedScaleRaw = parseFloat(teScaleInput.value);
+                const typedScale = Math.max(10, Math.min(400, isFinite(typedScaleRaw) ? typedScaleRaw : 100));
+                let currentRotation = parseFloat(teRotateInput.value);
+                if (!isFinite(currentRotation)) {
+                    currentRotation = (lastSelectionMixedRotation || !isFinite(lastSelectionRotation)) ? 0 : lastSelectionRotation;
+                }
+                const scaleDirty = true;
+                const rotateDirty = teRotateDirty;
 
                 console.log('[TRANSFORM] Enter pressed on scale, applying value:', typedScale);
 
                 // Sync the slider to match typed value
                 if (teScaleSlider) teScaleSlider.value = Math.max(10, Math.min(400, typedScale));
+                teScaleInput.value = Math.round(typedScale);
 
                 // Apply transform directly regardless of Live mode
-                if (typedScale !== 100 || currentRotation !== 0) {
+                if (shouldApplyTransformTarget(typedScale, currentRotation, scaleDirty, rotateDirty)) {
                     setSelectionStatus("Transforming...", false);
                     try {
-                        await evalScript(`MDUX_cppTransformEach(${typedScale}, ${currentRotation})`);
+                        await evalScript(`MDUX_cppTransformEach(${typedScale}, ${currentRotation}, ${!isEmoryModeActive()}, ${scaleDirty}, ${rotateDirty})`);
                         setSelectionStatus("Transformation applied.", false);
+                        resetTransformControls(false);
+                        if (!isEmoryModeActive()) await refreshSelectionTransformState();
                     } catch (err) {
                         setSelectionStatus("Error: " + err.message, true);
                     }
+                } else {
+                    setSelectionStatus("No changes to apply.", false);
                 }
 
-                // Reset controls after applying
-                resetTransformControls(true);
                 teScaleInput.blur();
             }
         });
@@ -3777,10 +3818,11 @@
                             protectionStatus.textContent = 'Healing gaps...';
                             protectionStatus.style.color = '#f0f';
                         }
-                        const result = await evalScript('MDUX_healGapsInSelection()');
+                        const raw = await evalScript('MDUX_cppHealMarkedGapsSelection()');
+                        const result = normaliseResult(raw);
                         if (protectionStatus) {
-                            protectionStatus.textContent = result || 'Heal complete';
-                            protectionStatus.style.color = '#0f0';
+                            protectionStatus.textContent = result.message || 'Heal complete';
+                            protectionStatus.style.color = result.ok ? '#0f0' : '#f00';
                             setTimeout(() => { if (protectionStatus) protectionStatus.textContent = ''; }, 4000);
                         }
                     } catch (err) {
@@ -3801,10 +3843,11 @@
                             protectionStatus.textContent = 'Recreating gaps...';
                             protectionStatus.style.color = '#f0f';
                         }
-                        const result = await evalScript('MDUX_recreateGapsInSelection()');
+                        const raw = await evalScript('MDUX_cppRefreshMarkedGapsSelection()');
+                        const result = normaliseResult(raw);
                         if (protectionStatus) {
-                            protectionStatus.textContent = result || 'Recreate complete';
-                            protectionStatus.style.color = '#0f0';
+                            protectionStatus.textContent = result.message || 'Recreate complete';
+                            protectionStatus.style.color = result.ok ? '#0f0' : '#f00';
                             setTimeout(() => { if (protectionStatus) protectionStatus.textContent = ''; }, 4000);
                         }
                     } catch (err) {
@@ -3862,13 +3905,13 @@
                 resetPartsScaleBtn.addEventListener('click', async () => {
                     try {
                         await ensureBridgeLoaded();
-                const result = await evalScript('MDUX_cppResetScale()');
-                if (selectionStatus) selectionStatus.textContent = result || 'Parts scale reset';
-                if (teScaleSlider) teScaleSlider.value = 100;
-                if (teScaleInput) teScaleInput.value = 100;
-                lastSelectionScale = 100;
-                teScaleDirty = false;
-            } catch (e) {
+                        const result = await evalScript(`MDUX_cppResetScale(${!isEmoryModeActive()})`);
+                        if (selectionStatus) selectionStatus.textContent = result || 'Parts scale reset';
+                        if (teScaleSlider) teScaleSlider.value = 100;
+                        if (teScaleInput) teScaleInput.value = 100;
+                        lastSelectionScale = 100;
+                        teScaleDirty = false;
+                    } catch (e) {
                         if (selectionStatus) selectionStatus.textContent = 'Error: ' + e.message;
                     }
                 });

@@ -4195,12 +4195,15 @@ function MDUX_transformEach(scale, rotation, undoPrevious) {
     }
 }
 
-function MDUX_cppTransformEach(scale, rotation) {
+function MDUX_cppTransformEach(scale, rotation, scaleLines, scaleDirty, rotateDirty) {
     try {
         if (app.documents.length === 0) {
             return JSON.stringify({ ok: false, message: "No document open." });
         }
         var payload = "action=transform;scale=" + scale + ";rotation=" + rotation;
+        if (scaleLines) payload += ";scaleLines=1";
+        if (scaleDirty) payload += ";scaleDirty=1";
+        if (rotateDirty) payload += ";rotateDirty=1";
         var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
         return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
     } catch (e) {
@@ -4208,16 +4211,31 @@ function MDUX_cppTransformEach(scale, rotation) {
     }
 }
 
-function MDUX_cppTransformEachLive(scale, rotation) {
+function MDUX_cppTransformEachLive(scale, rotation, scaleLines, scaleDirty, rotateDirty) {
     try {
         if (app.documents.length === 0) {
             return JSON.stringify({ ok: false, message: "No document open." });
         }
         var payload = "action=transform;scale=" + scale + ";rotation=" + rotation + ";live=1";
+        if (scaleLines) payload += ";scaleLines=1";
+        if (scaleDirty) payload += ";scaleDirty=1";
+        if (rotateDirty) payload += ";rotateDirty=1";
         var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
         return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
     } catch (e) {
         return JSON.stringify({ ok: false, message: "C++ live transform error: " + e });
+    }
+}
+
+function MDUX_cppGetSelectionTransformState() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", "action=get-transform-state;scaleLines=1");
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ transform-state error: " + e });
     }
 }
 
@@ -4273,12 +4291,13 @@ function MDUX_cppResetStrokes() {
     }
 }
 
-function MDUX_cppResetScale() {
+function MDUX_cppResetScale(scaleLines) {
     try {
         if (app.documents.length === 0) {
             return JSON.stringify({ ok: false, message: "No document open." });
         }
         var payload = "action=reset-scale";
+        if (scaleLines) payload += ";scaleLines=1";
         var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", payload);
         return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
     } catch (e) {
@@ -4322,6 +4341,42 @@ function MDUX_cppQuickRotate(value) {
         return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
     } catch (e) {
         return JSON.stringify({ ok: false, message: "C++ quick rotate error: " + e });
+    }
+}
+
+function MDUX_cppHealMarkedGapsSelection() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", "action=heal-gaps-selection");
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ heal gaps error: " + e });
+    }
+}
+
+function MDUX_cppRefreshMarkedGapsSelection() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", "action=refresh-gaps-selection");
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ refresh gaps error: " + e });
+    }
+}
+
+function MDUX_cppCarveOverlapSelection() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var result = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", "action=carve-overlaps-selection");
+        return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ carve overlaps error: " + e });
     }
 }
 
@@ -5048,6 +5103,18 @@ function MDUX_getSelectionTransformState() {
     try {
         if (app.documents.length === 0) {
             return JSON.stringify({ ok: false });
+        }
+
+        try {
+            var cppResult = MDUX_cppGetSelectionTransformState();
+            if (cppResult) {
+                var cppParsed = JSON.parse(cppResult);
+                if (cppParsed && cppParsed.ok !== undefined) {
+                    return cppResult;
+                }
+            }
+        } catch (cppErr) {
+            MDUX_debugLog("[SELECT-STATE] Falling back to ExtendScript summary: " + cppErr);
         }
 
         var sel = app.selection;

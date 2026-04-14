@@ -23,14 +23,14 @@ public:
 	void UpdateSelectionSummary();
 	void SetRotationOverrideValue(double value, bool hasValue);
 	bool GetRotationOverrideValue(double& outValue) const;
-	bool ApplyTransformSelection(double targetScale, double targetRotation, bool allowCache, bool updateUI, bool livePreview, std::string* outMessage);
+	bool ApplyTransformSelection(double targetScale, double targetRotation, bool allowCache, bool updateUI, bool livePreview, bool includeLineStrokes, std::string* outMessage);
 	void SetTransformDirtyFlags(bool scaleDirty, bool rotateDirty);
 	bool TryComputeSelectionAngle(double& outAngle) const;
 #ifdef WIN_ENV
 	void ApplyQuickRotate(double angle);
 	void ResetTransformToOriginal();
 	void ResetRotation();
-	void ResetScale();
+	void ResetScale(bool includeLineStrokes);
 	void ResetStrokes();
 #endif
 
