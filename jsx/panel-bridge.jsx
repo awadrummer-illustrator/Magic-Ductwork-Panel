@@ -3008,6 +3008,9 @@ function MDUX_moveToLayerBridge(optionsJSON) {
             return removed;
         }
 
+        // Ignore markers should only hide the intended nearby part, not a neighboring part.
+        var IGNORE_HIDE_ART_TOLERANCE = 8;
+
         // Prefer stored ductwork metadata; fall back to the raw placed-art matrix only if needed.
         function getItemScale(item) {
             try {
@@ -3772,7 +3775,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             var anchorY = anchorPositions[ai].y;
 
                             // Remove existing art AND anchors from ALL ductwork parts layers at this position
-                            removeArtFromAllDuctworkLayers(anchorX, anchorY, 20);
+                            removeArtFromAllDuctworkLayers(anchorX, anchorY, IGNORE_HIDE_ART_TOLERANCE);
                             removeExistingAnchorAtPosition(anchorX, anchorY, 5, targetLayerName);
 
                             // Check if anchor already exists on target layer - skip if so
@@ -4258,6 +4261,36 @@ function MDUX_cppTransformEachLive(scale, rotation, scaleLines, scaleDirty, rota
     }
 }
 
+function MDUX_cppTransformEachEmory(scale, rotation, scaleDirty, rotateDirty) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=transform;scale=" + scale + ";rotation=" + rotation;
+        if (scaleDirty) payload += ";scaleDirty=1";
+        if (rotateDirty) payload += ";rotateDirty=1";
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Emory C++ transform error: " + e });
+    }
+}
+
+function MDUX_cppTransformEachLiveEmory(scale, rotation, scaleDirty, rotateDirty) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=transform;scale=" + scale + ";rotation=" + rotation + ";live=1";
+        if (scaleDirty) payload += ";scaleDirty=1";
+        if (rotateDirty) payload += ";rotateDirty=1";
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Emory C++ live transform error: " + e });
+    }
+}
+
 function MDUX_cppGetSelectionTransformState() {
     try {
         if (app.documents.length === 0) {
@@ -4333,6 +4366,19 @@ function MDUX_cppResetScale(scaleLines) {
         return result || JSON.stringify({ ok: false, message: "No response from C++ panel." });
     } catch (e) {
         return JSON.stringify({ ok: false, message: "C++ reset scale error: " + e });
+    }
+}
+
+function MDUX_cppResetScaleEmory() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=reset-scale";
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "Emory C++ reset scale error: " + e });
     }
 }
 

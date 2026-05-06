@@ -365,6 +365,7 @@
     let transformStateRefreshTimer = null;
     let transformStateRefreshInFlight = false;
     let transformStateRefreshQueued = false;
+    let panelTextSelectionDragActive = false;
     let processingInProgress = false; // PERF: suppresses CEP event storms during C++ processing
     let emorySelectionState = null;
     let emoryWidthRefreshInFlight = false;
@@ -573,6 +574,63 @@
                 }
             }
         }, delay);
+    }
+
+    function isEditableTextControl(el) {
+        if (!el || !el.tagName) return false;
+        const tag = String(el.tagName).toUpperCase();
+        if (tag === 'TEXTAREA') return true;
+        if (tag !== 'INPUT') return false;
+        const type = String(el.type || '').toLowerCase();
+        return type === 'text' || type === 'number' || type === 'search' || type === 'email' || type === 'tel' || type === 'url' || type === 'password';
+    }
+
+    function panelHasFocus() {
+        try {
+            return document.hasFocus ? document.hasFocus() : true;
+        } catch (e) {
+            return true;
+        }
+    }
+
+    function isPanelTextInteractionActive() {
+        const active = document.activeElement;
+        return !!(panelHasFocus() && (panelTextSelectionDragActive || isEditableTextControl(active)));
+    }
+
+    function bindTextInputFocusGuards() {
+        const inputs = document.querySelectorAll('input[type="text"], input[type="number"], textarea');
+        inputs.forEach((inputEl) => {
+            if (!inputEl || inputEl.dataset.mduxTextGuardBound === '1') return;
+            inputEl.dataset.mduxTextGuardBound = '1';
+
+            inputEl.addEventListener('mousedown', (event) => {
+                if (!event || event.button === 0) {
+                    panelTextSelectionDragActive = true;
+                }
+            });
+
+            inputEl.addEventListener('mouseup', () => {
+                panelTextSelectionDragActive = false;
+            });
+
+            inputEl.addEventListener('blur', () => {
+                panelTextSelectionDragActive = false;
+                if (inputEl === teScaleInput || inputEl === teRotateInput) {
+                    scheduleTransformStateRefresh(0);
+                }
+            });
+        });
+
+        if (!window.MDUX_TextGuardGlobalBound) {
+            window.MDUX_TextGuardGlobalBound = true;
+            window.addEventListener('mouseup', () => {
+                panelTextSelectionDragActive = false;
+            });
+            window.addEventListener('blur', () => {
+                panelTextSelectionDragActive = false;
+            });
+        }
     }
 
     /**
@@ -1198,8 +1256,8 @@
                     syncEmoryWidthControls(referenceWidth, false);
                 }
                 setEmoryWidthStatus(state.mixedWidths
-                    ? 'Mixed widths selected across multiple runs. Dragging the slider will set all selected segments to one width and cascade each run away from its marked start.'
-                    : 'Dragging the slider will set all selected segments to one width and cascade each run away from its marked start.', false);
+                    ? 'Mixed widths selected across multiple runs. Dragging the slider will scale the selected runs proportionally and preserve tapers.'
+                    : 'Dragging the slider will set the selected segments to one width and cascade each run away from its marked start.', false);
             } else if (canApplyWidth && selectedCount === 1) {
                 const selectedWidth = Number(state.selectedWidth || 0);
                 if (selectedWidth > 0) {
@@ -1213,8 +1271,8 @@
                     syncEmoryWidthControls(referenceWidth, false);
                 }
                 setEmoryWidthStatus(state.mixedWidths
-                    ? 'Mixed widths selected. Dragging the slider will set all selected segments to one width and cascade each selected branch outward.'
-                    : 'Dragging the slider will set all selected segments to one width and cascade each selected branch outward.', false);
+                    ? 'Mixed widths selected. Dragging the slider will scale the selected run proportionally and preserve tapers.'
+                    : 'Dragging the slider will set the selected segments to one width and cascade each selected branch outward.', false);
             } else {
                 setEmoryWidthStatus('', false);
             }
@@ -2751,7 +2809,10 @@
 
         try {
             // Add a timeout race to prevent hanging if Illustrator doesn't respond
-            const transformPromise = evalScript(`MDUX_cppTransformEachLive(${payload.scale}, ${payload.rotate}, ${!isEmoryModeActive()}, ${!!payload.scaleDirty}, ${!!payload.rotateDirty})`);
+            const transformCommand = isEmoryModeActive()
+                ? `MDUX_cppTransformEachLiveEmory(${payload.scale}, ${payload.rotate}, ${!!payload.scaleDirty}, ${!!payload.rotateDirty})`
+                : `MDUX_cppTransformEachLive(${payload.scale}, ${payload.rotate}, true, ${!!payload.scaleDirty}, ${!!payload.rotateDirty})`;
+            const transformPromise = evalScript(transformCommand);
             const timeoutPromise = new Promise(resolve => setTimeout(() => resolve("TIMEOUT"), 1000));
 
             const result = await Promise.race([transformPromise, timeoutPromise]);
@@ -2891,7 +2952,10 @@
 
             setSelectionStatus("Transforming...", false);
             try {
-                await evalScript(`MDUX_cppTransformEach(${s}, ${r}, ${!isEmoryModeActive()}, ${scaleDirty}, ${rotateDirty})`);
+                const transformCommand = isEmoryModeActive()
+                    ? `MDUX_cppTransformEachEmory(${s}, ${r}, ${scaleDirty}, ${rotateDirty})`
+                    : `MDUX_cppTransformEach(${s}, ${r}, true, ${scaleDirty}, ${rotateDirty})`;
+                await evalScript(transformCommand);
                 setSelectionStatus("Transformation applied.", false);
                 // Reset internal state but NOT input values - let refresh update them from metadata
                 resetTransformControls(false);
@@ -2918,6 +2982,9 @@
         if (isCepSuspended()) return;
         if (teDragActive || teIsBusy) {
             // PERF: Removed debug logging to prevent blocking ExtendScript calls
+            return;
+        }
+        if (isPanelTextInteractionActive()) {
             return;
         }
 
@@ -2949,13 +3016,12 @@
                 lastSelectionMixedScale = !!res.mixedScale;
                 lastSelectionMixedRotation = !!res.mixedRotation;
 
-                // If either input has focus, blur it so we can update values
-                // This handles the case where user clicks a new object in Illustrator
-                // but the panel input still has focus (different windows)
-                if (document.activeElement === teScaleInput) {
+                // If Illustrator changed selection while the panel itself is not focused,
+                // release stale transform-input focus so the fresh metadata can load.
+                if (!panelHasFocus() && document.activeElement === teScaleInput) {
                     teScaleInput.blur();
                 }
-                if (document.activeElement === teRotateInput) {
+                if (!panelHasFocus() && document.activeElement === teRotateInput) {
                     teRotateInput.blur();
                 }
 
@@ -3692,7 +3758,10 @@
                 if (shouldApplyTransformTarget(typedScale, currentRotation, scaleDirty, rotateDirty)) {
                     setSelectionStatus("Transforming...", false);
                     try {
-                        await evalScript(`MDUX_cppTransformEach(${typedScale}, ${currentRotation}, ${!isEmoryModeActive()}, ${scaleDirty}, ${rotateDirty})`);
+                        const transformCommand = isEmoryModeActive()
+                            ? `MDUX_cppTransformEachEmory(${typedScale}, ${currentRotation}, ${scaleDirty}, ${rotateDirty})`
+                            : `MDUX_cppTransformEach(${typedScale}, ${currentRotation}, true, ${scaleDirty}, ${rotateDirty})`;
+                        await evalScript(transformCommand);
                         setSelectionStatus("Transformation applied.", false);
                         resetTransformControls(false);
                         if (!isEmoryModeActive()) await refreshSelectionTransformState();
@@ -3841,6 +3910,7 @@
             transformEachBtn = document.getElementById('transform-each-btn');
             teResetOriginalBtn = document.getElementById('te-reset-original-btn');
             teLiveOption = document.getElementById('te-live-option');
+            bindTextInputFocusGuards();
 
             csInterface.evalScript('MDUX_debugLog("[INIT] Elements fetched")', function() {});
 
@@ -3963,7 +4033,7 @@
                 resetPartsScaleBtn.addEventListener('click', async () => {
                     try {
                         await ensureBridgeLoaded();
-                        const result = await evalScript(`MDUX_cppResetScale(${!isEmoryModeActive()})`);
+                        const result = await evalScript(isEmoryModeActive() ? 'MDUX_cppResetScaleEmory()' : 'MDUX_cppResetScale(true)');
                         if (selectionStatus) selectionStatus.textContent = result || 'Parts scale reset';
                         if (teScaleSlider) teScaleSlider.value = 100;
                         if (teScaleInput) teScaleInput.value = 100;
