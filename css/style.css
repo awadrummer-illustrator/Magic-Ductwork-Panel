@@ -149,6 +149,10 @@ html {
     gap: 4px;
 }
 
+.layer-secondary-buttons {
+    margin-top: 8px;
+}
+
 /* Top Toggle Buttons */
 .toggle-grid {
     display: grid;
@@ -453,6 +457,53 @@ button:active {
 .slider-label {
     width: 45px;
     font-size: 8px;
+}
+
+.emory-wide-label {
+    width: 82px;
+    flex: 0 0 82px;
+    font-size: 7px;
+    line-height: 1.1;
+}
+
+.emory-collapsible-panel {
+    margin-top: 6px;
+    border: 1px solid rgba(0, 170, 255, 0.35);
+    border-radius: 5px;
+    background: rgba(0, 0, 0, 0.22);
+}
+
+.emory-collapsible-panel summary {
+    cursor: pointer;
+    user-select: none;
+    padding: 5px 7px;
+    color: var(--primary-color);
+    font-size: 8px;
+    font-weight: bold;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+}
+
+.emory-collapsible-panel summary:hover {
+    text-shadow: 0 0 6px var(--primary-color);
+}
+
+.emory-collapsible-panel[open] {
+    padding-bottom: 6px;
+}
+
+.emory-collapsible-panel[open] summary {
+    margin-bottom: 2px;
+    border-bottom: 1px solid rgba(0, 240, 255, 0.14);
+}
+
+.emory-collapsible-panel > button,
+.emory-collapsible-panel > .btn-row,
+.emory-collapsible-panel > .btn-row-thirds,
+.emory-collapsible-panel > .status {
+    margin-left: 6px;
+    margin-right: 6px;
+    width: calc(100% - 12px) !important;
 }
 
 .transform-value-input.mixed-value {

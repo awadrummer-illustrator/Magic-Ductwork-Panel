@@ -211,6 +211,18 @@
         mergePathsBtn = document.getElementById('merge-paths-btn');
         docScaleInput = document.getElementById('doc-scale-input');
         getDocScaleBtn = document.getElementById('get-doc-scale-btn');
+        teScaleInput = document.getElementById('te-scale');
+        teRotateInput = document.getElementById('te-rotate');
+        teScaleSlider = document.getElementById('te-scale-slider');
+        teRotateSlider = document.getElementById('te-rotate-slider');
+        transformEachBtn = document.getElementById('transform-each-btn');
+        teResetOriginalBtn = document.getElementById('te-reset-original-btn');
+        teLiveOption = document.getElementById('te-live-option');
+        emoryTeScaleInput = document.getElementById('emory-te-scale');
+        emoryTeRotateInput = document.getElementById('emory-te-rotate');
+        emoryTeScaleSlider = document.getElementById('emory-te-scale-slider');
+        emoryTeRotateSlider = document.getElementById('emory-te-rotate-slider');
+        emoryTeLiveOption = document.getElementById('emory-te-live-option');
     }
     let debugStatus = document.getElementById('debug-status');
     let debugLoggingOption = document.getElementById('debug-logging-option');
@@ -268,6 +280,11 @@
     let transformEachBtn = document.getElementById('transform-each-btn');
     let teResetOriginalBtn = document.getElementById('te-reset-original-btn');
     let teLiveOption = document.getElementById('te-live-option');
+    let emoryTeScaleInput = document.getElementById('emory-te-scale');
+    let emoryTeRotateInput = document.getElementById('emory-te-rotate');
+    let emoryTeScaleSlider = document.getElementById('emory-te-scale-slider');
+    let emoryTeRotateSlider = document.getElementById('emory-te-rotate-slider');
+    let emoryTeLiveOption = document.getElementById('emory-te-live-option');
 
     // Reset/Normalize Controls
     const resetStrokesBtn = document.getElementById('reset-strokes-btn');
@@ -616,7 +633,8 @@
 
             inputEl.addEventListener('blur', () => {
                 panelTextSelectionDragActive = false;
-                if (inputEl === teScaleInput || inputEl === teRotateInput) {
+                if (inputEl === teScaleInput || inputEl === teRotateInput ||
+                    inputEl === emoryTeScaleInput || inputEl === emoryTeRotateInput) {
                     scheduleTransformStateRefresh(0);
                 }
             });
@@ -2777,6 +2795,89 @@
         inputEl.classList.remove('mixed-value');
     }
 
+    function getTransformScaleInputs() {
+        return [teScaleInput, emoryTeScaleInput].filter(Boolean);
+    }
+
+    function getTransformRotateInputs() {
+        return [teRotateInput, emoryTeRotateInput].filter(Boolean);
+    }
+
+    function getTransformScaleSliders() {
+        return [teScaleSlider, emoryTeScaleSlider].filter(Boolean);
+    }
+
+    function getTransformRotateSliders() {
+        return [teRotateSlider, emoryTeRotateSlider].filter(Boolean);
+    }
+
+    function isTransformScaleInput(inputEl) {
+        return !!inputEl && (inputEl === teScaleInput || inputEl === emoryTeScaleInput);
+    }
+
+    function isTransformRotateInput(inputEl) {
+        return !!inputEl && (inputEl === teRotateInput || inputEl === emoryTeRotateInput);
+    }
+
+    function setTransformScaleDisplay(value, isMixed) {
+        getTransformScaleInputs().forEach(inputEl => setTransformInputDisplay(inputEl, value, isMixed));
+    }
+
+    function setTransformRotateDisplay(value, isMixed) {
+        getTransformRotateInputs().forEach(inputEl => setTransformInputDisplay(inputEl, value, isMixed));
+    }
+
+    function setTransformScaleSliderValue(value) {
+        getTransformScaleSliders().forEach(slider => {
+            slider.value = value;
+        });
+    }
+
+    function setTransformRotateSliderValue(value) {
+        getTransformRotateSliders().forEach(slider => {
+            slider.value = value;
+        });
+    }
+
+    function getCurrentTransformScaleValue() {
+        const primary = teScaleInput ? parseFloat(teScaleInput.value) : NaN;
+        if (isFinite(primary)) return primary;
+        const emoryValue = emoryTeScaleInput ? parseFloat(emoryTeScaleInput.value) : NaN;
+        return isFinite(emoryValue) ? emoryValue : 100;
+    }
+
+    function getCurrentTransformRotateValue() {
+        const primary = teRotateInput ? parseFloat(teRotateInput.value) : NaN;
+        if (isFinite(primary)) return primary;
+        const emoryValue = emoryTeRotateInput ? parseFloat(emoryTeRotateInput.value) : NaN;
+        return isFinite(emoryValue) ? emoryValue : 0;
+    }
+
+    function getCurrentTransformScaleSliderValue() {
+        const primary = teScaleSlider ? parseFloat(teScaleSlider.value) : NaN;
+        if (isFinite(primary)) return primary;
+        const emoryValue = emoryTeScaleSlider ? parseFloat(emoryTeScaleSlider.value) : NaN;
+        return isFinite(emoryValue) ? emoryValue : 100;
+    }
+
+    function getCurrentTransformRotateSliderValue() {
+        const primary = teRotateSlider ? parseFloat(teRotateSlider.value) : NaN;
+        if (isFinite(primary)) return primary;
+        const emoryValue = emoryTeRotateSlider ? parseFloat(emoryTeRotateSlider.value) : NaN;
+        return isFinite(emoryValue) ? emoryValue : 0;
+    }
+
+    function syncTransformLiveControls(checked) {
+        if (teLiveOption) teLiveOption.checked = !!checked;
+        if (emoryTeLiveOption) emoryTeLiveOption.checked = !!checked;
+    }
+
+    function isTransformLiveEnabled() {
+        if (teLiveOption) return !!teLiveOption.checked;
+        if (emoryTeLiveOption) return !!emoryTeLiveOption.checked;
+        return true;
+    }
+
     function shouldApplyTransformTarget(targetScale, targetRotation, scaleDirty, rotateDirty) {
         const hasScaleDelta = !!scaleDirty && (
             lastSelectionMixedScale ||
@@ -2866,13 +2967,14 @@
 
     function handleLiveTransform(source) {
         // Check if Live is enabled
-        if (teLiveOption && !teLiveOption.checked) return;
+        if (!isTransformLiveEnabled()) return;
 
         // Ensure elements are found
-        if (!teScaleSlider || !teRotateSlider) return;
+        if (!teScaleSlider && !emoryTeScaleSlider) return;
+        if (!teRotateSlider && !emoryTeRotateSlider) return;
 
-        const currentScale = parseFloat(teScaleSlider.value);
-        const currentRotate = parseFloat(teRotateSlider.value);
+        const currentScale = getCurrentTransformScaleSliderValue();
+        const currentRotate = getCurrentTransformRotateSliderValue();
         const useScale = (source === 'rotate' && !teScaleDirty && lastSelectionScale !== null) ? lastSelectionScale : currentScale;
         const useRotate = (source === 'scale' && !teRotateDirty && lastSelectionRotation !== null) ? lastSelectionRotation : currentRotate;
 
@@ -2913,10 +3015,10 @@
 
     function resetTransformControls(resetValues = true) {
         if (resetValues) {
-            if (teScaleSlider) teScaleSlider.value = 100;
-            setTransformInputDisplay(teScaleInput, 100, false);
-            if (teRotateSlider) teRotateSlider.value = 0;
-            setTransformInputDisplay(teRotateInput, 0, false);
+            setTransformScaleSliderValue(100);
+            setTransformScaleDisplay(100, false);
+            setTransformRotateSliderValue(0);
+            setTransformRotateDisplay(0, false);
             lastSelectionScale = 100;
             lastSelectionRotation = 0;
             lastSelectionMixedScale = false;
@@ -2934,14 +3036,14 @@
 
     async function handleTransformEach() {
         // If Live is ON, the button just resets the controls (commits the change)
-        if (teLiveOption && teLiveOption.checked) {
+        if (isTransformLiveEnabled()) {
             resetTransformControls(false);
             if (!isEmoryModeActive()) await refreshSelectionTransformState();
             setSelectionStatus("Transformation committed.", false);
         } else {
             // If Live is OFF, apply the current values
-            const s = parseFloat(teScaleInput.value) || 100;
-            const r = parseFloat(teRotateInput.value) || 0;
+            const s = getCurrentTransformScaleValue();
+            const r = getCurrentTransformRotateValue();
             const scaleDirty = teScaleDirty;
             const rotateDirty = teRotateDirty;
 
@@ -3018,22 +3120,22 @@
 
                 // If Illustrator changed selection while the panel itself is not focused,
                 // release stale transform-input focus so the fresh metadata can load.
-                if (!panelHasFocus() && document.activeElement === teScaleInput) {
-                    teScaleInput.blur();
+                if (!panelHasFocus() && isTransformScaleInput(document.activeElement)) {
+                    document.activeElement.blur();
                 }
-                if (!panelHasFocus() && document.activeElement === teRotateInput) {
-                    teRotateInput.blur();
+                if (!panelHasFocus() && isTransformRotateInput(document.activeElement)) {
+                    document.activeElement.blur();
                 }
 
                 // Update scale
                 if (!preserveScale) {
                     if (res.mixedScale) {
-                        setTransformInputDisplay(teScaleInput, null, true);
-                        teScaleSlider.value = 100;
+                        setTransformScaleDisplay(null, true);
+                        setTransformScaleSliderValue(100);
                         lastSelectionScale = null;
                     } else {
-                        setTransformInputDisplay(teScaleInput, res.scale, false);
-                        teScaleSlider.value = res.scale;
+                        setTransformScaleDisplay(res.scale, false);
+                        setTransformScaleSliderValue(res.scale);
                         lastSelectionScale = res.scale;
                     }
                 } else {
@@ -3042,12 +3144,12 @@
                 // Update rotation
                 if (!preserveRotate) {
                     if (res.mixedRotation) {
-                        setTransformInputDisplay(teRotateInput, null, true);
-                        teRotateSlider.value = 0;
+                        setTransformRotateDisplay(null, true);
+                        setTransformRotateSliderValue(0);
                         lastSelectionRotation = null;
                     } else {
-                        setTransformInputDisplay(teRotateInput, res.rotation, false);
-                        teRotateSlider.value = res.rotation;
+                        setTransformRotateDisplay(res.rotation, false);
+                        setTransformRotateSliderValue(res.rotation);
                         lastSelectionRotation = res.rotation;
                     }
                 } else {
@@ -3064,10 +3166,10 @@
                 }
             } else {
                 // No selection or no tagged items
-                setTransformInputDisplay(teScaleInput, 100, false);
-                teScaleSlider.value = 100;
-                setTransformInputDisplay(teRotateInput, 0, false);
-                teRotateSlider.value = 0;
+                setTransformScaleDisplay(100, false);
+                setTransformScaleSliderValue(100);
+                setTransformRotateDisplay(0, false);
+                setTransformRotateSliderValue(0);
                 lastSelectionScale = 100;
                 lastSelectionRotation = 0;
                 lastSelectionMixedScale = false;
@@ -3091,8 +3193,8 @@
         teTransformAppliedInDrag = false;
 
         // Capture start values from both sliders (now updated from metadata)
-        teDragStartScale = parseFloat(teScaleSlider.value) || 100;
-        teDragStartRotate = parseFloat(teRotateSlider.value) || 0;
+        teDragStartScale = getCurrentTransformScaleSliderValue();
+        teDragStartRotate = getCurrentTransformRotateSliderValue();
 
         // Listen for global mouseup to end the session
         window.addEventListener('mouseup', handleDragEnd, { once: true });
@@ -3108,6 +3210,194 @@
         // The transformation is already applied during 'input' events.
         // We do NOT reset controls here so the user can see where they left it.
         teTransformAppliedInDrag = false;
+    }
+
+    function attachTransformScaleControls(slider, input) {
+        if (!slider || !input || slider.dataset.mduxTransformBound === '1') return;
+        slider.dataset.mduxTransformBound = '1';
+        input.dataset.mduxTransformBound = '1';
+        let scaleEnterPressed = false;
+
+        slider.addEventListener('mousedown', function () {
+            setTransformScaleSliderValue(parseFloat(slider.value) || 100);
+            handleDragStart();
+        });
+
+        slider.addEventListener('input', function (e) {
+            const rawValue = parseFloat(slider.value);
+            let newValue = rawValue;
+            const sliderMax = parseFloat(slider.max);
+            const sliderMin = parseFloat(slider.min);
+            if (teDragActive) {
+                const delta = rawValue - teDragStartScale;
+                const speed = e.shiftKey ? 1.0 : 0.25;
+                newValue = teDragStartScale + (delta * speed);
+                newValue = Math.max(sliderMin, Math.min(sliderMax, newValue));
+            }
+            setTransformScaleSliderValue(newValue);
+            setTransformScaleDisplay(Math.round(newValue), false);
+            lastSelectionScale = newValue;
+            teScaleDirty = true;
+            console.log('[TRANSFORM] scale input', rawValue, '->', newValue);
+            handleLiveTransform('scale');
+        });
+
+        input.addEventListener('input', function () {
+            input.classList.remove('mixed-value');
+        });
+
+        input.addEventListener('change', function () {
+            if (scaleEnterPressed) {
+                scaleEnterPressed = false;
+                return;
+            }
+
+            let val = parseFloat(input.value);
+            if (isNaN(val)) return;
+
+            teDragStartScale = 100;
+            teDragStartRotate = 0;
+            setTransformScaleSliderValue(val);
+            setTransformScaleDisplay(Math.round(val), false);
+            lastSelectionScale = val;
+
+            teDragActive = true;
+            teTransformAppliedInDrag = false;
+            teScaleDirty = true;
+            handleLiveTransform('scale');
+
+            teDragActive = false;
+            teTransformAppliedInDrag = false;
+        });
+
+        input.addEventListener('keydown', async function (e) {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (transformDebounceTimer) {
+                clearTimeout(transformDebounceTimer);
+                transformDebounceTimer = null;
+            }
+            teNextPayload = null;
+
+            scaleEnterPressed = true;
+
+            const typedScaleRaw = parseFloat(input.value);
+            const typedScale = Math.max(10, Math.min(400, isFinite(typedScaleRaw) ? typedScaleRaw : 100));
+            let currentRotation = getCurrentTransformRotateValue();
+            if (!isFinite(currentRotation)) {
+                currentRotation = (lastSelectionMixedRotation || !isFinite(lastSelectionRotation)) ? 0 : lastSelectionRotation;
+            }
+            const scaleDirty = true;
+            const rotateDirty = teRotateDirty;
+
+            console.log('[TRANSFORM] Enter pressed on scale, applying value:', typedScale);
+
+            setTransformScaleSliderValue(Math.max(10, Math.min(400, typedScale)));
+            setTransformScaleDisplay(Math.round(typedScale), false);
+
+            if (shouldApplyTransformTarget(typedScale, currentRotation, scaleDirty, rotateDirty)) {
+                setSelectionStatus("Transforming...", false);
+                try {
+                    const transformCommand = isEmoryModeActive()
+                        ? `MDUX_cppTransformEachEmory(${typedScale}, ${currentRotation}, ${scaleDirty}, ${rotateDirty})`
+                        : `MDUX_cppTransformEach(${typedScale}, ${currentRotation}, true, ${scaleDirty}, ${rotateDirty})`;
+                    await evalScript(transformCommand);
+                    setSelectionStatus("Transformation applied.", false);
+                    resetTransformControls(false);
+                    if (!isEmoryModeActive()) await refreshSelectionTransformState();
+                } catch (err) {
+                    setSelectionStatus("Error: " + err.message, true);
+                }
+            } else {
+                setSelectionStatus("No changes to apply.", false);
+            }
+
+            input.blur();
+        });
+    }
+
+    function attachTransformRotateControls(slider, input) {
+        if (!slider || !input || slider.dataset.mduxTransformBound === '1') return;
+        slider.dataset.mduxTransformBound = '1';
+        input.dataset.mduxTransformBound = '1';
+        let rotateEnterPressed = false;
+
+        slider.addEventListener('mousedown', function () {
+            setTransformRotateSliderValue(parseFloat(slider.value) || 0);
+            handleDragStart();
+        });
+
+        slider.addEventListener('input', function (e) {
+            const rawValue = parseFloat(slider.value);
+            let newValue = rawValue;
+            const sliderMax = parseFloat(slider.max);
+            const sliderMin = parseFloat(slider.min);
+            if (teDragActive) {
+                const delta = rawValue - teDragStartRotate;
+                const speed = e.shiftKey ? 1.0 : 0.25;
+                newValue = teDragStartRotate + (delta * speed);
+                newValue = Math.max(sliderMin, Math.min(sliderMax, newValue));
+            }
+            setTransformRotateSliderValue(newValue);
+            setTransformRotateDisplay(Math.round(newValue), false);
+            lastSelectionRotation = newValue;
+            teRotateDirty = true;
+            console.log('[TRANSFORM] rotate input', rawValue, '->', newValue);
+            handleLiveTransform('rotate');
+        });
+
+        input.addEventListener('input', function () {
+            input.classList.remove('mixed-value');
+        });
+
+        input.addEventListener('change', function () {
+            if (rotateEnterPressed) {
+                rotateEnterPressed = false;
+                return;
+            }
+
+            let val = parseFloat(input.value);
+            if (isNaN(val)) return;
+
+            console.log('[TRANSFORM] Rotation input changed to ' + val + 'deg, applying absolute rotation');
+            rotateSelection(val);
+
+            setTransformRotateSliderValue(val);
+            setTransformRotateDisplay(Math.round(val), false);
+            teDragStartRotate = val;
+            teTransformAppliedInDrag = false;
+        });
+
+        input.addEventListener('keydown', async function (e) {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            e.stopPropagation();
+            let val = parseFloat(input.value);
+            if (isNaN(val)) return;
+
+            if (transformDebounceTimer) {
+                clearTimeout(transformDebounceTimer);
+                transformDebounceTimer = null;
+            }
+            teNextPayload = null;
+
+            rotateEnterPressed = true;
+            input.blur();
+            console.log('[TRANSFORM] Enter pressed on rotation, applying absolute rotation: ' + val + 'deg');
+            await rotateSelection(val);
+            setTransformRotateSliderValue(val);
+            setTransformRotateDisplay(Math.round(val), false);
+        });
+    }
+
+    function attachTransformLiveControl(input) {
+        if (!input || input.dataset.mduxTransformBound === '1') return;
+        input.dataset.mduxTransformBound = '1';
+        input.addEventListener('change', function () {
+            syncTransformLiveControls(input.checked);
+        });
     }
 
     function initCollapsibleSections() {
@@ -3663,9 +3953,11 @@
         exportFloorplanBtn.addEventListener('click', () => handleExport('floorplan'));
     }
 
-        if (teLiveOption && !teLiveOption.checked) {
-            teLiveOption.checked = true;
+        if (!isTransformLiveEnabled()) {
+            syncTransformLiveControls(true);
         }
+        attachTransformLiveControl(teLiveOption);
+        attachTransformLiveControl(emoryTeLiveOption);
 
         if (teScaleSlider && teScaleInput) {
             teScaleSlider.addEventListener('mousedown', handleDragStart);
@@ -3684,7 +3976,8 @@
                 // Clamp to slider range
                 newValue = Math.max(sliderMin, Math.min(sliderMax, newValue));
             }
-            setTransformInputDisplay(teScaleInput, Math.round(newValue), false);
+            setTransformScaleSliderValue(newValue);
+            setTransformScaleDisplay(Math.round(newValue), false);
             lastSelectionScale = newValue;
             teScaleDirty = true;
             console.log('[TRANSFORM] scale input', rawValue, '->', newValue);
@@ -3710,8 +4003,8 @@
 
             teDragStartScale = 100;
             teDragStartRotate = 0;
-            teScaleSlider.value = val;
-            setTransformInputDisplay(teScaleInput, Math.round(val), false);
+            setTransformScaleSliderValue(val);
+            setTransformScaleDisplay(Math.round(val), false);
             lastSelectionScale = val;
 
             teDragActive = true;
@@ -3751,8 +4044,8 @@
                 console.log('[TRANSFORM] Enter pressed on scale, applying value:', typedScale);
 
                 // Sync the slider to match typed value
-                if (teScaleSlider) teScaleSlider.value = Math.max(10, Math.min(400, typedScale));
-                setTransformInputDisplay(teScaleInput, Math.round(typedScale), false);
+                setTransformScaleSliderValue(Math.max(10, Math.min(400, typedScale)));
+                setTransformScaleDisplay(Math.round(typedScale), false);
 
                 // Apply transform directly regardless of Live mode
                 if (shouldApplyTransformTarget(typedScale, currentRotation, scaleDirty, rotateDirty)) {
@@ -3792,7 +4085,8 @@
                 // Clamp to slider range
                 newValue = Math.max(sliderMin, Math.min(sliderMax, newValue));
             }
-            setTransformInputDisplay(teRotateInput, Math.round(newValue), false);
+            setTransformRotateSliderValue(newValue);
+            setTransformRotateDisplay(Math.round(newValue), false);
             lastSelectionRotation = newValue;
             teRotateDirty = true;
             console.log('[TRANSFORM] rotate input', rawValue, '->', newValue);
@@ -3820,8 +4114,8 @@
             console.log('[TRANSFORM] Rotation input changed to ' + val + '°, applying absolute rotation');
             rotateSelection(val);
 
-            teRotateSlider.value = val;
-            setTransformInputDisplay(teRotateInput, Math.round(val), false);
+            setTransformRotateSliderValue(val);
+            setTransformRotateDisplay(Math.round(val), false);
             teDragStartRotate = val;
             teTransformAppliedInDrag = false;
         });
@@ -3845,11 +4139,13 @@
                 teRotateInput.blur();
                 console.log('[TRANSFORM] Enter pressed on rotation, applying absolute rotation: ' + val + '°');
                 await rotateSelection(val);
-                teRotateSlider.value = val;
-                setTransformInputDisplay(teRotateInput, Math.round(val), false);
+                setTransformRotateSliderValue(val);
+                setTransformRotateDisplay(Math.round(val), false);
             }
         });
     }
+    attachTransformScaleControls(emoryTeScaleSlider, emoryTeScaleInput);
+    attachTransformRotateControls(emoryTeRotateSlider, emoryTeRotateInput);
 
     reloadBtn.addEventListener('click', () => {
         forceReloadScripts().finally(() => reloadExtensionView());
@@ -3910,6 +4206,11 @@
             transformEachBtn = document.getElementById('transform-each-btn');
             teResetOriginalBtn = document.getElementById('te-reset-original-btn');
             teLiveOption = document.getElementById('te-live-option');
+            emoryTeScaleInput = document.getElementById('emory-te-scale');
+            emoryTeRotateInput = document.getElementById('emory-te-rotate');
+            emoryTeScaleSlider = document.getElementById('emory-te-scale-slider');
+            emoryTeRotateSlider = document.getElementById('emory-te-rotate-slider');
+            emoryTeLiveOption = document.getElementById('emory-te-live-option');
             bindTextInputFocusGuards();
 
             csInterface.evalScript('MDUX_debugLog("[INIT] Elements fetched")', function() {});
@@ -4035,8 +4336,8 @@
                         await ensureBridgeLoaded();
                         const result = await evalScript(isEmoryModeActive() ? 'MDUX_cppResetScaleEmory()' : 'MDUX_cppResetScale(true)');
                         if (selectionStatus) selectionStatus.textContent = result || 'Parts scale reset';
-                        if (teScaleSlider) teScaleSlider.value = 100;
-                        if (teScaleInput) teScaleInput.value = 100;
+                        setTransformScaleSliderValue(100);
+                        setTransformScaleDisplay(100, false);
                         lastSelectionScale = 100;
                         teScaleDirty = false;
                     } catch (e) {
