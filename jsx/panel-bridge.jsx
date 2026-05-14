@@ -4808,6 +4808,32 @@ function MDUX_cppClearSelectedEmoryStartSegment() {
     }
 }
 
+function MDUX_cppSetSelectedEmoryCascadeStopSegment() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=set-emory-cascade-stop-segment";
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ set Emory cascade stop error: " + e });
+    }
+}
+
+function MDUX_cppClearSelectedEmoryCascadeStopSegment() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=clear-emory-cascade-stop-segment";
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ clear Emory cascade stop error: " + e });
+    }
+}
+
 function MDUX_cppApplySelectedEmorySegmentWidth(width) {
     try {
         if (app.documents.length === 0) {

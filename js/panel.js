@@ -82,10 +82,14 @@
     let setStraightTerminalSegmentStyleBtn = document.getElementById('set-terminal-segment-straight-btn');
     let setEmoryStartBtn = document.getElementById('set-emory-start-btn');
     let clearEmoryStartBtn = document.getElementById('clear-emory-start-btn');
+    let setEmoryCascadeStopBtn = document.getElementById('set-emory-cascade-stop-btn');
+    let clearEmoryCascadeStopBtn = document.getElementById('clear-emory-cascade-stop-btn');
     let emoryWidthSlider = document.getElementById('emory-width-slider');
     let emoryWidthInput = document.getElementById('emory-width-input');
     let emoryStrokeSlider = document.getElementById('emory-stroke-slider');
     let emoryStrokeInput = document.getElementById('emory-stroke-input');
+    let emoryBranchTaperSlider = document.getElementById('emory-branch-taper-slider');
+    let emoryBranchTaperInput = document.getElementById('emory-branch-taper-input');
     let emorySelectionStatus = document.getElementById('emory-selection-status');
     let emoryWidthStatus = document.getElementById('emory-width-status');
     let emoryStrokeStatus = document.getElementById('emory-stroke-status');
@@ -112,9 +116,11 @@
     let reloadBtn = document.getElementById('reload-btn');
     const extensionId = 'com.chris.magicductwork.panel';
     const PROCESS_MODE_STORAGE_KEY = 'mdux-process-mode';
+    const EMORY_BRANCH_TAPER_STORAGE_KEY = 'mdux-emory-branch-taper-reduction';
     const PROCESS_MODE_NORMAL = 'normal';
     const PROCESS_MODE_EMORY = 'emory';
     let currentProcessMode = PROCESS_MODE_NORMAL;
+    let emoryNoOrthoFinalDefaultApplied = false;
     function reloadExtensionView() {
         try {
             const base = window.location.href.split('?')[0];
@@ -143,10 +149,14 @@
         setStraightTerminalSegmentStyleBtn = document.getElementById('set-terminal-segment-straight-btn');
         setEmoryStartBtn = document.getElementById('set-emory-start-btn');
         clearEmoryStartBtn = document.getElementById('clear-emory-start-btn');
+        setEmoryCascadeStopBtn = document.getElementById('set-emory-cascade-stop-btn');
+        clearEmoryCascadeStopBtn = document.getElementById('clear-emory-cascade-stop-btn');
         emoryWidthSlider = document.getElementById('emory-width-slider');
         emoryWidthInput = document.getElementById('emory-width-input');
         emoryStrokeSlider = document.getElementById('emory-stroke-slider');
         emoryStrokeInput = document.getElementById('emory-stroke-input');
+        emoryBranchTaperSlider = document.getElementById('emory-branch-taper-slider');
+        emoryBranchTaperInput = document.getElementById('emory-branch-taper-input');
         emorySelectionStatus = document.getElementById('emory-selection-status');
         emoryWidthStatus = document.getElementById('emory-width-status');
         emoryStrokeStatus = document.getElementById('emory-stroke-status');
@@ -892,6 +902,22 @@
         return currentProcessMode === PROCESS_MODE_EMORY;
     }
 
+    function applyEmoryNoOrthoFinalDefault() {
+        if (emoryNoOrthoFinalDefaultApplied) return;
+        emoryNoOrthoFinalDefaultApplied = true;
+        const anyOrthoSkipSelected = !!(
+            (processSkipOrthoOption && processSkipOrthoOption.checked) ||
+            (processSkipAllBranchesOption && processSkipAllBranchesOption.checked) ||
+            (processSkipFinalOption && processSkipFinalOption.checked) ||
+            (skipOrthoOption && skipOrthoOption.checked) ||
+            (skipAllBranchesOption && skipAllBranchesOption.checked) ||
+            (skipFinalOption && skipFinalOption.checked)
+        );
+        if (anyOrthoSkipSelected) return;
+        if (skipFinalOption) skipFinalOption.checked = true;
+        if (processSkipFinalOption) processSkipFinalOption.checked = true;
+    }
+
     function getRotationInputs() {
         const inputs = [];
         if (rotationInput) inputs.push(rotationInput);
@@ -971,6 +997,7 @@
             } catch (e) {}
         }
         if (currentProcessMode === PROCESS_MODE_EMORY) {
+            applyEmoryNoOrthoFinalDefault();
             refreshEmorySelectionState(true).catch(function () {});
         }
     }
@@ -1020,8 +1047,6 @@
 
     function getEmoryWidthSliderConfig(width) {
         const normalized = Math.max(0.25, Number(width) || 0.25);
-        const lowerSpan = Math.max(6, normalized * 0.75);
-        const upperSpan = Math.max(8, normalized * 1.25);
         let step = 0.1;
         if (normalized >= 40) {
             step = 0.25;
@@ -1030,8 +1055,8 @@
             step = 0.5;
         }
         return {
-            min: Math.max(0.25, normalized - lowerSpan),
-            max: normalized + upperSpan,
+            min: 0.25,
+            max: Math.max(240, normalized * 4, normalized + 80),
             step: step
         };
     }
@@ -1088,6 +1113,42 @@
         }
     }
 
+    function clampEmoryBranchTaperReduction(value) {
+        const numeric = Number(value);
+        if (!isFinite(numeric)) return 25;
+        return Math.max(0, Math.min(75, numeric));
+    }
+
+    function syncEmoryBranchTaperControls(value, preserveInputValue) {
+        if (!emoryBranchTaperSlider || !emoryBranchTaperInput) return;
+        const normalized = clampEmoryBranchTaperReduction(value);
+        emoryBranchTaperSlider.value = String(normalized);
+        if (!preserveInputValue) {
+            emoryBranchTaperInput.value = String(normalized);
+        }
+        try {
+            window.localStorage.setItem(EMORY_BRANCH_TAPER_STORAGE_KEY, String(normalized));
+        } catch (e) {}
+    }
+
+    function readEmoryBranchTaperReductionPercent() {
+        if (emoryBranchTaperInput) {
+            return clampEmoryBranchTaperReduction(emoryBranchTaperInput.value);
+        }
+        if (emoryBranchTaperSlider) {
+            return clampEmoryBranchTaperReduction(emoryBranchTaperSlider.value);
+        }
+        return 25;
+    }
+
+    function restoreEmoryBranchTaperReduction() {
+        let stored = null;
+        try {
+            stored = window.localStorage.getItem(EMORY_BRANCH_TAPER_STORAGE_KEY);
+        } catch (e) {}
+        syncEmoryBranchTaperControls(stored === null ? 25 : stored, false);
+    }
+
     function flushPendingEmoryWidthRefresh() {
         if (!emoryWidthRefreshPending) return;
         emoryWidthRefreshPending = false;
@@ -1133,6 +1194,8 @@
             : !!enabled;
         if (setEmoryStartBtn) setEmoryStartBtn.disabled = !enabled;
         if (clearEmoryStartBtn) clearEmoryStartBtn.disabled = !enabled;
+        if (setEmoryCascadeStopBtn) setEmoryCascadeStopBtn.disabled = !enabled;
+        if (clearEmoryCascadeStopBtn) clearEmoryCascadeStopBtn.disabled = !enabled;
         if (emoryWidthSlider) emoryWidthSlider.disabled = !enabled;
         if (emoryWidthInput) emoryWidthInput.disabled = !enabled;
         if (emoryStrokeSlider) emoryStrokeSlider.disabled = !strokeEnabled;
@@ -1240,11 +1303,18 @@
                 setEmorySelectionStatus(multiRunMessage, false);
             } else if (selectedCount === 1 && isFinite(selectedSegmentIndex) && selectedSegmentIndex >= 0) {
                 const selectedLabel = 'Selected: segment ' + (selectedSegmentIndex + 1) + ' of ' + segmentCount;
-                setEmorySelectionStatus(selectedLabel + ' | ' + startLabel, false);
+                let selectedMessage = selectedLabel + ' | ' + startLabel;
+                if (state.isCascadeStopSegment) {
+                    selectedMessage += ' | Stop';
+                }
+                setEmorySelectionStatus(selectedMessage, false);
             } else {
                 let msg = selectedCount + ' segments selected | ' + startLabel;
                 if (state.mixedWidths) {
                     msg += ' | Mixed widths selected';
+                }
+                if (state.hasCascadeStops) {
+                    msg += ' | Stop marked';
                 }
                 setEmorySelectionStatus(msg, false);
             }
@@ -1255,6 +1325,12 @@
             }
             if (clearEmoryStartBtn) {
                 clearEmoryStartBtn.disabled = !state.canClearStart;
+            }
+            if (setEmoryCascadeStopBtn) {
+                setEmoryCascadeStopBtn.disabled = !state.canSetCascadeStop;
+            }
+            if (clearEmoryCascadeStopBtn) {
+                clearEmoryCascadeStopBtn.disabled = !state.canClearCascadeStop;
             }
             updateEmoryTerminalStyleButtons(state);
             if (emoryWidthSlider) emoryWidthSlider.disabled = !canApplyWidth;
@@ -1479,6 +1555,9 @@
         }
         if (typeof options.enableOverlapCarve === 'boolean') {
             parts.push('enableOverlapCarve=' + (options.enableOverlapCarve ? '1' : '0'));
+        }
+        if (typeof options.branchTaperReductionPercent === 'number' && isFinite(options.branchTaperReductionPercent)) {
+            parts.push('branchTaperReductionPercent=' + options.branchTaperReductionPercent);
         }
         return parts.join(';');
     }
@@ -1992,6 +2071,7 @@
             const skipAllBranchSegments = processSkipAllBranchesOption ? !!processSkipAllBranchesOption.checked : (skipAllBranchesOption ? !!skipAllBranchesOption.checked : false);
             const skipFinalRegisterSegment = processSkipFinalOption ? !!processSkipFinalOption.checked : (skipFinalOption ? !!skipFinalOption.checked : false);
             const skipFinalSegmentThickness = !!(processEmoryNoFinalThicknessOption && processEmoryNoFinalThicknessOption.checked);
+            const branchTaperReductionPercent = readEmoryBranchTaperReductionPercent();
             const processRotateRegistersOption = document.getElementById('process-rotate-registers-option');
             const processCarveRegistersOption = document.getElementById('process-carve-registers-option');
             const processCarveOverlapsOption = document.getElementById('process-carve-overlaps-option');
@@ -2000,6 +2080,7 @@
                 skipAllBranchSegments,
                 skipFinalRegisterSegment,
                 skipFinalSegmentThickness,
+                branchTaperReductionPercent,
                 skipRegisterRotation: !(processRotateRegistersOption && processRotateRegistersOption.checked),
                 enableRegisterCarve: !!(processCarveRegistersOption && processCarveRegistersOption.checked),
                 enableOverlapCarve: !!(processCarveOverlapsOption && processCarveOverlapsOption.checked)
@@ -2287,6 +2368,48 @@
         } finally {
             scheduleSkipOrthoRefresh();
             clearEmoryStartBtn.disabled = false;
+        }
+    }
+
+    async function handleSetEmoryCascadeStopClick() {
+        if (!setEmoryCascadeStopBtn) return;
+        setEmoryCascadeStopBtn.disabled = true;
+        setEmoryWidthStatus('Marking selected segment as a cascade stop...', false);
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppSetSelectedEmoryCascadeStopSegment()'));
+            if (result && result.ok !== false) {
+                setEmoryWidthStatus(result.message || 'Cascade stop updated.', false);
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                setEmoryWidthStatus((result && result.message) ? result.message : 'Unable to mark the cascade stop.', true);
+            }
+        } catch (e) {
+            setEmoryWidthStatus('Unable to mark the cascade stop: ' + e.message, true);
+        } finally {
+            scheduleSkipOrthoRefresh();
+            setEmoryCascadeStopBtn.disabled = false;
+        }
+    }
+
+    async function handleClearEmoryCascadeStopClick() {
+        if (!clearEmoryCascadeStopBtn) return;
+        clearEmoryCascadeStopBtn.disabled = true;
+        setEmoryWidthStatus('Clearing the cascade stop...', false);
+        try {
+            await ensureBridgeLoaded();
+            const result = parseBridgeJsonResult(await evalScript('MDUX_cppClearSelectedEmoryCascadeStopSegment()'));
+            if (result && result.ok !== false) {
+                setEmoryWidthStatus(result.message || 'Cascade stop cleared.', false);
+                refreshEmorySelectionState(true).catch(function () {});
+            } else {
+                setEmoryWidthStatus((result && result.message) ? result.message : 'Unable to clear the cascade stop.', true);
+            }
+        } catch (e) {
+            setEmoryWidthStatus('Unable to clear the cascade stop: ' + e.message, true);
+        } finally {
+            scheduleSkipOrthoRefresh();
+            clearEmoryCascadeStopBtn.disabled = false;
         }
     }
 
@@ -3448,6 +3571,8 @@
         if (setStraightTerminalSegmentStyleBtn) setStraightTerminalSegmentStyleBtn.addEventListener('click', function () { handleSetTerminalSegmentStyleClick('straight'); });
         if (setEmoryStartBtn) setEmoryStartBtn.addEventListener('click', handleSetEmoryStartClick);
         if (clearEmoryStartBtn) clearEmoryStartBtn.addEventListener('click', handleClearEmoryStartClick);
+        if (setEmoryCascadeStopBtn) setEmoryCascadeStopBtn.addEventListener('click', handleSetEmoryCascadeStopClick);
+        if (clearEmoryCascadeStopBtn) clearEmoryCascadeStopBtn.addEventListener('click', handleClearEmoryCascadeStopClick);
         if (emoryTaperAlignABtn) emoryTaperAlignABtn.addEventListener('click', handleSetEmoryTaperAlignmentClick);
         if (emoryTaperAlignBBtn) emoryTaperAlignBBtn.addEventListener('click', handleSetEmoryTaperAlignmentClick);
         if (emoryTaperAlignCBtn) emoryTaperAlignCBtn.addEventListener('click', handleSetEmoryTaperAlignmentClick);
@@ -3579,6 +3704,30 @@
                 emoryStrokeDragActive = false;
                 syncEmoryStrokeControls(numericWidth, true);
                 queueEmoryStrokeApply(numericWidth, true);
+            });
+        }
+        if (emoryBranchTaperSlider && emoryBranchTaperInput) {
+            emoryBranchTaperSlider.addEventListener('input', function () {
+                const value = clampEmoryBranchTaperReduction(emoryBranchTaperSlider.value);
+                emoryBranchTaperInput.value = String(value);
+                syncEmoryBranchTaperControls(value, true);
+            });
+            emoryBranchTaperSlider.addEventListener('change', function () {
+                const value = clampEmoryBranchTaperReduction(emoryBranchTaperSlider.value);
+                emoryBranchTaperInput.value = String(value);
+                syncEmoryBranchTaperControls(value, true);
+            });
+            emoryBranchTaperInput.addEventListener('input', function () {
+                const value = clampEmoryBranchTaperReduction(emoryBranchTaperInput.value);
+                emoryBranchTaperSlider.value = String(value);
+            });
+            emoryBranchTaperInput.addEventListener('change', function () {
+                syncEmoryBranchTaperControls(emoryBranchTaperInput.value, false);
+            });
+            emoryBranchTaperInput.addEventListener('keydown', function (e) {
+                if (e.key !== 'Enter') return;
+                e.preventDefault();
+                syncEmoryBranchTaperControls(emoryBranchTaperInput.value, false);
             });
         }
         if (revertBtn) revertBtn.addEventListener('click', handleRevertPreOrtho);
@@ -4212,6 +4361,7 @@
             emoryTeRotateSlider = document.getElementById('emory-te-rotate-slider');
             emoryTeLiveOption = document.getElementById('emory-te-live-option');
             bindTextInputFocusGuards();
+            restoreEmoryBranchTaperReduction();
 
             csInterface.evalScript('MDUX_debugLog("[INIT] Elements fetched")', function() {});
 
