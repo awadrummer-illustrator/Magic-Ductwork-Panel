@@ -41,6 +41,12 @@
 
 namespace
 {
+	struct LineStrokeSpec
+	{
+		AIReal width;
+		AIColor color;
+	};
+
 	enum ControlIds
 	{
 		kIdRotationOverrideEdit = 1000,
@@ -643,6 +649,173 @@ namespace
 			style.stroke.width = 0.01f;
 		}
 		return sAIPathStyle->SetPathStyleEx(path, &style, fillVisible, strokeVisible) == kNoErr;
+	}
+
+	AIColor MakeLineRGBColor(unsigned int hex)
+	{
+		AIColor color;
+		color.kind = kThreeColor;
+		color.c.rgb.red = static_cast<AIReal>((hex >> 16) & 0xFF) / 255.0f;
+		color.c.rgb.green = static_cast<AIReal>((hex >> 8) & 0xFF) / 255.0f;
+		color.c.rgb.blue = static_cast<AIReal>(hex & 0xFF) / 255.0f;
+		return color;
+	}
+
+	LineStrokeSpec MakeLineStrokeSpec(AIReal width, unsigned int hex)
+	{
+		LineStrokeSpec spec;
+		spec.width = width;
+		spec.color = MakeLineRGBColor(hex);
+		return spec;
+	}
+
+	bool BuildScaledLineStrokeSpec(const std::string& layerName, double targetScale, std::vector<LineStrokeSpec>& outSpecs)
+	{
+		outSpecs.clear();
+		if (!DuctworkLayers::IsLineLayerName(layerName)) {
+			return false;
+		}
+
+		const AIReal scale = static_cast<AIReal>(targetScale / 100.0);
+		if (layerName == "Blue Ductwork") {
+			outSpecs.push_back(MakeLineStrokeSpec(4.0f * scale, 0x83D8FE));
+			outSpecs.push_back(MakeLineStrokeSpec(8.0f * scale, 0x190EFD));
+			return true;
+		}
+		if (layerName == "Green Ductwork") {
+			outSpecs.push_back(MakeLineStrokeSpec(4.0f * scale, 0x7EFE82));
+			outSpecs.push_back(MakeLineStrokeSpec(8.0f * scale, 0x00B713));
+			return true;
+		}
+		if (layerName == "Orange Ductwork") {
+			outSpecs.push_back(MakeLineStrokeSpec(4.0f * scale, 0xFBB639));
+			outSpecs.push_back(MakeLineStrokeSpec(8.0f * scale, 0xFF401F));
+			return true;
+		}
+		if (layerName == "Light Green Ductwork") {
+			outSpecs.push_back(MakeLineStrokeSpec(4.0f * scale, 0x9CFF9C));
+			outSpecs.push_back(MakeLineStrokeSpec(8.0f * scale, 0x32EA36));
+			return true;
+		}
+		if (layerName == "Light Orange Ductwork") {
+			outSpecs.push_back(MakeLineStrokeSpec(4.0f * scale, 0xFFC278));
+			outSpecs.push_back(MakeLineStrokeSpec(8.0f * scale, 0xFF9B2A));
+			return true;
+		}
+		if (layerName == "Thermostat Lines") {
+			outSpecs.push_back(MakeLineStrokeSpec(4.0f * scale, 0xFF1E26));
+			return true;
+		}
+		return false;
+	}
+
+	bool SetLineStrokeStyleToScaleSelf(AIArtHandle art, double targetScale)
+	{
+		if (!art || !sAIArtStyle || !sAIArtStyleParser) {
+			return false;
+		}
+
+		const std::string layerName = DuctworkGeometry::GetArtLayerName(art);
+		std::vector<LineStrokeSpec> specs;
+		if (!BuildScaledLineStrokeSpec(layerName, targetScale, specs)) {
+			return false;
+		}
+
+		AIArtStyleHandle baseStyle = nullptr;
+		if (sAIArtStyle->GetDefaultArtStyle(&baseStyle) != kNoErr || !baseStyle) {
+			return false;
+		}
+
+		AIStyleParser parser = nullptr;
+		if (sAIArtStyleParser->NewParser(&parser) != kNoErr || !parser) {
+			return false;
+		}
+
+		bool applied = false;
+		if (sAIArtStyleParser->ParseStyle(parser, baseStyle) == kNoErr) {
+			for (ai::int32 i = sAIArtStyleParser->CountPaintFields(parser) - 1; i >= 0; --i) {
+				AIParserPaintField field = nullptr;
+				if (sAIArtStyleParser->GetNthPaintField(parser, i, &field) == kNoErr && field) {
+					sAIArtStyleParser->RemovePaintField(parser, field, true);
+				}
+			}
+
+			for (size_t i = 0; i < specs.size(); ++i) {
+				AIStrokeStyle stroke;
+				stroke.Init();
+				stroke.color = specs[i].color;
+				stroke.width = specs[i].width;
+				stroke.overprint = false;
+				AIParserPaintField paintField = nullptr;
+				if (sAIArtStyleParser->NewPaintFieldStroke(&stroke, nullptr, &paintField) == kNoErr && paintField) {
+					sAIArtStyleParser->InsertNthPaintField(parser, sAIArtStyleParser->CountPaintFields(parser), paintField);
+				}
+			}
+
+			AIArtStyleHandle newStyle = nullptr;
+			if (sAIArtStyleParser->CreateNewStyle(parser, &newStyle) == kNoErr && newStyle) {
+				applied = sAIArtStyle->SetArtStyle(art, newStyle) == kNoErr;
+			}
+		}
+
+		sAIArtStyleParser->DisposeParser(parser);
+		return applied;
+	}
+
+	bool SetLineStrokeStyleToScale(AIArtHandle art, double targetScale, std::set<AIArtHandle>& visited, std::vector<AIArtHandle>& touched)
+	{
+		if (!art || !sAIArt) {
+			return false;
+		}
+
+		bool modified = false;
+		if (visited.insert(art).second) {
+			if (SetLineStrokeStyleToScaleSelf(art, targetScale)) {
+				touched.push_back(art);
+				modified = true;
+			}
+		}
+
+		short type = kUnknownArt;
+		if (sAIArt->GetArtType(art, &type) == kNoErr && (type == kGroupArt || type == kCompoundPathArt)) {
+			std::vector<AIArtHandle> children;
+			CollectChildArt(art, children);
+			for (size_t i = 0; i < children.size(); ++i) {
+				if (SetLineStrokeStyleToScale(children[i], targetScale, visited, touched)) {
+					modified = true;
+				}
+			}
+		}
+
+		return modified;
+	}
+
+	bool SetLineStrokeStyleToScaleIncludingAncestors(AIArtHandle art, double targetScale, std::set<AIArtHandle>& visited, std::vector<AIArtHandle>& touched)
+	{
+		if (!art || !sAIArt) {
+			return false;
+		}
+
+		bool modified = SetLineStrokeStyleToScale(art, targetScale, visited, touched);
+		AIArtHandle current = art;
+		while (current) {
+			AIArtHandle parent = nullptr;
+			if (sAIArt->GetArtParent(current, &parent) != kNoErr || !parent) {
+				break;
+			}
+			short parentType = kUnknownArt;
+			if (sAIArt->GetArtType(parent, &parentType) == kNoErr &&
+				(parentType == kGroupArt || parentType == kCompoundPathArt) &&
+				IsDuctworkLineArt(parent) &&
+				visited.insert(parent).second) {
+				if (SetLineStrokeStyleToScaleSelf(parent, targetScale)) {
+					touched.push_back(parent);
+					modified = true;
+				}
+			}
+			current = parent;
+		}
+		return modified;
 	}
 
 	bool ScaleLineStrokeWidths(AIArtHandle path, double scaleFactor)
@@ -1559,6 +1732,7 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 	}
 
 	if (includeLineStrokes && applyScale) {
+		std::set<AIArtHandle> lineScaleVisited;
 		for (size_t i = 0; i < lineItems.size(); ++i) {
 			AIArtHandle art = lineItems[i];
 			if (!art) {
@@ -1567,12 +1741,12 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 			const double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
 			EnsureOriginalTransform(art, currentScale, 0.0);
 			const double scaleFactor = (currentScale == 0.0) ? 1.0 : (targetScale / currentScale);
-			if (std::fabs(scaleFactor - 1.0) < 0.0001) {
+			std::vector<AIArtHandle> touchedLineArt;
+			if (SetLineStrokeStyleToScaleIncludingAncestors(art, targetScale, lineScaleVisited, touchedLineArt)) {
 				DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", targetScale);
-				continue;
-			}
-			if (ScaleLineStrokeWidths(art, scaleFactor)) {
-				DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", targetScale);
+				for (size_t touchedIndex = 0; touchedIndex < touchedLineArt.size(); ++touchedIndex) {
+					DuctworkMetadata::SetDouble(touchedLineArt[touchedIndex], "MDUX_CurrentScale", targetScale);
+				}
 				++lineScaled;
 			}
 		}
@@ -1759,6 +1933,7 @@ void ProcessDuctworkPanel::ResetScale(bool includeLineStrokes)
 		DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
 	}
 	if (includeLineStrokes) {
+		std::set<AIArtHandle> lineScaleVisited;
 		for (size_t i = 0; i < lineItems.size(); ++i) {
 			AIArtHandle art = lineItems[i];
 			if (!art) {
@@ -1767,12 +1942,12 @@ void ProcessDuctworkPanel::ResetScale(bool includeLineStrokes)
 			const double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
 			const double originalScale = ReadOriginalScale(art, 100.0);
 			const double scaleFactor = (currentScale == 0.0) ? 1.0 : (originalScale / currentScale);
-			if (std::fabs(scaleFactor - 1.0) < 0.0001) {
+			std::vector<AIArtHandle> touchedLineArt;
+			if (SetLineStrokeStyleToScaleIncludingAncestors(art, originalScale, lineScaleVisited, touchedLineArt)) {
 				DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
-				continue;
-			}
-			if (ScaleLineStrokeWidths(art, scaleFactor)) {
-				DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
+				for (size_t touchedIndex = 0; touchedIndex < touchedLineArt.size(); ++touchedIndex) {
+					DuctworkMetadata::SetDouble(touchedLineArt[touchedIndex], "MDUX_CurrentScale", originalScale);
+				}
 			}
 		}
 	}
