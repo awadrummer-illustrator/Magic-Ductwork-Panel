@@ -1,13 +1,16 @@
 #include "IllustratorSDK.h"
 #include "ProcessDuctworkPanel.h"
 #include "ProcessDuctworkPlugin.h"
+#include "ProcessDuctworkArt.h"
 #include "ProcessDuctworkMetadata.h"
 #include "ProcessDuctworkSelection.h"
 #include "ProcessDuctworkStyles.h"
 #include "ProcessDuctworkSuites.h"
 #include "ProcessDuctworkGeometry.h"
+#include "ProcessDuctworkCarve.h"
 #include "ProcessDuctworkLayers.h"
 #include "ProcessDuctworkLog.h"
+#include "ProcessDuctworkNotes.h"
 #include "AppContext.hpp"
 
 #ifdef WIN_ENV
@@ -24,6 +27,7 @@
 #include <cstdlib>
 #include <cmath>
 #include <iomanip>
+#include <map>
 #include <set>
 #include <sstream>
 
@@ -75,6 +79,12 @@ namespace
 	int CountDuctworkLineDescendants(AIArtHandle art);
 	bool IsArtSelectedAttr(AIArtHandle art);
 	bool HasSelectedDescendant(AIArtHandle art);
+
+	struct AnchorCandidate
+	{
+		AIArtHandle art;
+		DuctworkPoint point;
+	};
 
 	bool CollectSelectedArt(std::vector<AIArtHandle>& outArt)
 	{
@@ -215,6 +225,23 @@ namespace
 		return nullptr;
 	}
 
+	void ResolvePartTargets(const std::vector<AIArtHandle>& input, std::vector<AIArtHandle>& output)
+	{
+		output.clear();
+		std::set<AIArtHandle> seen;
+		output.reserve(input.size());
+		for (size_t i = 0; i < input.size(); ++i) {
+			AIArtHandle art = input[i];
+			AIArtHandle placed = ResolvePlacedAncestor(art);
+			if (placed) {
+				art = placed;
+			}
+			if (art && seen.insert(art).second) {
+				output.push_back(art);
+			}
+		}
+	}
+
 	bool IsDuctworkLineArt(AIArtHandle art)
 	{
 		const std::string layerName = DuctworkGeometry::GetArtLayerName(art);
@@ -231,6 +258,79 @@ namespace
 			return false;
 		}
 		return DuctworkLayers::IsPartLayerName(layerName);
+	}
+
+	AIArtHandle ResolveLineScaleTarget(AIArtHandle art)
+	{
+		if (!art || !sAIArt) {
+			return art;
+		}
+		AIArtHandle current = art;
+		AIArtHandle resolved = nullptr;
+		while (current) {
+			short type = kUnknownArt;
+			if (sAIArt->GetArtType(current, &type) != kNoErr) {
+				break;
+			}
+			if (type == kCompoundPathArt && IsDuctworkLineArt(current)) {
+				resolved = current;
+			}
+			AIArtHandle parent = nullptr;
+			if (sAIArt->GetArtParent(current, &parent) != kNoErr || !parent) {
+				break;
+			}
+			current = parent;
+		}
+		return resolved ? resolved : art;
+	}
+
+	const char* DescribeArtType(short type)
+	{
+		switch (type) {
+		case kPathArt:
+			return "path";
+		case kCompoundPathArt:
+			return "compound";
+		case kGroupArt:
+			return "group";
+		case kPlacedArt:
+			return "placed";
+		default:
+			return "other";
+		}
+	}
+
+	void LogLineTargetSummary(const char* prefix, const std::vector<AIArtHandle>& artList)
+	{
+		if (!prefix) {
+			return;
+		}
+		if (artList.empty()) {
+			DuctworkLog::Write(std::string(prefix) + " none");
+			return;
+		}
+		std::map<std::string, int> counts;
+		for (size_t i = 0; i < artList.size(); ++i) {
+			AIArtHandle art = artList[i];
+			if (!art || !sAIArt) {
+				continue;
+			}
+			short type = kUnknownArt;
+			if (sAIArt->GetArtType(art, &type) != kNoErr) {
+				continue;
+			}
+			std::string layerName = DuctworkGeometry::GetArtLayerName(art);
+			if (layerName.empty()) {
+				layerName = "<no-layer>";
+			}
+			counts[layerName + "[" + DescribeArtType(type) + "]"]++;
+		}
+		std::ostringstream stream;
+		stream << prefix;
+		for (std::map<std::string, int>::const_iterator it = counts.begin(); it != counts.end(); ++it) {
+			stream << " " << it->first << "=" << it->second;
+		}
+		DuctworkLog::Write(stream.str());
 	}
 
 	bool IsRotatablePartArt(AIArtHandle art)
@@ -585,6 +685,11 @@ namespace
 			}
 			return 0;
 		}
+		if (type == kCompoundPathArt) {
+			if (IsDuctworkLineArt(art)) {
+				return 1;
+			}
+		}
 		if (type == kGroupArt || type == kCompoundPathArt) {
 			int count = 0;
 			std::vector<AIArtHandle> children;
@@ -923,6 +1028,107 @@ namespace
 		return 8.0;
 	}
 
+	double NormalizeTransformScale(double value)
+	{
+		if (!std::isfinite(value) || value <= 0.0) {
+			return 100.0;
+		}
+		return value;
+	}
+
+	void SetPointRotationNoteToken(AIArtHandle art, double rotation)
+	{
+		if (!art) {
+			return;
+		}
+		std::string existingNote = DuctworkNotes::GetNote(art);
+		std::string existingJson;
+		std::vector<std::string> mdTags;
+		if (!DuctworkNotes::ExtractMDUXMeta(existingNote, existingJson, mdTags)) {
+			const std::vector<std::string> tokens = DuctworkNotes::SplitTokens(existingNote);
+			for (size_t i = 0; i < tokens.size(); ++i) {
+				if (tokens[i].find("MD:") == 0) {
+					mdTags.push_back(tokens[i]);
+				}
+			}
+		}
+
+		std::vector<std::string> filteredTags;
+		filteredTags.reserve(mdTags.size() + 1);
+		for (size_t i = 0; i < mdTags.size(); ++i) {
+			if (mdTags[i].find("MD:POINT_ROT=") != 0) {
+				filteredTags.push_back(mdTags[i]);
+			}
+		}
+
+		std::ostringstream pointRotation;
+		pointRotation << "MD:POINT_ROT=" << rotation;
+		filteredTags.push_back(pointRotation.str());
+
+		if (!existingJson.empty()) {
+			DuctworkNotes::SetNote(art, DuctworkNotes::BuildNoteWithMDUXMeta(existingJson, filteredTags));
+			return;
+		}
+		DuctworkNotes::SetNote(art, DuctworkNotes::JoinTokens(filteredTags));
+	}
+
+	void WriteTransformMetadata(AIArtHandle art,
+		double currentScale,
+		double currentRotation,
+		double originalScale,
+		double originalRotation)
+	{
+		if (!art) {
+			return;
+		}
+		const double normalizedCurrentScale = NormalizeTransformScale(currentScale);
+		const double normalizedOriginalScale = NormalizeTransformScale(originalScale);
+		DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", normalizedCurrentScale);
+		DuctworkMetadata::SetDouble(art, "MDUX_CumulativeRotation", currentRotation);
+		DuctworkMetadata::SetDouble(art, "MDUX_RotationOverride", currentRotation);
+		DuctworkMetadata::SetDouble(art, "MDUX_OriginalScale", normalizedOriginalScale);
+		DuctworkMetadata::SetDouble(art, "MDUX_OriginalRotation", originalRotation);
+		DuctworkMetadata::SetDouble(art, "tagScale", normalizedCurrentScale);
+		DuctworkMetadata::SetDouble(art, "tagRotation", currentRotation);
+	}
+
+	void WritePartTransformMetadataForArtAndChild(AIArtHandle art,
+		double currentScale,
+		double currentRotation,
+		double originalScale,
+		double originalRotation)
+	{
+		if (!art) {
+			return;
+		}
+		WriteTransformMetadata(art, currentScale, currentRotation, originalScale, originalRotation);
+		if (!sAIPlaced) {
+			return;
+		}
+		short type = kUnknownArt;
+		if (sAIArt->GetArtType(art, &type) != kNoErr || type != kPlacedArt) {
+			return;
+		}
+		AIArtHandle placedChild = nullptr;
+		if (sAIPlaced->GetPlacedChild(art, &placedChild) == kNoErr && placedChild) {
+			WriteTransformMetadata(placedChild, currentScale, currentRotation, originalScale, originalRotation);
+		}
+	}
+
+	void WriteAnchorTransformMetadata(AIArtHandle anchor,
+		double currentScale,
+		double currentRotation,
+		double originalScale,
+		double originalRotation)
+	{
+		if (!anchor) {
+			return;
+		}
+		SetPointRotationNoteToken(anchor, currentRotation);
+		WriteTransformMetadata(anchor, currentScale, currentRotation, originalScale, originalRotation);
+		DuctworkMetadata::SetDouble(anchor, "MDUX_PointRotation", currentRotation);
+	}
+
 	void EnsureOriginalTransform(AIArtHandle art, double currentScale, double currentRotation)
 	{
 		double originalScale = 0.0;
@@ -985,6 +1191,109 @@ namespace
 		outCenter.h = (bounds.left + bounds.right) * 0.5f;
 		outCenter.v = (bounds.top + bounds.bottom) * 0.5f;
 		return true;
+	}
+
+	void CollectAnchorCandidatesForLayer(const std::string& layerName, std::vector<AnchorCandidate>& outCandidates)
+	{
+		outCandidates.clear();
+		if (layerName.empty()) {
+			return;
+		}
+		AILayerHandle layer = DuctworkArt::FindLayerByTitle(layerName.c_str());
+		if (!layer) {
+			return;
+		}
+
+		std::vector<AIArtHandle> layerArt;
+		DuctworkArt::CollectLayerArt(layer, layerArt);
+		outCandidates.reserve(layerArt.size());
+		for (size_t i = 0; i < layerArt.size(); ++i) {
+			AIArtHandle art = layerArt[i];
+			if (!IsSinglePointPath(art)) {
+				continue;
+			}
+			std::vector<DuctworkPoint> points;
+			bool closed = false;
+			if (!DuctworkGeometry::GetPathPoints(art, points, closed) || closed || points.size() != 1) {
+				continue;
+			}
+			AnchorCandidate candidate = {};
+			candidate.art = art;
+			candidate.point = points[0];
+			outCandidates.push_back(candidate);
+		}
+	}
+
+	AIArtHandle FindMatchingAnchorForPart(AIArtHandle part,
+		std::map<std::string, std::vector<AnchorCandidate> >& anchorLookup)
+	{
+		if (!part) {
+			return nullptr;
+		}
+		AIRealPoint center;
+		if (!GetArtCenter(part, center)) {
+			return nullptr;
+		}
+		const std::string layerName = DuctworkGeometry::GetArtLayerName(part);
+		if (layerName.empty()) {
+			return nullptr;
+		}
+
+		std::map<std::string, std::vector<AnchorCandidate> >::iterator found = anchorLookup.find(layerName);
+		if (found == anchorLookup.end()) {
+			std::vector<AnchorCandidate> collected;
+			CollectAnchorCandidatesForLayer(layerName, collected);
+			found = anchorLookup.insert(std::make_pair(layerName, collected)).first;
+		}
+
+		const double kAnchorMatchToleranceSq = 9.0;
+		double bestDistanceSq = kAnchorMatchToleranceSq;
+		AIArtHandle bestAnchor = nullptr;
+		for (size_t i = 0; i < found->second.size(); ++i) {
+			const AnchorCandidate& candidate = found->second[i];
+			const double dx = static_cast<double>(center.h) - candidate.point.x;
+			const double dy = static_cast<double>(center.v) - candidate.point.y;
+			const double distanceSq = dx * dx + dy * dy;
+			if (distanceSq <= bestDistanceSq) {
+				bestDistanceSq = distanceSq;
+				bestAnchor = candidate.art;
+			}
+		}
+		return bestAnchor;
+	}
+
+	void SyncAnchorMetadataFromParts(const std::vector<AIArtHandle>& parts)
+	{
+		if (parts.empty()) {
+			return;
+		}
+
+		std::map<std::string, std::vector<AnchorCandidate> > anchorLookup;
+		size_t matched = 0;
+		size_t missing = 0;
+		for (size_t i = 0; i < parts.size(); ++i) {
+			AIArtHandle part = parts[i];
+			if (!part) {
+				continue;
+			}
+			AIArtHandle anchor = FindMatchingAnchorForPart(part, anchorLookup);
+			if (!anchor) {
+				++missing;
+				continue;
+			}
+			const double currentScale = DuctworkMetadata::ReadScaleOrDefault(part, 100.0);
+			const double currentRotation = DuctworkMetadata::ReadRotationOrDefault(part, 0.0);
+			const double originalScale = ReadOriginalScale(part, currentScale);
+			const double originalRotation = ReadOriginalRotation(part, currentRotation);
+			WriteAnchorTransformMetadata(anchor, currentScale, currentRotation, originalScale, originalRotation);
+			++matched;
+		}
+
+		if (matched > 0 || missing > 0) {
+			DuctworkLog::Write("Panel AnchorSync matched=" +
+				std::to_string(static_cast<int>(matched)) +
+				" missing=" + std::to_string(static_cast<int>(missing)));
+		}
 	}
 
 	bool ApplyTransform(AIArtHandle art, double rotationDeg, double scale)
@@ -1199,6 +1508,122 @@ void ProcessDuctworkPanel::UpdateSelectionSummary()
 	}
 	fScaleUserChanged = false;
 	fRotationUserChanged = false;
+#endif
+}
+
+std::string ProcessDuctworkPanel::GetSelectionTransformStateJson(bool includeLineStrokes)
+{
+#ifdef WIN_ENV
+	AppContext appContext(fPluginRef);
+	std::vector<AIArtHandle> selection;
+	if (!GetSelectionForAction(selection, false) || selection.empty()) {
+		return "{\"ok\":false}";
+	}
+
+	std::vector<AIArtHandle> partItems;
+	std::vector<AIArtHandle> rotatableParts;
+	std::vector<AIArtHandle> lineItems;
+	for (size_t i = 0; i < selection.size(); ++i) {
+		CollectPartItemsSelected(selection[i], partItems, true);
+		CollectRotatablePartItemsSelected(selection[i], rotatableParts, true);
+		if (includeLineStrokes) {
+			CollectLinePathsSelected(selection[i], lineItems, true);
+		}
+	}
+
+	std::set<AIArtHandle> partSet;
+	std::set<AIArtHandle> rotatableSet;
+	std::set<AIArtHandle> lineSet;
+	std::vector<AIArtHandle> resolvedParts;
+	std::vector<AIArtHandle> resolvedRotatable;
+	std::vector<AIArtHandle> resolvedLines;
+	resolvedParts.reserve(partItems.size());
+	resolvedRotatable.reserve(rotatableParts.size());
+	resolvedLines.reserve(lineItems.size());
+
+	for (size_t i = 0; i < partItems.size(); ++i) {
+		AIArtHandle art = partItems[i];
+		AIArtHandle placed = ResolvePlacedAncestor(art);
+		if (placed) {
+			art = placed;
+		}
+		if (art && partSet.insert(art).second) {
+			resolvedParts.push_back(art);
+		}
+	}
+
+	for (size_t i = 0; i < rotatableParts.size(); ++i) {
+		AIArtHandle art = rotatableParts[i];
+		AIArtHandle placed = ResolvePlacedAncestor(art);
+		if (placed) {
+			art = placed;
+		}
+		if (art && rotatableSet.insert(art).second) {
+			resolvedRotatable.push_back(art);
+		}
+	}
+
+	for (size_t i = 0; i < lineItems.size(); ++i) {
+		AIArtHandle art = lineItems[i];
+		if (art && lineSet.insert(art).second) {
+			resolvedLines.push_back(art);
+		}
+	}
+	LogLineTargetSummary("Panel GetTransformState lineTargets", resolvedLines);
+
+	std::vector<AIArtHandle> scaleItems = resolvedParts;
+	scaleItems.reserve(resolvedParts.size() + resolvedLines.size());
+	for (size_t i = 0; i < resolvedLines.size(); ++i) {
+		scaleItems.push_back(resolvedLines[i]);
+	}
+
+	if (scaleItems.empty() && resolvedRotatable.empty()) {
+		DuctworkLog::Write("Panel GetTransformState: no ductwork parts or lines");
+		return "{\"ok\":true,\"scale\":null,\"rotation\":null,\"mixedScale\":false,\"mixedRotation\":false,\"count\":0,\"reason\":\"no-ductwork\"}";
+	}
+
+	DuctworkMetadata::TransformSummary scaleSummary = DuctworkMetadata::SummarizeSelectionTransform(scaleItems);
+	DuctworkMetadata::TransformSummary rotationSummary = DuctworkMetadata::SummarizeSelectionTransform(resolvedRotatable);
+	{
+		std::ostringstream stream;
+		stream << "Panel GetTransformState: selection=" << selection.size()
+			<< " scaleItems=" << scaleItems.size()
+			<< " rotatable=" << resolvedRotatable.size()
+			<< " includeLineStrokes=" << (includeLineStrokes ? 1 : 0)
+			<< " scaleMixed=" << (scaleSummary.mixedScale ? 1 : 0)
+			<< " rotationMixed=" << (rotationSummary.mixedRotation ? 1 : 0);
+		if (scaleSummary.hasScale && !scaleSummary.mixedScale) {
+			stream << " scale=" << scaleSummary.scale;
+		}
+		if (rotationSummary.hasRotation && !rotationSummary.mixedRotation) {
+			stream << " rotation=" << rotationSummary.rotation;
+		}
+		DuctworkLog::Write(stream.str());
+	}
+
+	std::ostringstream out;
+	out << "{\"ok\":true,\"scale\":";
+	if (scaleSummary.hasScale && !scaleSummary.mixedScale) {
+		out << scaleSummary.scale;
+	} else {
+		out << "null";
+	}
+	out << ",\"rotation\":";
+	if (rotationSummary.hasRotation && !rotationSummary.mixedRotation) {
+		out << rotationSummary.rotation;
+	} else {
+		out << "null";
+	}
+	out << ",\"mixedScale\":" << (scaleSummary.mixedScale ? "true" : "false")
+		<< ",\"mixedRotation\":" << (rotationSummary.mixedRotation ? "true" : "false")
+		<< ",\"count\":" << scaleItems.size()
+		<< ",\"scaleCount\":" << scaleItems.size()
+		<< ",\"rotationCount\":" << resolvedRotatable.size()
+		<< "}";
+	return out.str();
+#else
+	(void)includeLineStrokes;
+	return "{\"ok\":false}";
 #endif
 }
 
@@ -1629,6 +2054,11 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 			CollectLinePathsSelected(selection[i], lineItems, true);
 		}
 	}
+	std::vector<AIArtHandle> resolvedParts;
+	std::vector<AIArtHandle> resolvedRotatable;
+	ResolvePartTargets(partItems, resolvedParts);
+	ResolvePartTargets(rotatableParts, resolvedRotatable);
+	std::set<AIArtHandle> rotatableSet(resolvedRotatable.begin(), resolvedRotatable.end());
 
 	std::set<AIArtHandle> lineSet;
 	std::vector<AIArtHandle> resolvedLines;
@@ -1643,13 +2073,14 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 		}
 	}
 	lineItems.swap(resolvedLines);
+	LogLineTargetSummary("Panel ApplyTransform lineTargets", lineItems);
 
-	DuctworkLog::Write("Panel ApplyTransform: partItems=" + std::to_string(static_cast<int>(partItems.size())) +
-		" rotatableParts=" + std::to_string(static_cast<int>(rotatableParts.size())) +
+	DuctworkLog::Write("Panel ApplyTransform: partItems=" + std::to_string(static_cast<int>(resolvedParts.size())) +
+		" rotatableParts=" + std::to_string(static_cast<int>(resolvedRotatable.size())) +
 		" lineItems=" + std::to_string(static_cast<int>(lineItems.size())) +
 		" includeLineStrokes=" + std::to_string(includeLineStrokes ? 1 : 0));
 
-	if (partItems.empty() && lineItems.empty()) {
+	if (resolvedParts.empty() && lineItems.empty()) {
 		if (updateUI) {
 			SetStatusText(L"No ductwork parts or lines selected.");
 		}
@@ -1665,20 +2096,28 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 		applyScale = std::fabs(targetScale - 100.0) >= 0.0001;
 		applyRotation = std::fabs(targetRotation) >= 0.0001;
 	}
+	DuctworkLog::Write("Panel ApplyTransform: applyScale=" + std::to_string(applyScale ? 1 : 0) +
+		" applyRotation=" + std::to_string(applyRotation ? 1 : 0) +
+		" scaleDirty=" + std::to_string(fScaleUserChanged ? 1 : 0) +
+		" rotateDirty=" + std::to_string(fRotationUserChanged ? 1 : 0));
 
 	size_t partTransformed = 0;
 	size_t lineScaled = 0;
+	std::vector<AIArtHandle> transformedParts;
+	transformedParts.reserve(resolvedParts.size());
 
-	for (size_t i = 0; i < partItems.size(); ++i) {
-		AIArtHandle art = partItems[i];
+	for (size_t i = 0; i < resolvedParts.size(); ++i) {
+		AIArtHandle art = resolvedParts[i];
 		if (!art) {
 			continue;
 		}
 		const double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
 		const double currentRotation = DuctworkMetadata::ReadRotationOrDefault(art, 0.0);
 		EnsureOriginalTransform(art, currentScale, currentRotation);
+		const double originalScale = ReadOriginalScale(art, currentScale);
+		const double originalRotation = ReadOriginalRotation(art, currentRotation);
 		const double scaleFactor = applyScale ? ((currentScale == 0.0) ? 1.0 : (targetScale / currentScale)) : 1.0;
-		const bool canRotate = IsRotatablePartArt(art);
+		const bool canRotate = rotatableSet.find(art) != rotatableSet.end();
 		const double rotationDelta = (canRotate && applyRotation) ? (targetRotation - currentRotation) : 0.0;
 		if (std::fabs(scaleFactor - 1.0) < 0.0001 && std::fabs(rotationDelta) < 0.0001) {
 			continue;
@@ -1722,16 +2161,19 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 			}
 		}
 		++partTransformed;
-		if (applyScale) {
-			DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", targetScale);
-		}
-		if (canRotate && applyRotation && std::fabs(rotationDelta) >= 0.0001) {
-			DuctworkMetadata::SetDouble(art, "MDUX_CumulativeRotation", targetRotation);
-			DuctworkMetadata::SetDouble(art, "MDUX_RotationOverride", targetRotation);
-		}
+		const double finalScale = applyScale ? targetScale : currentScale;
+		const double finalRotation = (canRotate && applyRotation) ? targetRotation : currentRotation;
+		WritePartTransformMetadataForArtAndChild(art, finalScale, finalRotation, originalScale, originalRotation);
+		transformedParts.push_back(art);
+	}
+
+	if (!transformedParts.empty()) {
+		SyncAnchorMetadataFromParts(transformedParts);
 	}
 
 	if (includeLineStrokes && applyScale) {
+		size_t lineLogCount = 0;
+		const size_t kLineLogLimit = 25;
 		std::set<AIArtHandle> lineScaleVisited;
 		for (size_t i = 0; i < lineItems.size(); ++i) {
 			AIArtHandle art = lineItems[i];
@@ -1741,6 +2183,9 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 			const double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
 			EnsureOriginalTransform(art, currentScale, 0.0);
 			const double scaleFactor = (currentScale == 0.0) ? 1.0 : (targetScale / currentScale);
+			const std::string layerName = DuctworkGeometry::GetArtLayerName(art);
+			double beforeWidth = 0.0;
+			const bool hadBeforeWidth = GetMaxStrokeWidth(art, beforeWidth);
 			std::vector<AIArtHandle> touchedLineArt;
 			if (SetLineStrokeStyleToScaleIncludingAncestors(art, targetScale, lineScaleVisited, touchedLineArt)) {
 				DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", targetScale);
@@ -1748,6 +2193,43 @@ bool ProcessDuctworkPanel::ApplyTransformSelection(double targetScale, double ta
 					DuctworkMetadata::SetDouble(touchedLineArt[touchedIndex], "MDUX_CurrentScale", targetScale);
 				}
 				++lineScaled;
+				double afterWidth = 0.0;
+				const bool hadAfterWidth = GetMaxStrokeWidth(art, afterWidth);
+				if (lineLogCount < kLineLogLimit) {
+					std::ostringstream stream;
+					stream << "Panel LineScale apply layer=" << layerName
+						<< " currentScale=" << currentScale
+						<< " targetScale=" << targetScale
+						<< " factor=" << scaleFactor
+						<< " beforeMaxStroke=" << (hadBeforeWidth ? beforeWidth : -1.0)
+						<< " afterMaxStroke=" << (hadAfterWidth ? afterWidth : -1.0)
+						<< " touched=" << touchedLineArt.size();
+					DuctworkLog::Write(stream.str());
+					++lineLogCount;
+				} else if (lineLogCount == kLineLogLimit) {
+					DuctworkLog::Write("Panel LineScale: additional item logs omitted");
+					++lineLogCount;
+				}
+			} else if (lineLogCount < kLineLogLimit) {
+				std::ostringstream stream;
+				stream << "Panel LineScale failed layer=" << layerName
+					<< " currentScale=" << currentScale
+					<< " targetScale=" << targetScale
+					<< " factor=" << scaleFactor
+					<< " beforeMaxStroke=" << (hadBeforeWidth ? beforeWidth : -1.0);
+				DuctworkLog::Write(stream.str());
+				++lineLogCount;
+			} else if (lineLogCount == kLineLogLimit) {
+				DuctworkLog::Write("Panel LineScale: additional item logs omitted");
+				++lineLogCount;
+			}
+		}
+		if (lineScaled > 0) {
+			DuctworkCarve::MarkerStats gapStats;
+			if (DuctworkCarve::RefreshMarkedGapsInSelection(selectionSnapshot, &gapStats)) {
+				DuctworkLog::Write("Panel GapRefresh apply healed=" +
+					std::to_string(gapStats.gapMarkersHealed) +
+					" applied=" + std::to_string(gapStats.gapMarkersApplied));
 			}
 		}
 	}
@@ -1790,16 +2272,27 @@ void ProcessDuctworkPanel::ApplyQuickRotate(double angle)
 	for (size_t i = 0; i < selection.size(); ++i) {
 		CollectRotatablePartItemsRecursive(selection[i], partItems);
 	}
-	for (size_t i = 0; i < partItems.size(); ++i) {
-		AIArtHandle art = partItems[i];
+	std::vector<AIArtHandle> resolvedParts;
+	ResolvePartTargets(partItems, resolvedParts);
+	std::vector<AIArtHandle> transformedParts;
+	transformedParts.reserve(resolvedParts.size());
+	for (size_t i = 0; i < resolvedParts.size(); ++i) {
+		AIArtHandle art = resolvedParts[i];
 		if (!art) {
 			continue;
 		}
+		const double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
 		const double currentRotation = DuctworkMetadata::ReadRotationOrDefault(art, 0.0);
+		EnsureOriginalTransform(art, currentScale, currentRotation);
+		const double originalScale = ReadOriginalScale(art, currentScale);
+		const double originalRotation = ReadOriginalRotation(art, currentRotation);
 		const double rotationDelta = angle - currentRotation;
 		ApplyTransform(art, rotationDelta, 1.0);
-		DuctworkMetadata::SetDouble(art, "MDUX_CumulativeRotation", angle);
-		DuctworkMetadata::SetDouble(art, "MDUX_RotationOverride", angle);
+		WritePartTransformMetadataForArtAndChild(art, currentScale, angle, originalScale, originalRotation);
+		transformedParts.push_back(art);
+	}
+	if (!transformedParts.empty()) {
+		SyncAnchorMetadataFromParts(transformedParts);
 	}
 	SetRotationValue(angle);
 	SetStatusText(L"Rotation applied.");
@@ -1815,19 +2308,22 @@ void ProcessDuctworkPanel::ResetTransformToOriginal()
 		SetStatusText(L"No selection.");
 		return;
 	}
+	const std::vector<AIArtHandle> selectionSnapshot = selection;
 	std::vector<AIArtHandle> partItems;
 	for (size_t i = 0; i < selection.size(); ++i) {
 		CollectPartItemsRecursive(selection[i], partItems);
 	}
+	std::vector<AIArtHandle> resolvedParts;
+	ResolvePartTargets(partItems, resolvedParts);
 
-	if (partItems.empty()) {
+	if (resolvedParts.empty()) {
 		SetStatusText(L"No ductwork parts selected.");
 		UpdateSelectionSummary();
 		return;
 	}
 
-	for (size_t i = 0; i < partItems.size(); ++i) {
-		AIArtHandle art = partItems[i];
+	for (size_t i = 0; i < resolvedParts.size(); ++i) {
+		AIArtHandle art = resolvedParts[i];
 		if (!art) {
 			continue;
 		}
@@ -1839,16 +2335,15 @@ void ProcessDuctworkPanel::ResetTransformToOriginal()
 		const bool canRotate = IsRotatablePartArt(art);
 		const double rotationDelta = canRotate ? (originalRotation - currentRotation) : 0.0;
 		ApplyTransform(art, rotationDelta, scaleFactor);
-		DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
-		if (canRotate) {
-			DuctworkMetadata::SetDouble(art, "MDUX_CumulativeRotation", originalRotation);
-			DuctworkMetadata::SetDouble(art, "MDUX_RotationOverride", originalRotation);
-		}
+		const double finalRotation = canRotate ? originalRotation : currentRotation;
+		WritePartTransformMetadataForArtAndChild(art, originalScale, finalRotation, originalScale, originalRotation);
 	}
+	SyncAnchorMetadataFromParts(resolvedParts);
 	SetScaleValue(100.0);
 	SetRotationValue(0.0);
 	SetStatusText(L"Reset to original.");
 	UpdateSelectionSummary();
+	ReselectArtList(selectionSnapshot);
 }
 
 void ProcessDuctworkPanel::ResetRotation()
@@ -1864,20 +2359,30 @@ void ProcessDuctworkPanel::ResetRotation()
 	for (size_t i = 0; i < selection.size(); ++i) {
 		CollectRotatablePartItemsRecursive(selection[i], partItems);
 	}
-	for (size_t i = 0; i < partItems.size(); ++i) {
-		AIArtHandle art = partItems[i];
+	std::vector<AIArtHandle> resolvedParts;
+	ResolvePartTargets(partItems, resolvedParts);
+	std::vector<AIArtHandle> transformedParts;
+	transformedParts.reserve(resolvedParts.size());
+	for (size_t i = 0; i < resolvedParts.size(); ++i) {
+		AIArtHandle art = resolvedParts[i];
 		if (!art) {
 			continue;
 		}
+		const double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
 		const double currentRotation = DuctworkMetadata::ReadRotationOrDefault(art, 0.0);
+		EnsureOriginalTransform(art, currentScale, currentRotation);
+		const double originalScale = ReadOriginalScale(art, currentScale);
 		const double originalRotation = ReadOriginalRotation(art, 0.0);
 		const double rotationDelta = originalRotation - currentRotation;
 		if (std::fabs(rotationDelta) < 0.0001) {
 			continue;
 		}
 		ApplyTransform(art, rotationDelta, 1.0);
-		DuctworkMetadata::SetDouble(art, "MDUX_CumulativeRotation", originalRotation);
-		DuctworkMetadata::SetDouble(art, "MDUX_RotationOverride", originalRotation);
+		WritePartTransformMetadataForArtAndChild(art, currentScale, originalRotation, originalScale, originalRotation);
+		transformedParts.push_back(art);
+	}
+	if (!transformedParts.empty()) {
+		SyncAnchorMetadataFromParts(transformedParts);
 	}
 	SetStatusText(L"Rotation reset.");
 	UpdateSelectionSummary();
@@ -1892,6 +2397,7 @@ void ProcessDuctworkPanel::ResetScale(bool includeLineStrokes)
 		SetStatusText(L"No selection.");
 		return;
 	}
+	const std::vector<AIArtHandle> selectionSnapshot = selection;
 	std::vector<AIArtHandle> partItems;
 	std::vector<AIArtHandle> lineItems;
 	for (size_t i = 0; i < selection.size(); ++i) {
@@ -1900,6 +2406,8 @@ void ProcessDuctworkPanel::ResetScale(bool includeLineStrokes)
 			CollectLinePathsSelected(selection[i], lineItems, true);
 		}
 	}
+	std::vector<AIArtHandle> resolvedParts;
+	ResolvePartTargets(partItems, resolvedParts);
 
 	std::set<AIArtHandle> lineSet;
 	std::vector<AIArtHandle> resolvedLines;
@@ -1915,24 +2423,32 @@ void ProcessDuctworkPanel::ResetScale(bool includeLineStrokes)
 	}
 	lineItems.swap(resolvedLines);
 
-	if (partItems.empty() && lineItems.empty()) {
+	if (resolvedParts.empty() && lineItems.empty()) {
 		SetStatusText(L"No ductwork parts or lines selected.");
 		UpdateSelectionSummary();
 		return;
 	}
 
-	for (size_t i = 0; i < partItems.size(); ++i) {
-		AIArtHandle art = partItems[i];
+	for (size_t i = 0; i < resolvedParts.size(); ++i) {
+		AIArtHandle art = resolvedParts[i];
 		if (!art) {
 			continue;
 		}
 		const double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
+		const double currentRotation = DuctworkMetadata::ReadRotationOrDefault(art, 0.0);
+		EnsureOriginalTransform(art, currentScale, currentRotation);
 		const double originalScale = ReadOriginalScale(art, 100.0);
+		const double originalRotation = ReadOriginalRotation(art, currentRotation);
 		const double scaleFactor = (currentScale == 0.0) ? 1.0 : (originalScale / currentScale);
 		ApplyTransform(art, 0.0, scaleFactor);
-		DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
+		WritePartTransformMetadataForArtAndChild(art, originalScale, currentRotation, originalScale, originalRotation);
+	}
+	if (!resolvedParts.empty()) {
+		SyncAnchorMetadataFromParts(resolvedParts);
 	}
 	if (includeLineStrokes) {
+		size_t lineLogCount = 0;
+		const size_t kLineLogLimit = 25;
 		std::set<AIArtHandle> lineScaleVisited;
 		for (size_t i = 0; i < lineItems.size(); ++i) {
 			AIArtHandle art = lineItems[i];
@@ -1942,18 +2458,57 @@ void ProcessDuctworkPanel::ResetScale(bool includeLineStrokes)
 			const double currentScale = DuctworkMetadata::ReadScaleOrDefault(art, 100.0);
 			const double originalScale = ReadOriginalScale(art, 100.0);
 			const double scaleFactor = (currentScale == 0.0) ? 1.0 : (originalScale / currentScale);
+			const std::string layerName = DuctworkGeometry::GetArtLayerName(art);
+			double beforeWidth = 0.0;
+			const bool hadBeforeWidth = GetMaxStrokeWidth(art, beforeWidth);
 			std::vector<AIArtHandle> touchedLineArt;
 			if (SetLineStrokeStyleToScaleIncludingAncestors(art, originalScale, lineScaleVisited, touchedLineArt)) {
 				DuctworkMetadata::SetDouble(art, "MDUX_CurrentScale", originalScale);
 				for (size_t touchedIndex = 0; touchedIndex < touchedLineArt.size(); ++touchedIndex) {
 					DuctworkMetadata::SetDouble(touchedLineArt[touchedIndex], "MDUX_CurrentScale", originalScale);
 				}
+				double afterWidth = 0.0;
+				const bool hadAfterWidth = GetMaxStrokeWidth(art, afterWidth);
+				if (lineLogCount < kLineLogLimit) {
+					std::ostringstream stream;
+					stream << "Panel LineReset apply layer=" << layerName
+						<< " currentScale=" << currentScale
+						<< " originalScale=" << originalScale
+						<< " factor=" << scaleFactor
+						<< " beforeMaxStroke=" << (hadBeforeWidth ? beforeWidth : -1.0)
+						<< " afterMaxStroke=" << (hadAfterWidth ? afterWidth : -1.0)
+						<< " touched=" << touchedLineArt.size();
+					DuctworkLog::Write(stream.str());
+					++lineLogCount;
+				} else if (lineLogCount == kLineLogLimit) {
+					DuctworkLog::Write("Panel LineReset: additional item logs omitted");
+					++lineLogCount;
+				}
+			} else if (lineLogCount < kLineLogLimit) {
+				std::ostringstream stream;
+				stream << "Panel LineReset failed layer=" << layerName
+					<< " currentScale=" << currentScale
+					<< " originalScale=" << originalScale
+					<< " factor=" << scaleFactor
+					<< " beforeMaxStroke=" << (hadBeforeWidth ? beforeWidth : -1.0);
+				DuctworkLog::Write(stream.str());
+				++lineLogCount;
+			} else if (lineLogCount == kLineLogLimit) {
+				DuctworkLog::Write("Panel LineReset: additional item logs omitted");
+				++lineLogCount;
 			}
+		}
+		DuctworkCarve::MarkerStats gapStats;
+		if (DuctworkCarve::RefreshMarkedGapsInSelection(selection, &gapStats)) {
+			DuctworkLog::Write("Panel GapRefresh reset healed=" +
+				std::to_string(gapStats.gapMarkersHealed) +
+				" applied=" + std::to_string(gapStats.gapMarkersApplied));
 		}
 	}
 	SetScaleValue(100.0);
 	SetStatusText(L"Scale reset.");
 	UpdateSelectionSummary();
+	ReselectArtList(selectionSnapshot);
 }
 
 void ProcessDuctworkPanel::ResetStrokes()
