@@ -4,6 +4,10 @@
 
 After finished with revisions deploy to C:\Users\Chris\AppData\Roaming\Adobe\CEP\extensions\Magic-Ductwork-Panel\ automatically and prompt me for testing.
 
+## Conversation Recovery
+
+If a prior Codex conversation needs to be recovered, do not dump raw session JSONL into the chat or tool output. Raw session files contain huge encoded reasoning/tool blobs that can pollute and destabilize the next conversation. Extract only the useful handoff facts: user requests, assistant final messages, changed files, commits, deploy status, and command results.
+
 ## Debug Logs Location
 
 **IMPORTANT**: Runtime debug logs are stored at:
