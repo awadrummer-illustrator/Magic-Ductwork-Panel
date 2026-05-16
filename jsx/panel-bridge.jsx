@@ -4464,7 +4464,7 @@ function MDUX_cppProcessPlacedApi(payloadOverride) {
         }
 
         // Before C++ processing, snapshot selected target-layer anchors that need art placement
-        var targetLayerAnchors = MDUX_collectSelectedTargetAnchors();
+        var targetLayerAnchors = MDUX_collectSelectedTargetAnchors(false);
 
         var payload = "action=process-placed-api";
         if (payloadOverride && typeof payloadOverride === "string") {
@@ -4489,7 +4489,7 @@ function MDUX_cppProcessEmoryPlacedApi(payloadOverride) {
             return JSON.stringify({ ok: false, message: "No document open." });
         }
 
-        var targetLayerAnchors = MDUX_collectSelectedTargetAnchors();
+        var targetLayerAnchors = MDUX_collectSelectedTargetAnchors(true);
 
         var payload = "action=process-placed-api";
         if (payloadOverride && typeof payloadOverride === "string") {
@@ -4861,16 +4861,26 @@ function MDUX_cppApplySelectedEmoryStrokeWidth(width) {
 }
 
 // Collect selected single-point anchor paths on target layers (Units, Registers, Thermostats, etc.)
-function MDUX_collectSelectedTargetAnchors() {
+function MDUX_collectSelectedTargetAnchors(useEmoryAssets) {
     var anchors = [];
     try {
         var doc = app.activeDocument;
         var sel = doc.selection;
         if (!sel || sel.length === 0) return anchors;
 
-        var TARGET_LAYERS = {
-            "Units": "Unit Emory.ai",
+        var TARGET_LAYERS_NORMAL = {
+            "Units": "Unit.ai",
             "Square Registers": "Square Register.ai",
+            "Rectangular Registers": "Rectangular Register.ai",
+            "Circular Registers": "Circular Register.ai",
+            "Exhaust Registers": "Exhaust Register.ai",
+            "Secondary Exhaust Registers": "Secondary Exhaust Register.ai",
+            "Orange Register": "Orange Register.ai",
+            "Thermostats": "Thermostat.ai"
+        };
+        var TARGET_LAYERS_EMORY = {
+            "Units": "Unit Emory.ai",
+            "Square Registers": "Square Register Emory.ai",
             "Rectangular Registers": "Rectangular Register Emory.ai",
             "Circular Registers": "Circular Register.ai",
             "Exhaust Registers": "Exhaust Register.ai",
@@ -4878,6 +4888,7 @@ function MDUX_collectSelectedTargetAnchors() {
             "Orange Register": "Orange Register.ai",
             "Thermostats": "Thermostat.ai"
         };
+        var TARGET_LAYERS = useEmoryAssets ? TARGET_LAYERS_EMORY : TARGET_LAYERS_NORMAL;
 
         for (var i = 0; i < sel.length; i++) {
             try {

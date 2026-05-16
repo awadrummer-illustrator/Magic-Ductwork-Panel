@@ -98,6 +98,15 @@ button:disabled {
     background: #4a5766;
 }
 
+.emory-move-btn {
+    background: #2f557a;
+    color: #e6f3ff;
+}
+
+.emory-move-btn:hover:not(:disabled) {
+    background: #3b6792;
+}
+
 .move-btn img {
     width: 16px;
     height: 16px;

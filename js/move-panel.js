@@ -3,6 +3,7 @@
 
     const csInterface = new CSInterface();
     const moveToUnitsBtn = document.getElementById('move-to-units-btn');
+    const moveToEmoryUnitBtn = document.getElementById('move-to-emory-unit-btn');
     const moveToSquareBtn = document.getElementById('move-to-square-btn');
     const moveToRectBtn = document.getElementById('move-to-rect-btn');
     const moveToCircularBtn = document.getElementById('move-to-circular-btn');
@@ -15,9 +16,7 @@
     const debugStatus = document.getElementById('debug-status');
     const reloadBtn = document.getElementById('reload-btn');
     const extensionId = 'com.chris.magicductwork.movepanel';
-    const PROCESS_MODE_STORAGE_KEY = 'mdux-process-mode';
-    const PROCESS_MODE_NORMAL = 'normal';
-    const PROCESS_MODE_EMORY = 'emory';
+
     function reloadExtensionView() {
         try {
             const base = window.location.href.split('?')[0];
@@ -29,38 +28,13 @@
         window.location.reload();
     }
 
-    function readCurrentProcessMode() {
-        try {
-            return window.localStorage.getItem(PROCESS_MODE_STORAGE_KEY) || '';
-        } catch (e) {
-            return '';
-        }
-    }
-
-    function normalizeProcessMode(mode) {
-        return mode === PROCESS_MODE_EMORY ? PROCESS_MODE_EMORY : PROCESS_MODE_NORMAL;
-    }
-
-    function isEmoryModeActive() {
-        return normalizeProcessMode(readCurrentProcessMode()) === PROCESS_MODE_EMORY;
-    }
-
     function syncMoveAssetModeIndicator() {
         if (!moveAssetModeIndicator) return;
-        moveAssetModeIndicator.textContent = isEmoryModeActive() ? 'Using Emory assets' : 'Using normal assets';
-        moveAssetModeIndicator.classList.toggle('emory', isEmoryModeActive());
+        moveAssetModeIndicator.textContent = '';
+        moveAssetModeIndicator.classList.remove('emory');
     }
 
     function resolveMoveAsset(layerName, defaultFileBaseName) {
-        if (!isEmoryModeActive()) {
-            return defaultFileBaseName;
-        }
-        if (layerName === 'Units') {
-            return 'Unit Emory.ai';
-        }
-        if (layerName === 'Rectangular Registers') {
-            return 'Rectangular Register Emory.ai';
-        }
         return defaultFileBaseName;
     }
 
@@ -170,8 +144,13 @@
 
     function attachEventListeners() {
         moveToUnitsBtn.addEventListener('click', () => {
-            moveToLayer('Units', resolveMoveAsset('Units', 'Unit.ai'));
+            moveToLayer('Units', 'Unit.ai');
         });
+        if (moveToEmoryUnitBtn) {
+            moveToEmoryUnitBtn.addEventListener('click', () => {
+                moveToLayer('Units', 'Unit Emory.ai');
+            });
+        }
         moveToSquareBtn.addEventListener('click', () => {
             moveToLayer('Square Registers', 'Square Register.ai');
         });
@@ -195,17 +174,6 @@
         });
         reloadBtn.addEventListener('click', () => {
             reloadExtensionView();
-        });
-        window.addEventListener('focus', syncMoveAssetModeIndicator);
-        window.addEventListener('storage', event => {
-            if (!event || event.key === PROCESS_MODE_STORAGE_KEY) {
-                syncMoveAssetModeIndicator();
-            }
-        });
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) {
-                syncMoveAssetModeIndicator();
-            }
         });
     }
 
