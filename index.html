@@ -161,6 +161,11 @@
                                 <input type="range" id="emory-branch-taper-slider" min="0" max="75" step="1" value="25">
                                 <input type="number" id="emory-branch-taper-input" min="0" max="75" step="1" value="25" style="width: 54px;">
                             </div>
+                            <div class="btn-row emory-action-row emory-action-row-compact" style="margin: 2px 0 4px 0;">
+                                <button type="button" id="clear-emory-cascade-stop-btn" class="btn-hue-red">Unlock Segment</button>
+                                <button type="button" id="set-emory-cascade-stop-btn" class="btn-hue-green">Lock Segment Width</button>
+                            </div>
+                            <button type="button" id="emory-reset-stored-widths-btn" class="btn-hue-orange" style="width: 100%; margin: 2px 0 6px 0;">Reset Stored Widths</button>
                             <div class="slider-row" style="margin-bottom: 4px;">
                                 <span class="slider-label emory-wide-label">Scale (%):</span>
                                 <input type="range" id="emory-te-scale-slider" min="10" max="400" value="100">
@@ -192,6 +197,7 @@
                             <summary>Emory Tools</summary>
                             <button id="revert-emory-centerlines-btn" class="btn-hue-orange" style="width: 100%; margin-top: 4px;">Revert to Centerlines</button>
                             <button id="select-emory-centerlines-btn" class="btn-hue-green" style="width: 100%; margin-top: 4px;">Select Centerlines</button>
+                            <button id="select-emory-unit-pairs-btn" class="btn-hue-green" style="width: 100%; margin-top: 4px;">Select Unit Handoff Segments</button>
                             <div class="btn-row emory-action-row" style="margin-top: 4px;">
                                 <button id="hide-emory-centerlines-btn" class="btn-hue-red">Hide Centerlines</button>
                                 <button id="show-emory-centerlines-btn" class="btn-hue-green">Show Centerlines</button>
@@ -217,10 +223,6 @@
                             <div class="btn-row emory-action-row emory-action-row-compact" style="margin-top: 4px;">
                                 <button id="clear-emory-start-btn" class="btn-hue-red">Unmark Start Segment</button>
                                 <button id="set-emory-start-btn" class="btn-hue-green">Mark Start Segment</button>
-                            </div>
-                            <div class="btn-row emory-action-row emory-action-row-compact" style="margin-top: 4px;">
-                                <button id="clear-emory-cascade-stop-btn" class="btn-hue-red">Unmark Stop Segment</button>
-                                <button id="set-emory-cascade-stop-btn" class="btn-hue-green">Mark Stop Segment</button>
                             </div>
                             <button id="purge-emory-state-btn" class="btn-hue-red" style="width: 100%; margin-top: 4px;">Purge Emory State From Selection</button>
                         </details>

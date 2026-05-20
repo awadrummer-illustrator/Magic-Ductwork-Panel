@@ -8,6 +8,8 @@ After finished with revisions deploy to C:\Users\Chris\AppData\Roaming\Adobe\CEP
 
 If a prior Codex conversation needs to be recovered, do not dump raw session JSONL into the chat or tool output. Raw session files contain huge encoded reasoning/tool blobs that can pollute and destabilize the next conversation. Extract only the useful handoff facts: user requests, assistant final messages, changed files, commits, deploy status, and command results.
 
+Use `.Codex/recover-thread.ps1 codex://threads/<thread-id>` for recovery. Keep `.Codex/HANDOFF.md` updated after major milestones so a new thread can restart from clean facts instead of raw session data.
+
 ## Debug Logs Location
 
 **IMPORTANT**: Runtime debug logs are stored at:

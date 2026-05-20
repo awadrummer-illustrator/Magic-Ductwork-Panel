@@ -736,7 +736,7 @@ function yieldToUI(force) {
 
 var CLOSE_DIST = 10; // px for loose connection grouping
 var UNIT_MERGE_DIST = 10; // px tolerance to merge clustered unit anchors (MUST match CLOSE_DIST so units behave like registers)
-var THERMOSTAT_JUNCTION_DIST = 6; // px tolerance to snap thermostat line endpoints to duct junctions
+var THERMOSTAT_JUNCTION_DIST = 10; // px tolerance to snap thermostat line endpoints to duct junctions
 var CONNECTION_DIST = 2; // px stricter threshold for actual compounding
 var SNAP_THRESHOLD = 5; // px for snapping anchors
 var IGNORED_DIST = 4; // px stricter threshold for Ignored-layer proximity (keeps CLOSE_DIST behavior unchanged)
@@ -3520,7 +3520,7 @@ function setStaticTextColor(control, rgbArray) {
         // --- CONFIG ---
         var CLOSE_DIST = 10; // px for loose connection grouping
         var UNIT_MERGE_DIST = 6; // px tolerance to merge clustered unit anchors
-        var THERMOSTAT_JUNCTION_DIST = 6; // px tolerance to snap thermostat line endpoints to duct junctions
+        var THERMOSTAT_JUNCTION_DIST = 10; // px tolerance to snap thermostat line endpoints to duct junctions
         var ORTHO_LOCK_TAG = "MD:ORTHO_LOCK"; // marker note to skip re-orthogonalizing processed paths
         var ROT_OVERRIDE_PREFIX = "MD:ROT="; // marker prefix for rotation override notes
         var POINT_ROT_PREFIX = "MD:POINT_ROT="; // marker prefix for anchor rotation notes

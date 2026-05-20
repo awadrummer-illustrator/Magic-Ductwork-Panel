@@ -2695,14 +2695,36 @@ function MDUX_moveToLayerBridge(optionsJSON) {
         }
 
         // Get accurate selected anchor positions from C++ SDK (handles Direct Selection properly)
+        // Prefer the Emory plugin because it can resolve generated blue body endpoints back to source centerline endpoints.
         var cppSelectedAnchors = [];
+        var resolvedEmoryAnchors = [];
+        var hasResolvedEmoryAnchors = false;
         try {
-            var cppResult = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", "action=get-selected-anchors");
+            var cppResult = null;
+            try {
+                cppResult = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", "action=get-selected-anchors");
+            } catch (eEmoryCpp) {
+                $.writeln("[MOVE] Emory C++ anchor detection unavailable: " + eEmoryCpp);
+            }
+            if (!cppResult) {
+                cppResult = app.sendScriptMessage("ProcessDuctwork", "ProcessDuctworkPanel", "action=get-selected-anchors");
+            }
             if (cppResult) {
                 var cppData = JSON.parse(cppResult);
                 if (cppData && cppData.ok && cppData.points && cppData.points.length > 0) {
                     cppSelectedAnchors = cppData.points;
                     $.writeln("[MOVE] C++ detected " + cppSelectedAnchors.length + " selected anchor point(s)");
+                    for (var cra = 0; cra < cppSelectedAnchors.length; cra++) {
+                        if (cppSelectedAnchors[cra] && cppSelectedAnchors[cra].resolvedSourceEndpoint) {
+                            cppSelectedAnchors[cra].fromResolvedEmory = true;
+                            cppSelectedAnchors[cra].allowReplaceExistingPart = true;
+                            resolvedEmoryAnchors.push(cppSelectedAnchors[cra]);
+                        }
+                    }
+                    hasResolvedEmoryAnchors = resolvedEmoryAnchors.length > 0;
+                    if (hasResolvedEmoryAnchors) {
+                        $.writeln("[MOVE] C++ resolved " + resolvedEmoryAnchors.length + " generated Emory endpoint(s) back to source centerline endpoint(s)");
+                    }
                 }
             }
         } catch (eCpp) {
@@ -2748,6 +2770,40 @@ function MDUX_moveToLayerBridge(optionsJSON) {
         var artPlacedPositions = []; // Track positions where art has been placed to avoid duplicates
         var newlyCreatedItems = []; // Track all items created during move for re-selection
         var movedPositions = []; // Track positions where items were moved/created
+        var emorySourceIdsToRebuild = {};
+        var processedResolvedEmoryAnchors = false;
+
+        function normalizeMoveLayerName(layerName) {
+            if (!layerName) return "";
+            return String(layerName).toLowerCase().replace(/\s+/g, ' ').replace(/^\s+|\s+$/g, '');
+        }
+
+        function markEmorySourceForRebuild(anchorInfo) {
+            if (!anchorInfo || !anchorInfo.sourceId) return;
+            var sourceLayer = normalizeMoveLayerName(anchorInfo.sourceLayer || anchorInfo.layer || "");
+            if (sourceLayer === "blue ductwork" || sourceLayer === "blue ductwork emory") {
+                emorySourceIdsToRebuild[String(anchorInfo.sourceId)] = true;
+                $.writeln("[MOVE]   Queued blue Emory source rebuild: " + anchorInfo.sourceId);
+            }
+        }
+
+        function isGeneratedEmoryMoveItem(item) {
+            try {
+                var meta = MDUX_getMetadata(item);
+                if (meta) {
+                    var role = meta.MDUX_EmoryRole !== undefined ? String(meta.MDUX_EmoryRole) : "";
+                    if (role && role !== "centerline") {
+                        return true;
+                    }
+                    if (!role && meta.MDUX_EmoryBodyWidth !== undefined) {
+                        return true;
+                    }
+                }
+                var note = item.note || "";
+                return note.indexOf("MD:EMORY_GENERATED") !== -1 || note.indexOf("MD:EMORY_BODY") !== -1;
+            } catch (eGeneratedCheck) {}
+            return false;
+        }
 
         // Helper to check if art was already placed at a position (within 5px tolerance)
         function wasArtPlacedNear(x, y) {
@@ -3194,7 +3250,15 @@ function MDUX_moveToLayerBridge(optionsJSON) {
             // Accept items from ANY layer per user request
             $.writeln("[MOVE]   Item accepted from layer: " + itemLayerName);
 
-            if (prioritizePartReplacement && !isReplacementTarget) {
+            var allowDuctworkEndpointInMixedReplacement = false;
+            try {
+                allowDuctworkEndpointInMixedReplacement =
+                    item &&
+                    item.typename === 'PathItem' &&
+                    isDuctworkColorLayer(itemLayerName);
+            } catch (eMixedEndpointCheck) {}
+
+            if (prioritizePartReplacement && !isReplacementTarget && !allowDuctworkEndpointInMixedReplacement) {
                 $.writeln("[MOVE]   Ignored non-part item during mixed-selection replacement");
                 moveLogLines.push("  Ignored in mixed-selection replacement mode");
                 continue;
@@ -3459,12 +3523,30 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                     moveLogLines.push("  ENTERED: PathItem block");
                     var numPoints = item.pathPoints.length;
                     var isFromDuctworkColorLayer = isDuctworkColorLayer(itemLayerName);
-                    $.writeln("[MOVE]   Processing PathItem with " + numPoints + " points from layer '" + itemLayerName + "' (ductwork line: " + isFromDuctworkColorLayer + ")");
-                    moveLogLines.push("  PathItem: numPoints=" + numPoints + ", isFromDuctworkColorLayer=" + isFromDuctworkColorLayer);
+                    var isGeneratedEmoryItem = isGeneratedEmoryMoveItem(item);
+                    try {
+                        if (!isGeneratedEmoryItem && hasResolvedEmoryAnchors && isFromDuctworkColorLayer && item.closed && numPoints > 2) {
+                            isGeneratedEmoryItem = true;
+                        }
+                    } catch (eGeneratedClosedCheck) {}
+                    $.writeln("[MOVE]   Processing PathItem with " + numPoints + " points from layer '" + itemLayerName + "' (ductwork line: " + isFromDuctworkColorLayer + ", generatedEmory: " + isGeneratedEmoryItem + ")");
+                    moveLogLines.push("  PathItem: numPoints=" + numPoints + ", isFromDuctworkColorLayer=" + isFromDuctworkColorLayer + ", isGeneratedEmoryItem=" + isGeneratedEmoryItem);
 
                     var anchorPositions = [];
 
-                    if (numPoints === 1) {
+                    if (isGeneratedEmoryItem) {
+                        if (hasResolvedEmoryAnchors && !processedResolvedEmoryAnchors) {
+                            for (var rea = 0; rea < resolvedEmoryAnchors.length; rea++) {
+                                anchorPositions.push(resolvedEmoryAnchors[rea]);
+                            }
+                            processedResolvedEmoryAnchors = true;
+                            $.writeln("[MOVE]   Using " + anchorPositions.length + " resolved Emory source endpoint(s)");
+                        } else {
+                            $.writeln("[MOVE]   SKIPPED: generated Emory body point did not resolve to a source endpoint");
+                            itemsSkipped++;
+                            continue;
+                        }
+                    } else if (numPoints === 1) {
                         // Single-point path (anchor) - always use it
                         var pos = item.pathPoints[0].anchor;
                         anchorPositions.push({ x: pos[0], y: pos[1] });
@@ -3483,7 +3565,14 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                                     var cdx = ptAnchor[0] - cppSelectedAnchors[cpi].x;
                                     var cdy = ptAnchor[1] - cppSelectedAnchors[cpi].y;
                                     if (Math.sqrt(cdx * cdx + cdy * cdy) <= CPP_MATCH_TOL) {
-                                        anchorPositions.push({ x: ptAnchor[0], y: ptAnchor[1] });
+                                        anchorPositions.push({
+                                            x: ptAnchor[0],
+                                            y: ptAnchor[1],
+                                            sourceId: cppSelectedAnchors[cpi].sourceId,
+                                            sourceLayer: cppSelectedAnchors[cpi].sourceLayer || cppSelectedAnchors[cpi].layer,
+                                            sourceEndpoint: cppSelectedAnchors[cpi].sourceEndpoint,
+                                            allowReplaceExistingPart: cppSelectedAnchors[cpi].sourceEndpoint || cppSelectedAnchors[cpi].allowReplaceExistingPart
+                                        });
                                         hasSelectedPoints = true;
                                         $.writeln("[MOVE]   C++ matched anchor at [" + ptAnchor[0].toFixed(2) + ", " + ptAnchor[1].toFixed(2) + "]");
                                         break;
@@ -3514,14 +3603,14 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                         //   The PlacedItem and 1-point anchor in the selection handle conversion.
                         // - SOME points selected = direct selection → use those specific points
                         // - NO points selected = check C++ for accurate detection
-                        if (isFromDuctworkColorLayer && numPoints > 1 && anchorPositions.length === numPoints) {
+                        if (!isGeneratedEmoryItem && isFromDuctworkColorLayer && numPoints > 1 && anchorPositions.length === numPoints) {
                             $.writeln("[MOVE]   SKIPPED: object-selected ductwork line (all " + numPoints + " points selected)");
                             itemsSkipped++;
                             continue;
                         }
 
                         // Filter connected endpoints for partially-selected ductwork lines
-                        if (isFromDuctworkColorLayer && anchorPositions.length === numPoints && numPoints > 1) {
+                        if (!isGeneratedEmoryItem && isFromDuctworkColorLayer && anchorPositions.length === numPoints && numPoints > 1) {
                             $.writeln("[MOVE]   All " + numPoints + " points selected on ductwork line - filtering connected endpoints");
                             var filteredPositions = [];
                             var JUNCTION_DIST = 5;
@@ -3570,8 +3659,10 @@ function MDUX_moveToLayerBridge(optionsJSON) {
 
                         // For each anchor position, create an anchor point and place art (if not already placed)
                         for (var ai = 0; ai < anchorPositions.length; ai++) {
-                            var anchorX = anchorPositions[ai].x;
-                            var anchorY = anchorPositions[ai].y;
+                            var anchorInfo = anchorPositions[ai];
+                            var anchorX = anchorInfo.x;
+                            var anchorY = anchorInfo.y;
+                            var allowReplaceExistingPart = !!anchorInfo.allowReplaceExistingPart;
                             $.writeln("[MOVE]   Processing anchor " + (ai + 1) + "/" + anchorPositions.length + " at " + anchorX.toFixed(2) + ", " + anchorY.toFixed(2));
 
                             // Skip if a ductwork part or ignore anchor already exists at this location
@@ -3613,7 +3704,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                                     }
                                 }
                             } catch (ePartCheck) {}
-                            if (alreadyHasPart) {
+                            if (alreadyHasPart && !allowReplaceExistingPart) {
                                 $.writeln("[MOVE]   SKIPPED anchor at [" + anchorX.toFixed(2) + ", " + anchorY.toFixed(2) + "] - ductwork part/ignore already exists");
                                 continue;
                             }
@@ -3674,6 +3765,7 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                             // Use wider tolerance to catch slightly offset art
                             removeArtFromAllDuctworkLayers(anchorX, anchorY, 20);
                             removeExistingAnchorAtPosition(anchorX, anchorY, 5, targetLayerName);
+                            markEmorySourceForRebuild(anchorInfo);
 
                             // Check if anchor already exists on target layer
                             if (anchorExistsOnLayer(targetLayer, anchorX, anchorY, 5)) {
@@ -3771,12 +3863,14 @@ function MDUX_moveToLayerBridge(optionsJSON) {
 
                         // Create individual anchors
                         for (var ai = 0; ai < anchorPositions.length; ai++) {
-                            var anchorX = anchorPositions[ai].x;
-                            var anchorY = anchorPositions[ai].y;
+                            var anchorInfo = anchorPositions[ai];
+                            var anchorX = anchorInfo.x;
+                            var anchorY = anchorInfo.y;
 
                             // Remove existing art AND anchors from ALL ductwork parts layers at this position
                             removeArtFromAllDuctworkLayers(anchorX, anchorY, IGNORE_HIDE_ART_TOLERANCE);
                             removeExistingAnchorAtPosition(anchorX, anchorY, 5, targetLayerName);
+                            markEmorySourceForRebuild(anchorInfo);
 
                             // Check if anchor already exists on target layer - skip if so
                             if (anchorExistsOnLayer(targetLayer, anchorX, anchorY, 5)) {
@@ -3926,6 +4020,36 @@ function MDUX_moveToLayerBridge(optionsJSON) {
             }
         }
 
+        var emoryRebuiltSources = 0;
+        var emoryRebuildMessage = "";
+        try {
+            var rebuildIds = [];
+            for (var rebuildSourceId in emorySourceIdsToRebuild) {
+                if (emorySourceIdsToRebuild.hasOwnProperty(rebuildSourceId)) {
+                    rebuildIds.push(rebuildSourceId);
+                }
+            }
+            if (rebuildIds.length > 0) {
+                $.writeln("[MOVE] Rebuilding " + rebuildIds.length + " blue Emory source run(s) after endpoint anchor update");
+                var rebuildPayload = "action=rebuild-emory-sources;sourceIds=" + rebuildIds.join(",");
+                var rebuildResult = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", rebuildPayload);
+                if (rebuildResult) {
+                    var rebuildData = JSON.parse(rebuildResult);
+                    if (rebuildData && rebuildData.ok) {
+                        emoryRebuiltSources = rebuildIds.length;
+                        emoryRebuildMessage = rebuildData.message || "";
+                        $.writeln("[MOVE] " + emoryRebuildMessage);
+                    } else if (rebuildData) {
+                        emoryRebuildMessage = rebuildData.message || "Native Emory rebuild returned no details";
+                        $.writeln("[MOVE] Emory rebuild did not complete: " + emoryRebuildMessage);
+                    }
+                }
+            }
+        } catch (eRebuildEmory) {
+            $.writeln("[MOVE] Error rebuilding blue Emory source runs: " + eRebuildEmory);
+            emoryRebuildMessage = eRebuildEmory.toString();
+        }
+
         $.writeln("[MOVE] Moved " + itemsMoved + " items, " + anchorsMoved + " anchors, skipped " + itemsSkipped + " items");
 
         // Write debug log to file
@@ -3942,6 +4066,8 @@ function MDUX_moveToLayerBridge(optionsJSON) {
                 debugFile.writeln("Items moved: " + itemsMoved);
                 debugFile.writeln("Anchors moved: " + anchorsMoved);
                 debugFile.writeln("Items skipped: " + itemsSkipped);
+                debugFile.writeln("Emory rebuilt sources: " + emoryRebuiltSources);
+                debugFile.writeln("Emory rebuild message: " + emoryRebuildMessage);
                 debugFile.writeln("Target layer: " + targetLayerName);
                 debugFile.close();
             }
@@ -4014,7 +4140,9 @@ function MDUX_moveToLayerBridge(optionsJSON) {
         var result = JSON.stringify({
             itemsMoved: itemsMoved,
             anchorsMoved: anchorsMoved,
-            itemsSkipped: itemsSkipped
+            itemsSkipped: itemsSkipped,
+            emoryRebuiltSources: emoryRebuiltSources,
+            emoryRebuildMessage: emoryRebuildMessage
         });
         $.writeln("[MOVE] Returning result: " + result);
         return result;
@@ -4717,6 +4845,19 @@ function MDUX_cppSelectSelectedEmoryCenterlines() {
     }
 }
 
+function MDUX_cppSelectSelectedEmoryUnitPairSegments() {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=select-emory-unit-pair-segments";
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ select Emory unit handoff segments error: " + e });
+    }
+}
+
 function MDUX_cppPurgeSelectedEmoryState() {
     try {
         if (app.documents.length === 0) {
@@ -4857,6 +4998,32 @@ function MDUX_cppApplySelectedEmoryStrokeWidth(width) {
         return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
     } catch (e) {
         return JSON.stringify({ ok: false, message: "C++ apply Emory stroke error: " + e });
+    }
+}
+
+function MDUX_cppApplySelectedEmoryBranchTaperReduction(value) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=apply-emory-branch-taper;value=" + value;
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ apply Emory branch drop error: " + e });
+    }
+}
+
+function MDUX_cppResetSelectedEmoryStoredWidths(value) {
+    try {
+        if (app.documents.length === 0) {
+            return JSON.stringify({ ok: false, message: "No document open." });
+        }
+        var payload = "action=reset-emory-stored-widths;value=" + value;
+        var result = app.sendScriptMessage("EmoryDuctwork", "EmoryDuctworkPanel", payload);
+        return result || JSON.stringify({ ok: false, message: "No response from Emory C++ panel." });
+    } catch (e) {
+        return JSON.stringify({ ok: false, message: "C++ reset Emory stored widths error: " + e });
     }
 }
 

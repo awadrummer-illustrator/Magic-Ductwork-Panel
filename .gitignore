@@ -37,6 +37,7 @@ _tmp_dev/Magic-Ductwork-Panel/js/panel.js
 
 # Temporary Codex/Claude artifacts
 *.ps1
+!.Codex/*.ps1
 !cpp-plugin/tools/*.ps1
 !tools/reload-illustrator-ductwork.ps1
 tmpclaude-*-cwd
